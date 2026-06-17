@@ -35,3 +35,18 @@ def test_sync_scan_response_has_coverage(tmp_path: Path):
     assert res["coverage"]["total_code_files"] == 2
     # persisted via summary.coverage
     assert hist.saved[0]["summary"]["coverage"]["total_code_files"] == 2
+
+
+def test_model_selection_from_payload(tmp_path):
+    # UI-selected per-role + ensemble models flow into ScanConfig
+    from app import _build_config
+    cfg = _build_config({
+        "hunter_model": "global.anthropic.claude-opus-4-8",
+        "validator_model": "global.anthropic.claude-opus-4-7",
+        "openai_model": "openai.gpt-oss-120b",
+        "openai_api_kind": "chat",
+    }, region="ap-northeast-2")
+    assert cfg.hunter_model == "global.anthropic.claude-opus-4-8"
+    assert cfg.validator_model == "global.anthropic.claude-opus-4-7"
+    assert cfg.openai_model == "openai.gpt-oss-120b"
+    assert cfg.openai_api_kind == "chat"

@@ -87,6 +87,8 @@ export interface ScanRequest {
   challenger_model?: string;
   validator_model?: string;
   ranker_model?: string;
+  openai_model?: string;
+  openai_api_kind?: string;
   sandbox_enabled?: boolean;
   ensemble_enabled?: boolean;
   upload?: { files: { path: string; content_b64: string }[] };

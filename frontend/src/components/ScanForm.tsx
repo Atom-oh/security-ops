@@ -40,6 +40,19 @@ function isCodeFile(name: string): boolean {
   return CODE_EXTENSIONS.has(name.slice(dot).toLowerCase());
 }
 
+// Selectable models per role. Claude (Bedrock global profiles, Seoul-routable) for the core
+// agents; OpenAI (Bedrock mantle, us-east-2) for the cross-family ensemble.
+const CLAUDE_MODELS = [
+  { id: "global.anthropic.claude-opus-4-8", label: "Claude Opus 4.8 (최강)" },
+  { id: "global.anthropic.claude-opus-4-7", label: "Claude Opus 4.7" },
+  { id: "global.anthropic.claude-opus-4-6-v1", label: "Claude Opus 4.6" },
+];
+const OPENAI_MODELS = [
+  { id: "openai.gpt-5.5", label: "GPT-5.5 (Responses)" },
+  { id: "openai.gpt-5.4", label: "GPT-5.4 (Responses)" },
+  { id: "openai.gpt-oss-120b", label: "GPT-OSS 120B (Chat)" },
+];
+
 // Upload pool caps. Backend triage picks the riskiest `max_files` from whatever arrives, so a
 // larger pool is fine — but bound it by count AND total bytes to stay under the AgentCore
 // request-body limit (avoid 413). Only code files count toward this.
@@ -58,6 +71,10 @@ export function ScanForm({ busy, onSubmit }: { busy: boolean; onSubmit: (v: Scan
   const [sandbox, setSandbox] = useState(false);
   const [ensemble, setEnsemble] = useState(false);
   const [async, setAsync] = useState(false);
+  const [hunterModel, setHunterModel] = useState("global.anthropic.claude-opus-4-7");
+  const [challengerModel, setChallengerModel] = useState("global.anthropic.claude-opus-4-6-v1");
+  const [validatorModel, setValidatorModel] = useState("global.anthropic.claude-opus-4-8");
+  const [openaiModel, setOpenaiModel] = useState("openai.gpt-5.5");
   const [files, setFiles] = useState<{ path: string; content_b64: string }[]>([]);
   const [dropped, setDropped] = useState(0);
 
@@ -90,6 +107,10 @@ export function ScanForm({ busy, onSubmit }: { busy: boolean; onSubmit: (v: Scan
   function submit() {
     const req: ScanRequest = {
       max_files: maxFiles, pass_at_k: passAtK, sandbox_enabled: sandbox, ensemble_enabled: ensemble,
+      hunter_model: hunterModel, challenger_model: challengerModel, validator_model: validatorModel,
+      openai_model: openaiModel,
+      // gpt-5.x use the Responses API; gpt-oss uses Chat Completions.
+      openai_api_kind: openaiModel.startsWith("openai.gpt-oss") ? "chat" : "responses",
     };
     if (source === "container") req.project_path = projectPath;
     else req.upload = { files };
@@ -147,15 +168,47 @@ export function ScanForm({ busy, onSubmit }: { busy: boolean; onSubmit: (v: Scan
         </label>
       </div>
 
+      <div style={{ display: "grid", gap: "var(--space-2)" }}>
+        <span style={labelStyle}>역할별 모델</span>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "var(--space-3)" }}>
+          {([
+            ["Hunter (발견)", hunterModel, setHunterModel],
+            ["Challenger (반박)", challengerModel, setChallengerModel],
+            ["Validator (검증)", validatorModel, setValidatorModel],
+          ] as const).map(([lbl, val, setter]) => (
+            <label key={lbl} style={{ display: "grid", gap: "var(--space-1)" }}>
+              <span style={{ fontSize: "var(--text-2xs)", color: "var(--text-muted)" }}>{lbl}</span>
+              <select style={inputStyle} value={val} onChange={(e) => setter(e.target.value)}>
+                {CLAUDE_MODELS.map((m) => (
+                  <option key={m.id} value={m.id}>{m.label}</option>
+                ))}
+              </select>
+            </label>
+          ))}
+        </div>
+      </div>
+
       <label style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
         <input type="checkbox" checked={sandbox} onChange={(e) => setSandbox(e.target.checked)} />
         <span>샌드박스 PoC 검증 (Code Interpreter)</span>
       </label>
 
-      <label style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
-        <input type="checkbox" checked={ensemble} onChange={(e) => setEnsemble(e.target.checked)} />
-        <span>교차패밀리 앙상블 (GPT-5.5 독립 검증 · 양 패밀리 확인=확정, 불일치=에스컬레이션)</span>
-      </label>
+      <div style={{ display: "grid", gap: "var(--space-2)" }}>
+        <label style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+          <input type="checkbox" checked={ensemble} onChange={(e) => setEnsemble(e.target.checked)} />
+          <span>교차패밀리 앙상블 (독립 검증 · 양 패밀리 확인=확정, 불일치=에스컬레이션)</span>
+        </label>
+        {ensemble && (
+          <label style={{ display: "grid", gap: "var(--space-1)", maxWidth: 320, marginInlineStart: "var(--space-6)" }}>
+            <span style={{ fontSize: "var(--text-2xs)", color: "var(--text-muted)" }}>교차검증 모델 (OpenAI on Bedrock · us-east-2)</span>
+            <select style={inputStyle} value={openaiModel} onChange={(e) => setOpenaiModel(e.target.value)}>
+              {OPENAI_MODELS.map((m) => (
+                <option key={m.id} value={m.id}>{m.label}</option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
 
       <div style={{ display: "flex", gap: "var(--space-4)" }}>
         {[

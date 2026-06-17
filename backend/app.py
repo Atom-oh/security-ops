@@ -121,7 +121,8 @@ def _build_config(payload: Dict, region: str) -> ScanConfig:
     for key in ("max_files", "pass_at_k"):
         if key in payload:
             setattr(cfg, key, int(payload[key]))
-    for key in ("hunter_model", "challenger_model", "validator_model", "ranker_model"):
+    for key in ("hunter_model", "challenger_model", "validator_model", "ranker_model",
+                "openai_model", "openai_api_kind"):
         if payload.get(key):
             setattr(cfg, key, payload[key])
     if "sandbox_enabled" in payload:
