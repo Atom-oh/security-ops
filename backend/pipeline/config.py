@@ -10,6 +10,21 @@ from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import List, Optional, Tuple
 
+
+def enforce_budget(files, max_files: int, max_bytes: int):
+    """Cost-DoS guard: keep files (caller pre-orders by risk) until a file-count or total-byte
+    cap is hit. Returns ``(kept, dropped_count)`` where kept is ``[(path, size), ...]``."""
+    kept = []
+    total = 0
+    for path, size in files:
+        if len(kept) >= max_files:
+            break
+        if total + size > max_bytes:
+            break
+        kept.append((path, size))
+        total += size
+    return kept, len(files) - len(kept)
+
 # Default per-role Claude models. These are the cross-region inference profiles actually
 # available for Opus in the target account/region (global.* — verified via
 # list-inference-profiles). agents.models leaves an already-prefixed id untouched, and
@@ -99,6 +114,10 @@ class ScanConfig:
     temperature: float = 1.0  # Anthropic recommends 1.0 with extended thinking
 
     sandbox_enabled: bool = False
+
+    # Cost-DoS guards: hard ceilings on how much a single scan will process.
+    max_total_files: int = 200
+    max_total_bytes: int = 5 * 1024 * 1024  # 5 MiB
 
     # FSI specialization
     fsi_mode: bool = True
