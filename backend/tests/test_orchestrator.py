@@ -75,6 +75,28 @@ def test_pipeline_end_to_end(tmp_path):
     assert seen == PHASES
 
 
+def test_files_without_sinks_are_still_hunted(tmp_path):
+    # A Go file with a real vuln but none of the hardcoded sink tokens must still be hunted
+    # (whole-file fallback), not silently skipped.
+    (tmp_path / "handler.go").write_text(
+        "package main\nfunc h(q string) string {\n  return \"<b>\" + q + \"</b>\"\n}\n"
+    )
+    cfg = ScanConfig(project_path=str(tmp_path), max_files=5, pass_at_k=1)
+
+    hunted = []
+
+    class CaptureConverse(ValidatingConverse):
+        def invoke(self, model, system, prompt, **k):
+            if "시니어 보안 연구원" in system:  # hunter
+                hunted.append(prompt)
+            return super().invoke(model, system, prompt, **k)
+
+    pipe = FSIMythosPipeline(cfg, converse=CaptureConverse())
+    pipe.run()
+    assert hunted, "file without explicit sinks should still reach the Hunter"
+    assert "handler.go" in hunted[0] or "func h" in hunted[0]
+
+
 def test_persistence_isolation_via_progress_error(tmp_path):
     _make_target(tmp_path)
     cfg = ScanConfig(project_path=str(tmp_path), max_files=5, pass_at_k=1)

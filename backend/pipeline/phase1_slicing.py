@@ -62,6 +62,21 @@ def _numbered(lines: List[str], start: int, end: int) -> str:
     return "\n".join(f"{n:>5}: {lines[n - 1]}" for n in range(start, end + 1))
 
 
+def numbered_file(file_path: str, max_lines: int = 400) -> str:
+    """Read a whole file with absolute line-number gutters (capped) — used as the Hunter
+    context for files that had no explicit sink slice, so the LLM can still reason over them."""
+    try:
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return ""
+    clipped = lines[:max_lines]
+    body = "\n".join(f"{i + 1:>5}: {line}" for i, line in enumerate(clipped))
+    if len(lines) > max_lines:
+        body += f"\n... ({len(lines) - max_lines} more lines truncated)"
+    return body
+
+
 def sink_guided_slice(
     file_path: str, language: Language, context_lines: int = 20
 ) -> List[dict]:

@@ -15,7 +15,7 @@ log = logging.getLogger("fsi.pipeline")
 
 from pipeline.config import Finding, ScanConfig
 from pipeline.phase0_languages import detect_languages
-from pipeline.phase1_slicing import sink_guided_slice
+from pipeline.phase1_slicing import numbered_file, sink_guided_slice
 from pipeline.phase2_ranker import rank_files
 from pipeline.phase3_hunter import hunt
 from pipeline.phase35_challenger import challenge
@@ -75,18 +75,21 @@ class FSIMythosPipeline:
 
         # Phase 1 — slice every file, build per-file slices + sink counts
         self._emit(PHASES[1])
+        # Track ALL code files (not only ones with sinks). Files without an explicit sink are
+        # still candidates — the Hunter examines the whole file (semantic reasoning catches
+        # vulns that keyword slicing misses). sink_counts drives ranking priority.
         slices_by_file: Dict[str, List[dict]] = {}
         lang_by_file: Dict[str, object] = {}
         sink_counts: Dict[str, int] = {}
         for language, files in lang_files.items():
             for path in files:
                 sl = sink_guided_slice(path, language)
-                if sl:
-                    slices_by_file[path] = sl
-                    lang_by_file[path] = language
-                    sink_counts[path] = len(sl)
+                slices_by_file[path] = sl
+                lang_by_file[path] = language
+                sink_counts[path] = len(sl)
+        files_with_sinks = sum(1 for c in sink_counts.values() if c > 0)
 
-        log.info("phase1: %d files with sinks", len(sink_counts))
+        log.info("phase1: %d code files, %d with explicit sinks", len(sink_counts), files_with_sinks)
 
         # Phase 2 — rank
         self._emit(PHASES[2])
@@ -101,11 +104,18 @@ class FSIMythosPipeline:
         for entry in ranked:
             path = entry["file"]
             slices = slices_by_file.get(path, [])
+            if slices:
+                code = "\n...\n".join(s["numbered_context"] for s in slices)
+                sink_summary = ", ".join(f"{s['sink']}@{s['line']}" for s in slices)
+            else:
+                # No explicit sink → hand the Hunter the whole file to reason over.
+                code = numbered_file(path)
+                sink_summary = "(명시적 싱크 없음 — 전체 파일을 의미론적으로 검토)"
             target = {
                 "file": path,
                 "language": lang_by_file.get(path),
-                "code": "\n...\n".join(s["numbered_context"] for s in slices),
-                "sink_summary": ", ".join(f"{s['sink']}@{s['line']}" for s in slices),
+                "code": code,
+                "sink_summary": sink_summary,
             }
             per_file_targets[path] = target
             # Isolate per-file hunt errors (e.g. a transient Bedrock failure) so one bad file
