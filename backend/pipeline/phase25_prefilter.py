@@ -21,7 +21,7 @@ _SECRET_ASSIGN = re.compile(
     r"""(?ix)
     \b(?P<name>[a-z0-9_]*(?:secret|passwd|password|api[_-]?key|apikey|token|credential|private[_-]?key)[a-z0-9_]*)
     \s*[:=]\s*
-    ['"](?P<val>[^'"]{8,})['"]
+    ['"](?P<val>(?:\\.|[^'"]){8,})['"]
     """
 )
 

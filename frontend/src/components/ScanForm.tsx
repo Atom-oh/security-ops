@@ -44,7 +44,11 @@ function isCodeFile(name: string): boolean {
 // larger pool is fine — but bound it by count AND total bytes to stay under the AgentCore
 // request-body limit (avoid 413). Only code files count toward this.
 const MAX_UPLOAD_FILES = 60;
-const MAX_UPLOAD_BYTES = 4 * 1024 * 1024; // ~4 MiB, under the request-body ceiling
+// ~3 MiB raw → ~4 MiB after base64 (1.33×), safely under the request-body ceiling.
+const MAX_UPLOAD_BYTES = 3 * 1024 * 1024;
+// Skip individual giant files (likely generated/minified/data) so one file can't eat the
+// whole budget and starve real source.
+const MAX_FILE_BYTES = 256 * 1024;
 
 export function ScanForm({ busy, onSubmit }: { busy: boolean; onSubmit: (v: ScanFormValue) => void }) {
   const [source, setSource] = useState<"container" | "upload">("container");
@@ -58,13 +62,18 @@ export function ScanForm({ busy, onSubmit }: { busy: boolean; onSubmit: (v: Scan
 
   async function onFiles(list: FileList | null) {
     if (!list) return;
-    // Smaller files first → fit more candidates under the byte budget.
-    const code = Array.from(list)
-      .filter((f) => isCodeFile((f as any).webkitRelativePath || f.name))
-      .sort((a, b) => a.size - b.size);
+    // Natural order (no size bias — large source files are often where vulns live). Skip only
+    // individual oversized blobs; fill the pool by count + total-byte budget. The backend then
+    // risk-ranks whatever arrives, and the coverage report shows what was dropped.
+    const code = Array.from(list).filter((f) =>
+      isCodeFile((f as any).webkitRelativePath || f.name) && f.size <= MAX_FILE_BYTES,
+    );
+    const tooBig = Array.from(list).filter(
+      (f) => isCodeFile((f as any).webkitRelativePath || f.name) && f.size > MAX_FILE_BYTES,
+    ).length;
     const out: { path: string; content_b64: string }[] = [];
     let bytes = 0;
-    let dropCount = 0;
+    let dropCount = tooBig;
     for (const f of code) {
       if (out.length >= MAX_UPLOAD_FILES || bytes + f.size > MAX_UPLOAD_BYTES) {
         dropCount++;

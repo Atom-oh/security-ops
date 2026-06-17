@@ -26,6 +26,14 @@ def test_byte_cap_stops_accumulation():
     assert dropped == 2
 
 
+def test_byte_cap_skips_oversized_keeps_smaller():
+    # a huge high-risk file must not drop all the smaller ones after it
+    files = [("huge", 2000), ("small1", 300), ("small2", 300)]
+    kept, dropped = enforce_budget(files, max_files=100, max_bytes=1000)
+    assert [k for k, _ in kept] == ["small1", "small2"]
+    assert dropped == 1
+
+
 def test_config_has_budget_defaults():
     cfg = ScanConfig(project_path="/x")
     assert cfg.max_total_files > 0

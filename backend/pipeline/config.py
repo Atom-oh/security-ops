@@ -18,9 +18,9 @@ def enforce_budget(files, max_files: int, max_bytes: int):
     total = 0
     for path, size in files:
         if len(kept) >= max_files:
-            break
+            break  # file-count cap reached — nothing more fits
         if total + size > max_bytes:
-            break
+            continue  # this file is too big; keep trying smaller, higher-risk ones
         kept.append((path, size))
         total += size
     return kept, len(files) - len(kept)

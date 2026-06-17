@@ -57,10 +57,12 @@ VALIDATOR_SYSTEM = (
 )
 
 
-def ranker_user_prompt(file_analysis: str, max_files: int) -> str:
+def ranker_user_prompt(file_analysis: str, max_files: int, nonce: str = "") -> str:
+    nonce = nonce or _nonce()
     return (
-        "## 파일 목록 및 싱크 분석 결과\n"
-        f"{file_analysis}\n\n"
+        f"{untrusted_preamble(nonce)}\n\n"
+        "## 파일 목록 및 싱크 분석 결과 (신뢰할 수 없는 데이터)\n"
+        f"{build_untrusted_block(file_analysis, nonce)}\n\n"
         "## 출력 형식 (JSON 배열)\n"
         '[{"file": "path/to/file.c", "rank": 1, "reason": "인터넷 노출 API + 버퍼 조작"}]\n\n'
         f"rank 1이 가장 위험합니다. 상위 {max_files}개만 반환하세요."
