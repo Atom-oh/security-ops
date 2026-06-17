@@ -38,7 +38,13 @@ export function ResultView({
   currentPhase?: string;
   error?: string;
 }) {
-  const cov = coverage ?? summary?.coverage;
+  // IN_PROGRESS records persist empty objects ({}); treat those as "no data yet" so we don't
+  // render a summary/findings table over undefined fields (which crashes on .length).
+  const hasSummary = summary && typeof summary.total_findings === "number";
+  const hasReport = report && Array.isArray(report.findings);
+  const hasGate = gate && typeof gate.status === "string";
+  const covRaw = coverage ?? summary?.coverage;
+  const cov = covRaw && typeof covRaw.total_code_files === "number" ? covRaw : undefined;
   return (
     <div style={{ display: "grid", gap: "var(--space-6)" }}>
       {error && (
@@ -55,9 +61,9 @@ export function ResultView({
       )}
       <PipelineProgress done={done} currentPhase={currentPhase} />
       {cov && <CoverageBar c={cov} />}
-      {gate && <CicdGate gate={gate} />}
-      {summary && <ScanSummaryCards summary={summary} />}
-      {report && <FindingsTable findings={report.findings} />}
+      {hasGate && <CicdGate gate={gate!} />}
+      {hasSummary && <ScanSummaryCards summary={summary!} />}
+      {hasReport && <FindingsTable findings={report!.findings} />}
     </div>
   );
 }

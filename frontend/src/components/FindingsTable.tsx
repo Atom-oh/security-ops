@@ -8,7 +8,8 @@ const SEV_COLOR: Record<Severity, string> = {
   info: "var(--text-faint)",
 };
 
-export function FindingsTable({ findings }: { findings: Finding[] }) {
+export function FindingsTable({ findings }: { findings?: Finding[] }) {
+  findings = findings ?? []; // IN_PROGRESS records carry an empty report → no findings yet
   return (
     <div className="card" style={{ padding: 0, overflow: "hidden" }}>
       <div style={{ padding: "var(--space-4) var(--space-5)", borderBottom: "1px solid var(--border-subtle)" }}>
