@@ -47,6 +47,7 @@ export function ScanPage() {
             report: item.report,
             gate: item.gate,
             currentPhase: (item as unknown as { currentPhase?: string }).currentPhase,
+            error: (item as unknown as { error?: string }).error,
           });
           if (item.status === "done" || item.status === "error") {
             stopPoll();
@@ -83,6 +84,7 @@ export function ScanPage() {
           gate={result.gate}
           done={!!done}
           currentPhase={result.currentPhase}
+          error={result.error}
         />
       )}
     </div>

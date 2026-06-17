@@ -69,15 +69,17 @@ def _user_id(payload: Dict, context) -> str:
     """Identity comes ONLY from the verified JWT claims in context — never from the request
     payload (a payload-controlled user_id would let a caller read another user's history).
 
-    A payload ``user_id`` is honored only when ``FSI_ALLOW_PAYLOAD_USER=1`` (local dev/tests),
-    never in the deployed container.
+    Prefers ``sub`` — the stable per-user UUID that is always present in a Cognito ACCESS
+    token (which is what the SPA sends). ``email`` is NOT in the access token by default, so
+    we fall back to it only for ID-token/test contexts. A payload ``user_id`` is honored only
+    when ``FSI_ALLOW_PAYLOAD_USER=1`` (local dev/tests), never in the deployed container.
     """
     claims = {}
     if context is not None:
         claims = getattr(context, "claims", None) or (
             context.get("claims") if isinstance(context, dict) else {}
         ) or {}
-    identity = claims.get("email") or claims.get("username")
+    identity = claims.get("sub") or claims.get("username") or claims.get("email")
     if not identity and os.environ.get("FSI_ALLOW_PAYLOAD_USER") == "1":
         identity = payload.get("user_id")
     return identity or "anonymous"
@@ -147,27 +149,35 @@ def _run_scan(payload: Dict, user_id: str, deps: Deps, progress=None) -> Dict:
 
 def route(payload: Dict, context=None, deps: Optional[Deps] = None) -> Dict:
     deps = deps or Deps()
-    action = (payload or {}).get("action", "scan")
+    payload = payload or {}
+    # Require an explicit action — never default to "scan" (an empty/preflight body must not
+    # accidentally launch a scan). All returns are raw JSON dicts (the AgentCore entrypoint
+    # contract); CORS for the runtime data plane is handled at the service/CloudFront edge,
+    # so `cors` here is advisory metadata, not an API-Gateway proxy response.
+    action = payload.get("action")
     origin = deps.allowed_origin
 
     if action == "OPTIONS" or payload.get("httpMethod") == "OPTIONS":
-        return {"statusCode": 200, "headers": _cors(origin), "body": ""}
+        return {"action": "OPTIONS", "cors": _cors(origin)}
+
+    if not action:
+        return {"action": None, "status": "error", "error": "missing 'action'", "cors": _cors(origin)}
 
     user_id = _user_id(payload, context)
 
     if action == "list_history":
         items = deps.history.list_history(user_id, limit=int(payload.get("limit", 50)))
-        return {"headers": _cors(origin), "action": action, "items": items}
+        return {"cors": _cors(origin), "action": action, "items": items}
 
     if action == "get_scan":
         item = deps.history.get_scan(user_id, payload["scanId"])
-        return {"headers": _cors(origin), "action": action, "scan": item}
+        return {"cors": _cors(origin), "action": action, "scan": item}
 
     if action == "scan":
         scan_id = _new_scan_id()
         result = _run_scan(payload, user_id, deps)
         _persist(deps, user_id, scan_id, payload, status="done", result=result)
-        return {"headers": _cors(origin), "action": action, "scanId": scan_id, "status": "done", **result}
+        return {"cors": _cors(origin), "action": action, "scanId": scan_id, "status": "done", **result}
 
     if action == "scan_async":
         scan_id = _new_scan_id()
@@ -185,9 +195,9 @@ def route(payload: Dict, context=None, deps: Optional[Deps] = None) -> Dict:
                 _safe_update(deps, user_id, scan_id, status="error", error=str(exc))
 
         deps.spawn(_job)
-        return {"headers": _cors(origin), "action": action, "scanId": scan_id, "status": "IN_PROGRESS"}
+        return {"cors": _cors(origin), "action": action, "scanId": scan_id, "status": "IN_PROGRESS"}
 
-    return {"statusCode": 400, "headers": _cors(origin), "error": f"unknown action: {action}"}
+    return {"action": action, "status": "error", "error": f"unknown action: {action}", "cors": _cors(origin)}
 
 
 def _persist(deps: Deps, user_id, scan_id, payload, status, result, update=False) -> None:

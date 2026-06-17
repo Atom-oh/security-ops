@@ -1,7 +1,7 @@
 """DynamoDB-backed per-user scan history.
 
 Schema (single table ``SCAN_HISTORY``):
-  userId  (PK, S)  — Cognito email; isolates each user's data.
+  userId  (PK, S)  — Cognito identity (the access token ``sub`` UUID); isolates each user.
   scanId  (SK, S)  — ``<createdAt>#<uuid8>``; querying with ScanIndexForward=False yields
                      newest-first because the ISO8601 prefix sorts lexicographically.
 ``summary``/``report``/``gate`` are JSON-serialized strings (DynamoDB rejects raw floats),

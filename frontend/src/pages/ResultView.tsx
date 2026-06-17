@@ -10,15 +10,29 @@ export function ResultView({
   gate,
   done,
   currentPhase,
+  error,
 }: {
   summary?: Summary;
   report?: ScanReport;
   gate?: Gate;
   done: boolean;
   currentPhase?: string;
+  error?: string;
 }) {
   return (
     <div style={{ display: "grid", gap: "var(--space-6)" }}>
+      {error && (
+        <div
+          className="card"
+          style={{
+            padding: "var(--space-4) var(--space-5)",
+            borderLeft: "4px solid var(--negative)",
+            color: "var(--negative-text)",
+          }}
+        >
+          스캔 실패: {error}
+        </div>
+      )}
       <PipelineProgress done={done} currentPhase={currentPhase} />
       {gate && <CicdGate gate={gate} />}
       {summary && <ScanSummaryCards summary={summary} />}

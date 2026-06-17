@@ -49,15 +49,22 @@ def _deps(history=None, spawn=None):
 
 def test_options_preflight_returns_cors():
     res = route({"action": "OPTIONS"}, deps=_deps())
-    assert res["statusCode"] == 200
-    h = res["headers"]
+    h = res["cors"]
     assert h["Access-Control-Allow-Origin"] == "https://example.cloudfront.net"
     assert "Authorization" in h["Access-Control-Allow-Headers"]
 
 
-def test_unknown_action_is_400():
+def test_unknown_action_is_error():
     res = route({"action": "frobnicate"}, deps=_deps())
-    assert res["statusCode"] == 400
+    assert res["status"] == "error"
+    assert "unknown action" in res["error"]
+
+
+def test_missing_action_does_not_scan():
+    hist = FakeHistory()
+    res = route({"project_path": "/whatever"}, deps=_deps(hist))
+    assert res["status"] == "error"
+    assert hist.saved == []  # no accidental scan
 
 
 _CTX = {"claims": {"email": "u@x"}}  # verified JWT identity
