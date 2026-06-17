@@ -66,9 +66,14 @@
   .card p { margin-top: 7px; font-size: 14px; color: var(--text-dim); }
   .meta { margin-top: 13px; display: flex; gap: 8px; flex-wrap: wrap; }
   .tag { font-size: 11px; font-weight: 600; color: var(--text-dim); border: 1px solid var(--border); padding: 3px 9px; border-radius: 6px; }
-  .open { margin-top: 14px; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--accent); }
-  .card:hover .open svg { transform: translateX(3px); }
-  .open svg { transition: transform .18s ease; }
+  .actions { margin-top: 16px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; padding: 8px 14px; border-radius: 9px; text-decoration: none; border: 1px solid var(--border); color: var(--text); background: #0e1422; transition: border-color .15s ease, background .15s ease, transform .15s ease; }
+  .btn:hover { transform: translateY(-1px); border-color: var(--ring); }
+  .btn.primary { background: var(--accent); color: #0b0f1a; border-color: var(--accent); }
+  .btn.primary:hover { background: #e08a6c; }
+  .btn svg { transition: transform .18s ease; }
+  .btn:hover svg { transform: translateY(1px); }
+  .btn.primary:hover svg { transform: translateX(2px); translateY(0); }
 
   /* usage guide */
   .guide { margin-top: 64px; background: linear-gradient(180deg, #131b2b, #11192800); border: 1px solid var(--border); border-radius: 18px; padding: 32px 34px; }
