@@ -25,6 +25,7 @@ export interface ScanSummary {
   low: number;
   chaining: number;
   gate_status: "BLOCKED" | "PASSED";
+  coverage?: Coverage;
 }
 
 export interface Gate {
@@ -46,12 +47,21 @@ export interface ScanReport {
   asff?: unknown[];
 }
 
+export interface Coverage {
+  total_code_files: number;
+  scanned_files: number;
+  unscanned_files: number;
+  dropped_over_budget: number;
+  secret_prefilter_findings: number;
+}
+
 export interface ScanResult {
   scanId: string;
   status: "done" | "IN_PROGRESS" | "error";
   summary?: ScanSummary;
   report?: ScanReport;
   gate?: Gate;
+  coverage?: Coverage;
   currentPhase?: string;
   error?: string;
 }

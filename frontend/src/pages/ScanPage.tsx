@@ -82,6 +82,7 @@ export function ScanPage() {
           summary={result.summary}
           report={result.report}
           gate={result.gate}
+          coverage={result.coverage}
           done={!!done}
           currentPhase={result.currentPhase}
           error={result.error}

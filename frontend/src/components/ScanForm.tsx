@@ -40,9 +40,11 @@ function isCodeFile(name: string): boolean {
   return CODE_EXTENSIONS.has(name.slice(dot).toLowerCase());
 }
 
-// Upload pool cap. Only `max_files` of these get deep-analyzed (after risk ranking), so the
-// pool just needs to be a reasonable candidate set — not the whole repo.
-const MAX_UPLOAD_FILES = 20;
+// Upload pool caps. Backend triage picks the riskiest `max_files` from whatever arrives, so a
+// larger pool is fine — but bound it by count AND total bytes to stay under the AgentCore
+// request-body limit (avoid 413). Only code files count toward this.
+const MAX_UPLOAD_FILES = 60;
+const MAX_UPLOAD_BYTES = 4 * 1024 * 1024; // ~4 MiB, under the request-body ceiling
 
 export function ScanForm({ busy, onSubmit }: { busy: boolean; onSubmit: (v: ScanFormValue) => void }) {
   const [source, setSource] = useState<"container" | "upload">("container");
@@ -52,17 +54,27 @@ export function ScanForm({ busy, onSubmit }: { busy: boolean; onSubmit: (v: Scan
   const [sandbox, setSandbox] = useState(false);
   const [async, setAsync] = useState(false);
   const [files, setFiles] = useState<{ path: string; content_b64: string }[]>([]);
+  const [dropped, setDropped] = useState(0);
 
   async function onFiles(list: FileList | null) {
     if (!list) return;
-    const code = Array.from(list).filter((f) =>
-      isCodeFile((f as any).webkitRelativePath || f.name),
-    );
+    // Smaller files first → fit more candidates under the byte budget.
+    const code = Array.from(list)
+      .filter((f) => isCodeFile((f as any).webkitRelativePath || f.name))
+      .sort((a, b) => a.size - b.size);
     const out: { path: string; content_b64: string }[] = [];
-    for (const f of code.slice(0, MAX_UPLOAD_FILES)) {
+    let bytes = 0;
+    let dropCount = 0;
+    for (const f of code) {
+      if (out.length >= MAX_UPLOAD_FILES || bytes + f.size > MAX_UPLOAD_BYTES) {
+        dropCount++;
+        continue;
+      }
       out.push({ path: (f as any).webkitRelativePath || f.name, content_b64: await fileToB64(f) });
+      bytes += f.size;
     }
     setFiles(out);
+    setDropped(dropCount);
   }
 
   function submit() {
@@ -95,7 +107,9 @@ export function ScanForm({ busy, onSubmit }: { busy: boolean; onSubmit: (v: Scan
           <span style={labelStyle}>폴더 선택 (코드 파일 최대 {MAX_UPLOAD_FILES}개)</span>
           {/* @ts-expect-error webkitdirectory is non-standard */}
           <input type="file" webkitdirectory="" multiple onChange={(e) => onFiles(e.target.files)} />
-          <span style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>{files.length}개 선택됨</span>
+          <span style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>
+            {files.length}개 전송{dropped > 0 ? ` · ${dropped}개 제외(개수/용량 한도)` : ""}
+          </span>
         </label>
       )}
 
