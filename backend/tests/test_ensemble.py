@@ -78,3 +78,10 @@ def test_orchestrator_runs_ensemble_when_enabled(tmp_path):
     res = FSIMythosPipeline(cfg, converse=ClaudeFake(), openai_provider=OpenAIFake("confirmed")).run()
     findings = res["report"]["findings"]
     assert any(f.get("cross_family") == "both" for f in findings), "ensemble vote should be recorded"
+
+
+def test_claude_escalate_not_dropped_on_openai_dismiss():
+    # regression: a Claude ESCALATE + OpenAI dismiss must stay ESCALATE, never be dropped
+    out = cross_family_validate([_f("v", Verdict.ESCALATE)], _target, _cfg, OpenAIFake("dismissed"))
+    assert len(out) == 1
+    assert out[0].verdict is Verdict.ESCALATE

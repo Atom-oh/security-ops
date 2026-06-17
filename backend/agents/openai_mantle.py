@@ -43,7 +43,12 @@ class OpenAIMantleProvider:
         from botocore.auth import SigV4Auth
         from botocore.awsrequest import AWSRequest
 
-        creds = self._credentials or boto3.Session().get_credentials().get_frozen_credentials()
+        creds = self._credentials
+        if creds is None:
+            resolved = boto3.Session().get_credentials()
+            if resolved is None:
+                raise RuntimeError("No AWS credentials available for SigV4 signing to bedrock-mantle")
+            creds = resolved.get_frozen_credentials()
         req = AWSRequest(
             method="POST", url=_endpoint(self.region) + path, data=body,
             headers={"Content-Type": "application/json"},
