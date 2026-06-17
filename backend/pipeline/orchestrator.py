@@ -8,15 +8,17 @@ persist live status to DynamoDB.
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Callable, Dict, List, Optional
 
 log = logging.getLogger("fsi.pipeline")
 
-from pipeline.config import Finding, ScanConfig
+from pipeline.config import Finding, ScanConfig, enforce_budget
 from pipeline.phase0_languages import detect_languages
 from pipeline.phase1_slicing import numbered_file, sink_guided_slice
-from pipeline.phase2_ranker import rank_files
+from pipeline.phase25_prefilter import scan_secrets
+from pipeline.risk_score import rank_by_risk, score_file
 from pipeline.phase3_hunter import hunt
 from pipeline.phase35_challenger import challenge
 from pipeline.phase4_validator import validate
@@ -81,20 +83,48 @@ class FSIMythosPipeline:
         slices_by_file: Dict[str, List[dict]] = {}
         lang_by_file: Dict[str, object] = {}
         sink_counts: Dict[str, int] = {}
+        risk_scores: Dict[str, tuple] = {}
+        file_sizes: List[tuple] = []
         for language, files in lang_files.items():
             for path in files:
                 sl = sink_guided_slice(path, language)
                 slices_by_file[path] = sl
                 lang_by_file[path] = language
                 sink_counts[path] = len(sl)
+                try:
+                    with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+                        content = fh.read(20000)  # sample for risk signals
+                    size = os.path.getsize(path)
+                except OSError:
+                    content, size = "", 0
+                risk_scores[path] = score_file(path, language, len(sl), content)
+                file_sizes.append((path, size))
+        total_code_files = len(file_sizes)
         files_with_sinks = sum(1 for c in sink_counts.values() if c > 0)
+        log.info("phase1: %d code files, %d with explicit sinks", total_code_files, files_with_sinks)
 
-        log.info("phase1: %d code files, %d with explicit sinks", len(sink_counts), files_with_sinks)
-
-        # Phase 2 — rank
+        # Phase 2 — deterministic risk triage (FSI-weighted), budget-guarded, then top-N.
         self._emit(PHASES[2])
-        ranked = rank_files(sink_counts, cfg, converse=self.converse)
-        log.info("phase2: ranked %d files: %s", len(ranked), [r.get("file") for r in ranked])
+        risk_ordered = sorted(file_sizes, key=lambda ps: risk_scores[ps[0]][0], reverse=True)
+        kept, dropped_over_budget = enforce_budget(
+            risk_ordered, cfg.max_total_files, cfg.max_total_bytes
+        )
+        kept_paths = [p for p, _ in kept]
+        ranked = rank_by_risk({p: risk_scores[p] for p in kept_paths}, cfg.max_files)
+        log.info("phase2: triaged %d→%d candidates (budget dropped %d); top %d: %s",
+                 total_code_files, len(kept_paths), dropped_over_budget, len(ranked),
+                 [r.get("file") for r in ranked])
+
+        # Phase 2.5 — deterministic secret pre-filter over all candidates (cheap, no LLM).
+        prefilter_findings: List[Finding] = []
+        for path in kept_paths:
+            try:
+                with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+                    prefilter_findings.extend(scan_secrets(path, lang_by_file.get(path), fh.read(40000)))
+            except OSError:
+                continue
+        if prefilter_findings:
+            log.info("phase2.5: %d deterministic secret findings", len(prefilter_findings))
 
         # Phase 3/3.5/4 — per ranked file
         self._emit(PHASES[3])
@@ -169,6 +199,9 @@ class FSIMythosPipeline:
                 group = [f for f in validated if f.file_path == path]
                 verify_findings(self.sandbox, group, target.get("code", ""), enabled=True)
 
+        # Merge deterministic Phase 2.5 secret findings with the LLM-validated findings.
+        validated = validated + prefilter_findings
+
         # Phase 6 — report + gate
         self._emit(PHASES[6])
         report = generate_report(validated)
@@ -192,5 +225,15 @@ class FSIMythosPipeline:
             dismissed = [f for f in hunted_candidates if f not in validated]
             record_false_positives(self.fp_store, dismissed, self.user_id)
 
-        log.info("scan done in %.1fs: %s gate=%s", time.time() - t0, summary, gate["status"])
-        return {"summary": summary, "report": report, "gate": gate}
+        coverage = {
+            "total_code_files": total_code_files,
+            "scanned_files": len(ranked),
+            "unscanned_files": max(0, total_code_files - len(ranked)),
+            "dropped_over_budget": dropped_over_budget,
+            "secret_prefilter_findings": len(prefilter_findings),
+        }
+        summary["coverage"] = coverage
+        log.info("scan done in %.1fs: %s gate=%s coverage=%s",
+                 time.time() - t0, {k: v for k, v in summary.items() if k != "coverage"},
+                 gate["status"], coverage)
+        return {"summary": summary, "report": report, "gate": gate, "coverage": coverage}

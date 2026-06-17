@@ -67,7 +67,7 @@ def test_pipeline_end_to_end(tmp_path):
         progress=seen.append,
     )
     result = pipe.run()
-    assert set(result) == {"summary", "report", "gate"}
+    assert set(result) == {"summary", "report", "gate", "coverage"}
     assert result["summary"]["critical"] == 1
     assert result["gate"]["status"] == "BLOCKED"  # critical + chaining
     assert result["report"]["asff"][0]["Severity"]["Label"] == "CRITICAL"
