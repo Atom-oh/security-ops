@@ -6,6 +6,7 @@ preliminary confidence (frequency / k); the Validator refines it later.
 """
 from __future__ import annotations
 
+import re
 from typing import Dict, List
 
 from agents.bedrock import extract_json
@@ -13,10 +14,31 @@ from agents.prompts import HUNTER_SYSTEM, hunter_user_prompt
 from pipeline.config import Finding, ScanConfig, Severity
 
 
-def _to_finding(raw: dict, file_path: str) -> Finding:
-    lr = raw.get("line_range") or [0, 0]
+def _parse_line_range(lr) -> tuple:
+    """Coerce a model-supplied line range into ``(start, end)``.
+
+    Tolerates ``[a, b]``, ``[a]``, ``a`` (int), ``"a-b"``, ``"a"`` and junk → ``(0, 0)``.
+    """
     if isinstance(lr, int):
-        lr = [lr, lr]
+        return (lr, lr)
+    if isinstance(lr, str):
+        nums = [int(n) for n in re.findall(r"\d+", lr)]
+        lr = nums
+    if isinstance(lr, (list, tuple)):
+        nums = []
+        for v in lr:
+            try:
+                nums.append(int(v))
+            except (TypeError, ValueError):
+                continue
+        if len(nums) >= 2:
+            return (nums[0], nums[1])
+        if len(nums) == 1:
+            return (nums[0], nums[0])
+    return (0, 0)
+
+
+def _to_finding(raw: dict, file_path: str) -> Finding:
     try:
         severity = Severity(str(raw.get("severity", "info")).lower())
     except ValueError:
@@ -24,7 +46,7 @@ def _to_finding(raw: dict, file_path: str) -> Finding:
     return Finding(
         title=str(raw.get("title", "untitled")),
         file_path=file_path,
-        line_range=(int(lr[0]), int(lr[1])),
+        line_range=_parse_line_range(raw.get("line_range")),
         severity=severity,
         cwe_id=raw.get("cwe_id"),
         description=str(raw.get("description", "")),

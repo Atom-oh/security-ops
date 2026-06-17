@@ -23,11 +23,13 @@ def challenge(
     language_name = getattr(language, "value", str(language))
     code = target.get("code", "")
 
-    try:
-        survivors: List[Finding] = []
-        for f in findings:
-            import json
+    import json
 
+    survivors: List[Finding] = []
+    for f in findings:
+        # Per-finding isolation: a failure on one finding must not undo refutations of the
+        # others, nor drop the finding being challenged — keep it conservatively.
+        try:
             out = converse.invoke(
                 config.challenger_model,
                 CHALLENGER_SYSTEM,
@@ -42,8 +44,7 @@ def challenge(
             verdict = parsed.get("verdict", "likely") if isinstance(parsed, dict) else "likely"
             if str(verdict).lower() == "dismissed":
                 continue  # refuted → drop
-            survivors.append(f)
-        return survivors
-    except Exception:
-        # Isolation: a Challenger failure must not discard Hunter findings.
-        return findings
+        except Exception:
+            pass  # keep the finding on challenger error
+        survivors.append(f)
+    return survivors

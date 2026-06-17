@@ -47,7 +47,13 @@ def rank_files(
     if not isinstance(parsed, list) or not parsed:
         return _sink_density_fallback(sink_counts, config.max_files)
 
-    ranked = [r for r in parsed if isinstance(r, dict) and r.get("file")]
+    # Drop hallucinated paths the model invented that aren't real scan targets.
+    ranked = [
+        r for r in parsed
+        if isinstance(r, dict) and r.get("file") in sink_counts
+    ]
+    if not ranked:
+        return _sink_density_fallback(sink_counts, config.max_files)
     ranked.sort(key=lambda r: r.get("rank", 1_000_000))
     # normalize rank to 1..N and cap
     capped = ranked[: config.max_files]

@@ -48,3 +48,23 @@ def test_no_findings():
     cfg = ScanConfig(project_path="/x", pass_at_k=1)
     fc = SeqConverse(["[]"])
     assert hunt(_target(), cfg, converse=fc) == []
+
+
+def test_line_range_robust_parsing():
+    from pipeline.phase3_hunter import _parse_line_range
+
+    assert _parse_line_range([4, 8]) == (4, 8)
+    assert _parse_line_range([42]) == (42, 42)
+    assert _parse_line_range(7) == (7, 7)
+    assert _parse_line_range("12-15") == (12, 15)
+    assert _parse_line_range("line 9") == (9, 9)
+    assert _parse_line_range(None) == (0, 0)
+    assert _parse_line_range([]) == (0, 0)
+    assert _parse_line_range("nope") == (0, 0)
+
+
+def test_hunter_does_not_crash_on_malformed_line_range():
+    cfg = ScanConfig(project_path="/x", pass_at_k=1)
+    fc = SeqConverse(['[{"title":"t","cwe_id":"CWE-1","severity":"high","line_range":"10-20"}]'])
+    findings = hunt(_target(), cfg, converse=fc)
+    assert findings[0].line_range == (10, 20)

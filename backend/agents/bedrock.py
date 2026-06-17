@@ -24,20 +24,23 @@ def extract_json(text: str) -> Any:
     if not text:
         return None
     fenced = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
-    candidate = fenced.group(1) if fenced else text
+    candidate = (fenced.group(1) if fenced else text).strip()
     try:
-        return json.loads(candidate.strip())
+        return json.loads(candidate)
     except (ValueError, TypeError):
         pass
-    # fall back to the first balanced [...] or {...} span
+    # Fall back to the first *balanced* JSON span. Scan opener positions and grow the
+    # closer inward until something parses — robust to trailing prose or a second block.
     for open_c, close_c in (("[", "]"), ("{", "}")):
         start = candidate.find(open_c)
+        if start == -1:
+            continue
         end = candidate.rfind(close_c)
-        if start != -1 and end > start:
+        while end > start:
             try:
                 return json.loads(candidate[start : end + 1])
             except (ValueError, TypeError):
-                continue
+                end = candidate.rfind(close_c, start, end)
     return None
 
 
@@ -85,9 +88,9 @@ class BedrockConverse:
         )
         for block in content:
             if "thinking" in block:
-                result["thinking"] = block["thinking"].get("text", "")
+                result["thinking"] += block["thinking"].get("text", "")
             elif "reasoningContent" in block:  # alternate block name
-                result["thinking"] = (
+                result["thinking"] += (
                     block["reasoningContent"].get("reasoningText", {}).get("text", "")
                 )
             elif "text" in block:

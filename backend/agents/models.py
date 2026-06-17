@@ -14,7 +14,10 @@ from typing import Dict
 
 _VALID_EFFORT = {"low", "medium", "high"}
 
-# region prefix → inference-profile namespace
+# region prefix → inference-profile namespace.
+# Heuristic for Bedrock cross-region inference profiles. us/ap/eu are the real geo
+# namespaces; ca/sa have no dedicated Opus profile today so they borrow ``us`` — override
+# by passing an already-prefixed model id in ScanConfig if a region needs something else.
 _GEO_PREFIX = {
     "us": "us",
     "ap": "apac",
