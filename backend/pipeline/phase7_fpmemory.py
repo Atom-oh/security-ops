@@ -116,7 +116,14 @@ def record_false_positives(store, dismissed: List[Finding], user_id: str) -> Non
 
 def suppress_known_fps(store, findings: List[Finding], user_id: str) -> List[Finding]:
     """Drop findings matching a remembered FP pattern. Isolated: any store error returns the
-    findings unchanged."""
+    findings unchanged.
+
+    Migration note: patterns recorded before location-scoping (no ``file_path``) key as
+    ``(None, cwe, title)`` and therefore stop matching real findings. This is intentional —
+    those legacy FPs resurface once, get re-dismissed per file, and are re-recorded with a
+    ``file_path``. We deliberately do NOT honor legacy patterns globally: that would
+    reinstate the cross-file false-negative ratchet this scoping removes. Resurfacing an FP
+    is the safe direction (more review, never a missed vuln)."""
     try:
         known = {_key(p) for p in store.recall(user_id)}
     except Exception:
