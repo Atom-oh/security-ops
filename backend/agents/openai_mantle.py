@@ -6,8 +6,9 @@ role — no stored API key (data residency stays within the chosen Bedrock regio
 same ``invoke(...) -> {"thinking", "output"}`` shape as ``BedrockConverse`` so it's a drop-in
 ensemble member.
 
-Verified live against ``openai.gpt-oss-120b`` (us-east-2). ``openai.gpt-5.5`` uses the same
-path once model access is entitled in the account.
+Verified live against ``openai.gpt-oss-120b`` (us-east-2). AWS documents
+``openai.gpt-5.5`` on the ``/openai/v1/responses`` mantle path once model access is entitled
+in the account.
 """
 from __future__ import annotations
 
@@ -19,7 +20,9 @@ DEFAULT_MANTLE_REGION = "us-east-2"
 
 
 def _endpoint(region: str) -> str:
-    return f"https://bedrock-mantle.{region}.api.aws/v1"
+    # The mantle OpenAI-compatible surface lives under /openai/v1 (verified against the
+    # working Codex-on-Bedrock config; gpt-5.5 is served here).
+    return f"https://bedrock-mantle.{region}.api.aws/openai/v1"
 
 
 class OpenAIMantleProvider:

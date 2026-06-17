@@ -1,6 +1,8 @@
 """Tests for the OpenAI-on-Bedrock (mantle) cross-family provider (HTTP mocked)."""
 from __future__ import annotations
 
+from botocore.credentials import Credentials
+
 from agents.openai_mantle import OpenAIMantleProvider
 
 
@@ -30,6 +32,19 @@ def test_responses_parse():
     p = OpenAIMantleProvider(model="openai.gpt-5.5", api_kind="responses", http=fake_http)
     out = p.invoke("openai.gpt-5.5", "sys", "hi")
     assert out["output"] == "RESP-OK"
+
+
+def test_gpt55_responses_uses_openai_v1_mantle_path():
+    p = OpenAIMantleProvider(
+        model="openai.gpt-5.5",
+        region="us-east-2",
+        api_kind="responses",
+        credentials=Credentials("ak", "sk", "token"),
+    )
+
+    req = p._sigv4("/responses", b"{}")
+
+    assert req.url == "https://bedrock-mantle.us-east-2.api.aws/openai/v1/responses"
 
 
 def test_responses_output_text_shortcut():
