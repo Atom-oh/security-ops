@@ -30,7 +30,10 @@ resource "aws_ecr_lifecycle_policy" "this" {
   })
 }
 
-# Allow the AgentCore Runtime service to pull the container image (scoped, no Principal:"*").
+data "aws_caller_identity" "current" {}
+
+# Allow the AgentCore Runtime service to pull the image. Confused-deputy guard: restrict to
+# AgentCore runtimes in THIS account via aws:SourceAccount (no Principal:"*", no cross-account).
 data "aws_iam_policy_document" "pull" {
   statement {
     sid     = "AgentCorePull"
@@ -38,6 +41,11 @@ data "aws_iam_policy_document" "pull" {
     principals {
       type        = "Service"
       identifiers = ["bedrock-agentcore.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [data.aws_caller_identity.current.account_id]
     }
   }
 }

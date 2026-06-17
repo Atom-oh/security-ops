@@ -19,11 +19,10 @@ DIGEST=$(aws ecr describe-images --region "$REGION" --repository-name "$REPO_NAM
   --image-ids imageTag=latest --query 'imageDetails[0].imageDigest' --output text)
 echo "[backend] pushed digest ${DIGEST}"
 
-echo "[backend] applying agentcore module so update-agent-runtime runs (new version)"
+echo "[backend] terraform apply with new image (only the changed image digest → update-agent-runtime)"
 cd "$ROOT/infra/envs/seoul"
 terraform apply -input=false -auto-approve \
   -var "image_uri=${REGISTRY}/${REPO_NAME}@${DIGEST}" \
-  -var "image_digest=${DIGEST}" \
-  -target=module.agentcore
+  -var "image_digest=${DIGEST}"
 
 echo "[backend] done."

@@ -22,6 +22,11 @@ variable "dynamodb_table_arn" {
   type = string
 }
 
+variable "ecr_repository_arn" {
+  type        = string
+  description = "ECR repo ARN the runtime pulls from (scopes the data-plane pull permission)."
+}
+
 variable "model_arns" {
   type        = list(string)
   description = "Bedrock model/inference-profile ARNs the runtime may invoke."

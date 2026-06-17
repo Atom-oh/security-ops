@@ -25,10 +25,15 @@ variable "image_digest" {
   default     = "bootstrap"
 }
 
-# Bedrock model/inference-profile ARNs the runtime may invoke. Seoul → apac.* profiles.
+# Bedrock model/inference-profile ARNs the runtime may invoke. Defaults are scoped to Claude
+# foundation models + cross-region inference profiles (not a blanket "*"). Tighten further to
+# the exact apac.* Opus profile ARNs for production.
 variable "model_arns" {
-  type    = list(string)
-  default = ["*"]
+  type = list(string)
+  default = [
+    "arn:aws:bedrock:*::foundation-model/anthropic.claude-*",
+    "arn:aws:bedrock:*:*:inference-profile/*anthropic.claude-*",
+  ]
 }
 
 variable "tags" {

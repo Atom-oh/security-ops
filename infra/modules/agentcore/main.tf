@@ -51,10 +51,17 @@ data "aws_iam_policy_document" "exec" {
     ]
     resources = ["*"]
   }
+  # GetAuthorizationToken is account-wide by API design; the data-plane pulls are scoped to
+  # the one repository.
+  statement {
+    sid       = "EcrAuth"
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
   statement {
     sid       = "EcrPull"
-    actions   = ["ecr:GetAuthorizationToken", "ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"]
-    resources = ["*"]
+    actions   = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"]
+    resources = [var.ecr_repository_arn]
   }
   statement {
     sid       = "Logs"
@@ -83,18 +90,20 @@ resource "null_resource" "runtime" {
     client_id    = var.cognito_client_id
   }
 
+  # Inputs are passed via the environment (not string-interpolated into the command) to
+  # avoid shell injection from any value containing quotes/metacharacters.
   provisioner "local-exec" {
     interpreter = ["/bin/bash", "-c"]
-    command     = <<-EOT
-      set -euo pipefail
-      "${path.module}/deploy_runtime.sh" \
-        --name "${var.name_prefix}" \
-        --region "${var.region}" \
-        --image "${var.image_uri}" \
-        --role-arn "${aws_iam_role.exec.arn}" \
-        --issuer "${var.cognito_issuer_url}" \
-        --client-id "${var.cognito_client_id}"
-    EOT
+    command     = "exec \"$SCRIPT\" --name \"$RT_NAME\" --region \"$RT_REGION\" --image \"$RT_IMAGE\" --role-arn \"$RT_ROLE\" --issuer \"$RT_ISSUER\" --client-id \"$RT_CLIENT\""
+    environment = {
+      SCRIPT    = "${path.module}/deploy_runtime.sh"
+      RT_NAME   = var.name_prefix
+      RT_REGION = var.region
+      RT_IMAGE  = var.image_uri
+      RT_ROLE   = aws_iam_role.exec.arn
+      RT_ISSUER = var.cognito_issuer_url
+      RT_CLIENT = var.cognito_client_id
+    }
   }
 
   depends_on = [aws_iam_role_policy.exec]

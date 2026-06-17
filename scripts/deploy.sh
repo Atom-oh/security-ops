@@ -6,12 +6,13 @@ set -euo pipefail
 source "$(dirname "$0")/_common.sh"
 maybe_assume_role
 
-echo "==> 1/3 terraform apply (infra)"
+# Ordering matters: the AgentCore runtime can't be created until its image exists in ECR.
+echo "==> 1/3 bootstrap ECR registry"
 cd "$ROOT/infra/envs/seoul"
 terraform init -input=false
-terraform apply -input=false -auto-approve
+terraform apply -input=false -auto-approve -target=module.ecr
 
-echo "==> 2/3 backend image build + push + update-agent-runtime"
+echo "==> 2/3 backend image build + push, then full apply (creates runtime with real image)"
 "$ROOT/scripts/build_push_backend.sh"
 
 echo "==> 3/3 frontend build + s3 sync + invalidation"

@@ -20,14 +20,10 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-AUTH_CONFIG=$(cat <<JSON
-{"customJWTAuthorizer":{"discoveryUrl":"${ISSUER}/.well-known/openid-configuration","allowedClients":["${CLIENT_ID}"]}}
-JSON
-)
-ARTIFACT=$(cat <<JSON
-{"containerConfiguration":{"containerUri":"${IMAGE}"}}
-JSON
-)
+# Build JSON safely with jq so quotes/metacharacters in inputs can't break the payload.
+AUTH_CONFIG=$(jq -n --arg iss "$ISSUER" --arg clid "$CLIENT_ID" \
+  '{customJWTAuthorizer:{discoveryUrl:($iss + "/.well-known/openid-configuration"),allowedClients:[$clid]}}')
+ARTIFACT=$(jq -n --arg uri "$IMAGE" '{containerConfiguration:{containerUri:$uri}}')
 
 existing=$(aws bedrock-agentcore-control list-agent-runtimes --region "$REGION" \
   --query "agentRuntimes[?agentRuntimeName=='${NAME}'].agentRuntimeId | [0]" --output text 2>/dev/null || echo "None")
