@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FSI-Mythos on AgentCore — 아키텍처 문서</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<style>
+:root{
+  --ink:#232F3E;--ink-deep:#0F1F3D;--orange:#FF9900;--orange-tint:#FFF4E0;
+  --green:#2BA867;--red:#C0392B;--navy:#143D7A;--bg:#F7F9FC;--sidebar-w:260px;
+  --code-bg:#1e293b;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,'Segoe UI',Roboto,'Malgun Gothic',sans-serif;background:var(--bg);color:#1a1a1a;line-height:1.7;font-size:15px}
+.layout{display:flex;min-height:100vh}
+.sidebar{width:var(--sidebar-w);background:var(--ink-deep);color:#fff;padding:24px 16px;position:fixed;top:0;left:0;height:100vh;overflow-y:auto;z-index:100}
+.sidebar .logo{color:var(--orange);font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:6px}
+.sidebar h2{font-size:15px;font-weight:700;margin-bottom:24px;line-height:1.4}
+.toc{list-style:none;font-size:13px}
+.toc li{margin-bottom:1px}
+.toc a{color:rgba(255,255,255,0.7);text-decoration:none;display:block;padding:6px 10px;border-radius:6px;transition:.2s}
+.toc a:hover,.toc a.active{color:#fff;background:rgba(255,153,0,0.18)}
+.toc .sub{padding-left:18px;font-size:12px}
+.main{margin-left:var(--sidebar-w);flex:1;min-width:0}
+.hero{background:linear-gradient(135deg,var(--ink-deep) 0%,#1a2940 100%);padding:48px;color:#fff}
+.hero .eyebrow{color:var(--orange);font-size:12px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:12px}
+.hero h1{font-size:30px;font-weight:800;line-height:1.25;margin-bottom:12px}
+.hero p{font-size:15px;color:rgba(255,255,255,0.78);max-width:760px}
+.hero .meta{margin-top:20px;display:flex;gap:10px;flex-wrap:wrap}
+.hero .meta span{background:rgba(255,255,255,0.12);padding:5px 12px;border-radius:14px;font-size:12px}
+.content{padding:40px 48px;max-width:1100px}
+.section{margin-bottom:52px;scroll-margin-top:20px}
+.section .eyebrow{color:var(--orange);font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:6px}
+.section h2{font-size:24px;font-weight:800;color:var(--ink-deep);margin-bottom:16px;padding-bottom:8px;border-bottom:2px solid #e2e8f0}
+.section h3{font-size:18px;font-weight:700;color:var(--ink);margin:28px 0 12px}
+.section h4{font-size:15px;font-weight:700;color:var(--navy);margin:18px 0 8px}
+.section p{margin-bottom:12px;color:#374151}
+.section ul,.section ol{margin:10px 0 14px 22px}
+.section li{margin-bottom:6px;color:#374151}
+.mermaid-wrap{margin:22px 0;background:#fff;border-radius:12px;padding:24px;box-shadow:0 2px 10px rgba(0,0,0,0.06);overflow-x:auto}
+.mermaid{display:flex;justify-content:center}
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13.5px;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.06)}
+th{background:var(--ink-deep);color:#fff;padding:10px 14px;text-align:left;font-weight:600}
+td{padding:9px 14px;border-bottom:1px solid #eef2f7;vertical-align:top}
+tr:hover td{background:#f8fafc}
+code{font-family:'SF Mono',Monaco,Consolas,monospace;font-size:12.5px;background:#eef2f7;color:#c0392b;padding:2px 6px;border-radius:4px}
+pre{background:var(--code-bg);color:#e2e8f0;padding:18px;border-radius:10px;overflow-x:auto;margin:16px 0;font-size:13px;line-height:1.6}
+pre code{background:none;color:inherit;padding:0}
+.callout{padding:16px 20px;border-radius:0 8px 8px 0;margin:18px 0}
+.callout strong{display:block;margin-bottom:4px;font-size:13px}
+.callout p{margin:0;font-size:13.5px}
+.c-info{background:#eff6ff;border-left:4px solid var(--navy)}
+.c-warn{background:#fef2f2;border-left:4px solid var(--red)}
+.c-ok{background:#ecfdf5;border-left:4px solid var(--green)}
+.c-tip{background:var(--orange-tint);border-left:4px solid var(--orange)}
+.tag{display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600;margin-right:4px}
+.tag-g{background:#d1fae5;color:#065f46}.tag-o{background:#fef3c7;color:#92400e}
+.tag-r{background:#fee2e2;color:#991b1b}.tag-n{background:#dbeafe;color:#1e40af}
+.metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin:20px 0}
+.metric{background:var(--ink-deep);border-radius:10px;padding:18px;text-align:center;color:#fff}
+.metric .v{font-size:24px;font-weight:800;color:var(--orange)}
+.metric .l{font-size:11px;color:rgba(255,255,255,0.7);margin-top:4px}
+footer{padding:30px 48px;color:#94a3b8;font-size:12px;text-align:center;border-top:1px solid #e2e8f0}
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="sidebar">
+  <div class="logo">Robin Insight</div>
+  <h2>FSI-Mythos on AgentCore<br>아키텍처 문서</h2>
+  <ul class="toc">
+    <li><a href="#overview">01 개요</a></li>
+    <li><a href="#system">02 시스템 아키텍처</a></li>
+    <li><a href="#agent">03 멀티에이전트 스캐폴드</a></li>
+    <li><a href="#pipeline">04 8-Phase 파이프라인</a></li>
+    <li><a href="#sequence">05 요청 시퀀스</a></li>
+    <li><a href="#data">06 데이터 모델·이력</a></li>
+    <li><a href="#security">07 보안 설계 (AppSec)</a></li>
+    <li><a href="#deploy">08 배포 아키텍처</a></li>
+    <li><a href="#eval">09 성능 평가·벤치마크</a></li>
+    <li><a href="#decisions">10 설계 결정·교훈</a></li>
+  </ul>
+</nav>
+
+<div class="main">
+<header class="hero">
+  <div class="eyebrow">Technical Architecture Document</div>
+  <h1>FSI-Mythos on AgentCore</h1>
+  <p>국내 금융사를 위한 Claude 기반 자율 보안 스캐닝 플랫폼. Anthropic Mythos의 8-Phase 스캐폴드를 Strands Agents SDK와 Amazon Bedrock AgentCore로 재구현하고, Cognito·CloudFront·WAF·DynamoDB를 갖춘 풀스택으로 AWS에 배포·검증한 시스템의 전체 설계 문서.</p>
+  <div class="meta">
+    <span>🗓 2026-06-02</span>
+    <span>☁️ AWS us-west-2</span>
+    <span>🤖 Claude Opus 4.8/4.7/4.6</span>
+    <span>🛡 AppSec 표준</span>
+  </div>
+</header>
+
+<div class="content">
+
+<!-- 01 개요 -->
+<section class="section" id="overview">
+  <div class="eyebrow">Section 01</div>
+  <h2>개요</h2>
+  <p>FSI-Mythos는 소스코드에서 보안 취약점을 <strong>자율적으로 발견·검증</strong>하는 멀티에이전트 시스템입니다. 단순 패턴 매칭(SAST)을 넘어, Claude의 의미론적 추론으로 컴포넌트 간 상호작용에서 발생하는 논리적 결함까지 탐지하는 것을 목표로 합니다.</p>
+  <h3>핵심 설계 원칙</h3>
+  <ul>
+    <li><strong>적대적 검증</strong> — Hunter가 발견한 취약점을 Challenger가 반박하고 Validator가 최종 판정해 오탐(FP)을 줄임</li>
+    <li><strong>방어 목적 한정</strong> — <code>scan_scope="defensive"</code>, 익스플로잇 무기화 단계 미구현</li>
+    <li><strong>역할별 모델 분배</strong> — 추론 난이도·비용에 따라 Opus 4.8/4.7/4.6 차등 배치</li>
+    <li><strong>AppSec 표준 준수</strong> — 인증·암호화·최소권한·WAF를 기본 적용</li>
+    <li><strong>재현성</strong> — pass@k 독립 실행으로 발견의 일관성 확보</li>
+  </ul>
+  <div class="metric-grid">
+    <div class="metric"><div class="v">8</div><div class="l">Phase 파이프라인</div></div>
+    <div class="metric"><div class="v">4</div><div class="l">에이전트 역할</div></div>
+    <div class="metric"><div class="v">3</div><div class="l">Opus 모델 티어</div></div>
+    <div class="metric"><div class="v">4</div><div class="l">CDK 스택</div></div>
+  </div>
+  <div class="callout c-warn">
+    <strong>⚠️ 면책</strong>
+    <p>본 문서의 "Mythos"는 분석 대상 개념이며, 시스템은 공개 Claude 모델로 방어적 취약점 발견만 수행합니다. 실제 익스플로잇 생성·공격에는 사용할 수 없습니다.</p>
+  </div>
+</section>
+
+<!-- 02 시스템 아키텍처 -->
+<section class="section" id="system">
+  <div class="eyebrow">Section 02</div>
+  <h2>시스템 아키텍처</h2>
+  <p>3계층 구조: <strong>엣지/인증 계층</strong>(CloudFront·WAF·Cognito), <strong>실행 계층</strong>(AgentCore Runtime), <strong>데이터/모델 계층</strong>(Bedrock·DynamoDB).</p>
+  <div class="mermaid-wrap">
+  <div class="mermaid">
+flowchart TB
+    User([사용자 브라우저])
+    subgraph Edge["엣지 / 인증 계층"]
+        direction TB
+        WAF["AWS WAF (us-east-1)<br/>Common·KnownBadInputs·RateLimit"]
+        CF["CloudFront + OAC<br/>HTTPS·HSTS·보안헤더"]
+        S3[("S3 정적 사이트<br/>비공개·SSE·버저닝")]
+        COG["Cognito User Pool<br/>SRP·MFA·JWT"]
+    end
+    subgraph Runtime["Bedrock AgentCore Runtime (us-west-2)"]
+        direction TB
+        EP["JWT Authorizer Endpoint<br/>invocations"]
+        APP["BedrockAgentCoreApp<br/>app.py · action 분기"]
+        PIPE["FSIMythosPipeline<br/>8-Phase 오케스트레이터"]
+        CI["Code Interpreter<br/>격리 샌드박스"]
+        MEM["AgentCore Memory<br/>FP 학습"]
+    end
+    subgraph DataModel["데이터 / 모델 계층"]
+        direction TB
+        BR["Amazon Bedrock<br/>Opus 4.8 / 4.7 / 4.6"]
+        DDB[("DynamoDB<br/>스캔 이력")]
+        SH["Security Hub<br/>ASFF"]
+    end
+
+    User -->|"① HTTPS 정적 자산"| CF
+    WAF -.->|보호| CF
+    CF --> S3
+    User -->|"② 로그인 SRP"| COG
+    User -->|"③ Bearer JWT POST"| EP
+    COG -.->|"JWT 검증 (discovery)"| EP
+    EP --> APP --> PIPE
+    PIPE -->|"모델 추론"| BR
+    PIPE -->|"PoC 검증"| CI
+    PIPE -->|"FP 회상/기록"| MEM
+    APP -->|"이력 저장/조회"| DDB
+    PIPE -.->|"발견 전송"| SH
+  </div>
+  </div>
+  <h3>구성요소 책임</h3>
+  <table>
+    <tr><th>계층</th><th>구성요소</th><th>책임</th></tr>
+    <tr><td rowspan="4">엣지/인증</td><td>CloudFront + OAC</td><td>정적 UI 배포, HTTPS 강제, 보안 응답 헤더, S3 비공개 접근</td></tr>
+    <tr><td>WAF</td><td>관리형 룰·IP 속도 제한으로 악성 트래픽 차단</td></tr>
+    <tr><td>S3</td><td>React 빌드 산출물 호스팅 (퍼블릭 전면 차단)</td></tr>
+    <tr><td>Cognito</td><td>SRP 인증, JWT 발급, AgentCore authorizer 신뢰 기반</td></tr>
+    <tr><td rowspan="3">실행</td><td>AgentCore Runtime</td><td>서버리스 컨테이너, JWT 인가, 세션 격리 microVM</td></tr>
+    <tr><td>Pipeline</td><td>8-Phase 멀티에이전트 오케스트레이션</td></tr>
+    <tr><td>Code Interpreter</td><td>PoC 크래시 재현 (네트워크 차단 샌드박스)</td></tr>
+    <tr><td rowspan="3">데이터/모델</td><td>Bedrock</td><td>Opus 3종 추론 (역할별)</td></tr>
+    <tr><td>DynamoDB</td><td>사용자별 스캔 이력 영속화</td></tr>
+    <tr><td>Security Hub</td><td>ASFF 포맷 발견 통합 (선택)</td></tr>
+  </table>
+</section>
+
+<!-- 03 멀티에이전트 -->
+<section class="section" id="agent">
+  <div class="eyebrow">Section 03</div>
+  <h2>멀티에이전트 스캐폴드</h2>
+  <p>Strands Agents SDK로 4개 역할 에이전트를 구성합니다. 각 에이전트는 <strong>모델 + 시스템 프롬프트 + 도구</strong>의 조합이며, 역할별로 다른 Opus 모델과 Extended Thinking 설정을 사용합니다.</p>
+  <div class="mermaid-wrap">
+  <div class="mermaid">
+flowchart LR
+    subgraph Tools["정적·동적 도구 (@tool)"]
+        T1[detect_languages]
+        T2[sink_guided_slice]
+        T3[read_source]
+        T4[recall_false_positives]
+        T5[verify_poc_in_sandbox]
+        T6[record_false_positive]
+    end
+    R["Ranker<br/>Opus 4.6"]
+    H["Hunter ×K<br/>Opus 4.7<br/>Extended Thinking"]
+    C["Challenger<br/>Opus 4.6"]
+    V["Validator<br/>Opus 4.8<br/>Extended Thinking"]
+
+    R -->|위험 파일 N개| H
+    H -->|raw findings| C
+    C -->|반박 결과| V
+    V -->|최종 판정| OUT([Findings])
+
+    R -.-> T1 & T2
+    H -.-> T3 & T2 & T4
+    C -.-> T3 & T5
+    V -.-> T6
+  </div>
+  </div>
+  <table>
+    <tr><th>에이전트</th><th>모델</th><th>Thinking</th><th>도구</th><th>역할</th></tr>
+    <tr><td>Ranker</td><td>Opus 4.6</td><td>off</td><td>detect_languages, sink_guided_slice</td><td>파일 위험도 랭킹</td></tr>
+    <tr><td>Hunter</td><td>Opus 4.7</td><td><span class="tag tag-g">adaptive·high</span></td><td>read_source, sink_guided_slice, recall_false_positives</td><td>취약점 발견 (K회 독립)</td></tr>
+    <tr><td>Challenger</td><td>Opus 4.6</td><td>off</td><td>read_source, verify_poc_in_sandbox</td><td>적대적 반박·PoC 검증</td></tr>
+    <tr><td>Validator</td><td>Opus 4.8</td><td><span class="tag tag-g">adaptive·high</span></td><td>record_false_positive</td><td>최종 판정·FP 기록</td></tr>
+  </table>
+  <div class="callout c-tip">
+    <strong>🎯 모델 분배 근거</strong>
+    <p>발견(Hunter)은 다양성·속도 균형의 4.7, 최종 판정(Validator)은 최고 추론력의 4.8, 비용 효율이 중요한 랭킹·반박(Ranker·Challenger)은 4.6. Challenger의 Thinking을 끈 이유는 4.6+adaptive thinking 스트리밍의 간헐적 ValidationException 회피와 비용·지연 절감 (반박 품질 영향 미미).</p>
+  </div>
+</section>
+
+<!-- 04 파이프라인 -->
+<section class="section" id="pipeline">
+  <div class="eyebrow">Section 04</div>
+  <h2>8-Phase 파이프라인</h2>
+  <div class="mermaid-wrap">
+  <div class="mermaid">
+flowchart TD
+    Start([스캔 요청]) --> P0
+    P0["Phase 0 · 언어 감지<br/>detect_languages"] --> P1
+    P1["Phase 1 · 싱크 슬라이싱<br/>sink_guided_slice"] --> P2
+    P2["Phase 2 · 파일 랭킹<br/>Ranker (Opus 4.6)"] --> P3
+    P3["Phase 3 · 에이전틱 헌트<br/>Hunter ×K (Opus 4.7)"] --> DEDUP
+    DEDUP["중복 제거 + 빈도→신뢰도"] --> P35
+    P35["Phase 3.5 · 적대적 자기도전<br/>Challenger (Opus 4.6)"] --> P4
+    P4["Phase 4 · 회의적 검증<br/>Validator (Opus 4.8)"] --> P6
+    P6["Phase 6 · 집계/보고<br/>ASFF · CI/CD 게이트"] --> P7
+    P7["Phase 7 · FP 메모리<br/>AgentCore Memory"] --> End([보고서 + 이력 저장])
+
+    P35 -.->|실패 시 격리<br/>Hunter 결과 보존| P4
+  </div>
+  </div>
+  <h3>Phase별 상세</h3>
+  <table>
+    <tr><th>Phase</th><th>입력 → 출력</th><th>핵심 로직</th></tr>
+    <tr><td>0 언어 감지</td><td>경로 → {언어: [파일]}</td><td>확장자 매핑, .git/node_modules 등 제외</td></tr>
+    <tr><td>1 싱크 슬라이싱</td><td>파일 → 싱크 컨텍스트</td><td>위험 함수(strcpy/system/eval) 전후 20줄 추출</td></tr>
+    <tr><td>2 파일 랭킹</td><td>싱크 밀도 → 상위 N개</td><td>금융 특화 기준(인증·암호·거래·노출). 싱크 0이면 비용 절약 폴백</td></tr>
+    <tr><td>3 헌트</td><td>파일 → raw findings</td><td>K회 독립 실행(temperature=1.0), 의미론 추론, JSON 보고</td></tr>
+    <tr><td>3.5 자기도전</td><td>findings → 반박</td><td>컴파일러 최적화·ASLR·경로 도달성 검토, 샌드박스 PoC. <span class="tag tag-o">예외 격리</span></td></tr>
+    <tr><td>4 검증</td><td>반박 → 최종 판정</td><td>CONFIRMED/LIKELY/DISMISSED/ESCALATE, 신뢰도 0~1</td></tr>
+    <tr><td>6 집계</td><td>판정 → 보고서</td><td>심각도 집계, ASFF 변환, CI/CD 게이트</td></tr>
+    <tr><td>7 FP 메모리</td><td>DISMISSED → 학습</td><td>오탐 패턴을 AgentCore Memory에 영속화</td></tr>
+  </table>
+  <div class="callout c-info">
+    <strong>💡 pass@k 재현성</strong>
+    <p>Phase 3에서 Hunter를 K회 독립 실행하고, 동일 (파일·제목) 발견의 등장 빈도를 신뢰도에 반영합니다. 여러 번 발견될수록 진성 취약점일 확률이 높습니다.</p>
+  </div>
+</section>
+
+<!-- 05 시퀀스 -->
+<section class="section" id="sequence">
+  <div class="eyebrow">Section 05</div>
+  <h2>요청 시퀀스</h2>
+  <p>브라우저에서 로그인 후 스캔을 실행하고 이력을 조회하는 전체 흐름.</p>
+  <div class="mermaid-wrap">
+  <div class="mermaid">
+sequenceDiagram
+    participant U as 브라우저(UI)
+    participant CF as CloudFront/S3
+    participant CO as Cognito
+    participant AC as AgentCore Runtime
+    participant BR as Bedrock Opus
+    participant DB as DynamoDB
+
+    U->>CF: GET / (정적 자산)
+    CF-->>U: React 앱 (보안 헤더)
+    U->>CO: SRP 로그인
+    CO-->>U: JWT (access/id token)
+    Note over U: id token에서 email 추출 → 화면 표시
+
+    U->>AC: POST invocations (Bearer JWT)<br/>{action:scan, files/path, user_id}
+    AC->>CO: JWT 검증 (discovery URL)
+    CO-->>AC: client_id 일치 확인
+    loop Phase 3 Hunter ×K
+        AC->>BR: ConverseStream (Opus 4.7)
+        BR-->>AC: findings
+    end
+    AC->>BR: Challenger(4.6) → Validator(4.8)
+    BR-->>AC: 최종 판정
+    AC->>DB: PutItem (스캔 이력)
+    AC-->>U: {report, gate, history}
+
+    U->>AC: POST {action:list_history, user_id}
+    AC->>DB: Query (userId)
+    DB-->>AC: 이력 목록
+    AC-->>U: history[]
+    U->>AC: POST {action:get_scan, scan_id}
+    AC->>DB: GetItem
+    AC-->>U: {report, gate}
+  </div>
+  </div>
+</section>
+
+<!-- 06 데이터 모델 -->
+<section class="section" id="data">
+  <div class="eyebrow">Section 06</div>
+  <h2>데이터 모델 · 이력 관리</h2>
+  <h3>Finding 데이터 모델</h3>
+  <pre><code>@dataclass
+class Finding:
+    id: str                    # fsi-{sha1[:16]}
+    title: str
+    file_path: str
+    line_range: tuple
+    severity: Severity         # critical|high|medium|low|info
+    cwe_id: Optional[str]      # CWE-XXX
+    description: str
+    exploitation_scenario: str
+    patch_suggestion: str
+    confidence: float          # 0~1 (검증 후)
+    chain_potential: bool      # 체이닝 가능성
+    verdict: Verdict           # confirmed|likely|dismissed|escalate
+    validated: bool</code></pre>
+  <h3>DynamoDB 스캔 이력 스키마</h3>
+  <div class="mermaid-wrap">
+  <div class="mermaid">
+erDiagram
+    SCAN_HISTORY {
+        string userId PK "Cognito email - partition key"
+        string scanId "createdAt and uuid - sort key"
+        string createdAt "ISO8601"
+        string projectPath "scan target"
+        number maxFiles "config"
+        number passAtK "config"
+        string summary "JSON summary"
+        string report "JSON full report"
+        string gate "JSON CI-CD gate"
+    }
+  </div>
+  </div>
+  <table>
+    <tr><th>속성</th><th>설명</th></tr>
+    <tr><td><code>userId</code> (PK)</td><td>Cognito 이메일 — 사용자별 데이터 격리</td></tr>
+    <tr><td><code>scanId</code> (SK)</td><td><code>createdAt#uuid8</code> — ScanIndexForward=false로 최신순 조회</td></tr>
+    <tr><td>summary/report/gate</td><td>float 직접 저장 불가 → JSON 문자열로 직렬화</td></tr>
+  </table>
+  <div class="callout c-ok">
+    <strong>✅ 이력 액션 분기</strong>
+    <p><code>scan</code>(실행+자동저장) / <code>list_history</code>(목록) / <code>get_scan</code>(상세). 스캔 완료 시 결과를 자동 저장하며, 저장 실패해도 결과 반환은 유지(격리).</p>
+  </div>
+</section>
+
+<!-- 07 보안 -->
+<section class="section" id="security">
+  <div class="eyebrow">Section 07</div>
+  <h2>보안 설계 (AppSec 표준)</h2>
+  <div class="mermaid-wrap">
+  <div class="mermaid">
+flowchart TB
+    subgraph L1["인증·인가"]
+        A1["Cognito SRP<br/>평문 비번 차단"]
+        A2["MFA OTP·위협보호"]
+        A3["JWT 1h·리프레시 1d<br/>토큰 폐기"]
+        A4["AgentCore JWT Authorizer<br/>client_id 검증"]
+    end
+    subgraph L2["전송·응답"]
+        B1["CloudFront HTTPS 강제<br/>TLS 1.2_2021"]
+        B2["HSTS 2년·preload"]
+        B3["X-Frame DENY<br/>X-Content nosniff"]
+    end
+    subgraph L3["저장"]
+        C1["S3 SSE·버저닝·퍼블릭차단"]
+        C2["DynamoDB KMS·PITR"]
+        C3["ECR scan-on-push"]
+    end
+    subgraph L4["실행·입력"]
+        D1["최소권한 IAM 실행역할"]
+        D2["비루트 컨테이너 uid1000"]
+        D3["WAF 관리형룰·속도제한"]
+        D4["업로드 경로트래버설 차단<br/>크기 한도"]
+    end
+  </div>
+  </div>
+  <table>
+    <tr><th>위협</th><th>완화책</th></tr>
+    <tr><td>무단 접근</td><td>Cognito SRP + AgentCore JWT authorizer (access token client_id 검증)</td></tr>
+    <tr><td>중간자 공격</td><td>HTTPS 강제, TLS 1.2_2021, HSTS preload</td></tr>
+    <tr><td>클릭재킹/MIME 스니핑</td><td>X-Frame-Options DENY, X-Content-Type-Options nosniff</td></tr>
+    <tr><td>데이터 유출</td><td>S3 퍼블릭 차단·OAC, DynamoDB 암호화, 사용자별 파티션 격리</td></tr>
+    <tr><td>경로 트래버설(업로드)</td><td><code>normpath</code> 정규화 후 base 디렉토리 탈출 차단 (검증됨)</td></tr>
+    <tr><td>DoS(업로드)</td><td>파일 200개·파일당 1MB·전체 20MB 한도</td></tr>
+    <tr><td>권한 상승</td><td>실행역할 최소권한 (Opus 3종 + Code Interpreter + DynamoDB R/W + 로그만)</td></tr>
+    <tr><td>봇·악성 트래픽</td><td>WAF Common·KnownBadInputs + IP 속도 제한 2000/5분</td></tr>
+  </table>
+</section>
+
+<!-- 08 배포 -->
+<section class="section" id="deploy">
+  <div class="eyebrow">Section 08</div>
+  <h2>배포 아키텍처</h2>
+  <p>인프라는 <strong>CDK 4스택</strong>(IaC), 백엔드는 <strong>AgentCore CLI + ARM64 컨테이너</strong>로 분리 배포합니다.</p>
+  <div class="mermaid-wrap">
+  <div class="mermaid">
+flowchart LR
+    subgraph CDK["CDK (IaC)"]
+        AUTH["FsiMythosAuth<br/>Cognito"]
+        WAFS["FsiMythosWaf<br/>WAF (us-east-1)"]
+        WEB["FsiMythosWeb<br/>S3+CloudFront"]
+        DATA["FsiMythosData<br/>DynamoDB"]
+    end
+    subgraph BE["백엔드 배포"]
+        DOCK["docker buildx<br/>ARM64"]
+        ECR[("ECR<br/>scan-on-push")]
+        UPD["update-agent-runtime<br/>새 버전 생성"]
+        RT["AgentCore Runtime<br/>DEFAULT endpoint"]
+    end
+    subgraph FE["UI 배포"]
+        BUILD["vite build"]
+        SYNC["s3 sync"]
+        INV["CloudFront<br/>invalidation"]
+    end
+
+    WAFS -->|crossRegion ARN| WEB
+    DOCK --> ECR --> UPD --> RT
+    BUILD --> SYNC --> INV
+    AUTH -.->|discovery URL| RT
+  </div>
+  </div>
+  <div class="callout c-warn">
+    <strong>⚠️ 배포 핵심 주의사항</strong>
+    <p>① WAF는 CloudFront용이라 <code>us-east-1</code>에 생성 (crossRegionReferences로 참조). ② AgentCore는 이미지 푸시만으로 갱신 안 됨 — <code>update-agent-runtime</code>으로 새 버전 생성해야 DEFAULT 엔드포인트가 최신 이미지 사용. ③ 모델 리전은 컨테이너 <code>AWS_REGION</code> 신뢰 (payload region 무시).</p>
+  </div>
+</section>
+
+<!-- 09 평가 -->
+<section class="section" id="eval">
+  <div class="eyebrow">Section 09</div>
+  <h2>성능 평가 · 벤치마크</h2>
+  <p>AI 기반 취약점 탐지 시스템의 성능은 <strong>공개 벤치마크 데이터셋</strong>에서 표준 지표로 측정하고, 동일 ground truth에서 기존 SAST 도구와 비교합니다.</p>
+
+  <h3>9.1 벤치마크 데이터셋</h3>
+  <table>
+    <tr><th>벤치마크</th><th>유형</th><th>규모</th><th>언어</th><th>특징</th></tr>
+    <tr><td>NIST SARD / Juliet</td><td>합성</td><td>45만+ 케이스, 150+ CWE</td><td>C/C++/Java/PHP/C#</td><td>명확한 ground truth, TP/FP/FN/TN 정밀 측정</td></tr>
+    <tr><td>OWASP Benchmark</td><td>실행형 웹앱</td><td>Java 2,740 / Py 1,230</td><td>Java/Python</td><td>SAST 표준 비교, Youden Index 점수</td></tr>
+    <tr><td><strong>PrimeVul</strong></td><td>실세계 함수</td><td>~7k 취약 / ~229k 정상</td><td>C/C++</td><td>라벨 정제·중복제거, 현실적 평가 <span class="tag tag-g">권장</span></td></tr>
+    <tr><td>DiverseVul</td><td>실세계 함수</td><td>18,945 / 330,492</td><td>C/C++</td><td>295+ 프로젝트, 150 CWE</td></tr>
+    <tr><td>CVEfixes</td><td>CVE-수정커밋</td><td>11,873 CVE / 138,974 함수</td><td>다중</td><td>실세계 ground truth 구축용, 272 CWE</td></tr>
+    <tr><td>CyberSecEval (Meta v4)</td><td>LLM 보안</td><td>다중 태스크</td><td>다중</td><td>안전 코드 생성·프롬프트 인젝션</td></tr>
+    <tr><td>CVE-Bench</td><td>실세계 익스플로잇</td><td>critical CVE</td><td>웹</td><td>실제 악용 가능성(성공률 ≤13%)</td></tr>
+    <tr><td>SWE-bench Verified</td><td>이슈 해결</td><td>500 검증</td><td>Python</td><td>코드 수정·패치 능력</td></tr>
+    <tr><td>CyBench</td><td>CTF 에이전트</td><td>40 tasks</td><td>-</td><td>에이전트 자율 공격 평가</td></tr>
+  </table>
+  <div class="callout c-warn">
+    <strong>⚠️ 데이터 누출 함정</strong>
+    <p>PrimeVul 연구: BigVul에서 F1 68%이던 모델이 라벨 정제·중복 제거 후 <strong>F1 3%로 급락</strong>. 기존 벤치마크가 성능을 크게 과대평가함. 반드시 <strong>시간순 분할(chronological split)</strong>과 <strong>중복 제거</strong>로 통제할 것.</p>
+  </div>
+
+  <h3>9.2 평가 지표</h3>
+  <table>
+    <tr><th>지표</th><th>공식</th><th>의미·금융권 함의</th></tr>
+    <tr><td>Precision</td><td>TP/(TP+FP)</td><td>오탐 통제 — 보안팀 피로도·신뢰성 직결</td></tr>
+    <tr><td>Recall (TPR)</td><td>TP/(TP+FN)</td><td>미탐 통제 — 놓친 취약점 = 사고 위험</td></tr>
+    <tr><td>F1</td><td>2PR/(P+R)</td><td>균형 지표 (PrimeVul·BigVul 주 지표)</td></tr>
+    <tr><td>FPR</td><td>FP/(FP+TN)</td><td>오탐률</td></tr>
+    <tr><td>Youden Index</td><td>(민감도+특이도)−1</td><td>OWASP Benchmark 점수 (추측선 대비)</td></tr>
+    <tr><td><strong>pass@k</strong></td><td>k회 중 1회+ 성공률</td><td>재현성 — 본 시스템 <code>pass_at_k</code>와 직결</td></tr>
+    <tr><td>CWE 분류 정확도</td><td>예측/실제 CWE 일치율</td><td>유형 식별 능력</td></tr>
+    <tr><td>익스플로잇 성공률</td><td>PoC 성공 비율</td><td>실제 악용성 — Challenger 샌드박스 검증과 연계</td></tr>
+  </table>
+
+  <h3>9.3 SAST 도구 비교 방법론</h3>
+  <div class="mermaid-wrap">
+  <div class="mermaid">
+flowchart LR
+    GT["공통 Ground Truth<br/>OWASP Benchmark / PrimeVul"]
+    GT --> S1["SonarQube"]
+    GT --> S2["Checkmarx"]
+    GT --> S3["Semgrep"]
+    GT --> S4["CodeQL"]
+    GT --> AI["FSI-Mythos<br/>(본 시스템)"]
+    S1 & S2 & S3 & S4 & AI --> M["동일 지표 측정<br/>P·R·F1·FPR"]
+    M --> DYN["동적 검증<br/>샌드박스 PoC"]
+    DYN --> CVSS["CVSS 가중<br/>심각도 우선순위"]
+    CVSS --> REP["비교 리포트"]
+  </div>
+  </div>
+  <ol>
+    <li><strong>공통 ground truth</strong> — OWASP Benchmark/PrimeVul에서 SAST 도구와 본 시스템을 동일 데이터로 TP/FP/FN/TN 측정</li>
+    <li><strong>합성 vs 실세계 통제</strong> — SARD(명확·단순) + 실세계 데이터셋(현실적·노이즈) 병행</li>
+    <li><strong>동적 검증</strong> — 정적 라벨 매칭을 넘어 Challenger 샌드박스 PoC로 실제 악용성 확인</li>
+    <li><strong>CVSS 가중</strong> — 심각도(Critical 9.0~10.0)로 발견 우선순위 평가</li>
+  </ol>
+
+  <h3>9.4 본 시스템 내장 평가 메커니즘</h3>
+  <table>
+    <tr><th>메커니즘</th><th>구현 위치</th><th>효과</th></tr>
+    <tr><td>pass@k 재현성</td><td>Phase 3 Hunter K회 독립 실행</td><td>발견 일관성, 빈도→신뢰도 반영</td></tr>
+    <tr><td>적대적 검증</td><td>Phase 3.5 Challenger + 4 Validator</td><td>오탐(FP) 자동 제거</td></tr>
+    <tr><td>FP 메모리</td><td>Phase 7 AgentCore Memory</td><td>오탐 패턴 학습, 반복 방지</td></tr>
+    <tr><td>신뢰도 점수</td><td>Finding.confidence 0~1</td><td>CI/CD 게이트 임계값 활용</td></tr>
+    <tr><td>샌드박스 검증</td><td>verify_poc_in_sandbox</td><td>크래시 재현으로 실제 악용성 확인</td></tr>
+  </table>
+  <div class="callout c-tip">
+    <strong>🎯 금융권 평가 권장안</strong>
+    <p>① OWASP Benchmark로 SAST 대비 정량 비교(P/R/F1) → ② PrimeVul로 실세계 현실성 검증 → ③ 자사 레거시 C/C++ 코드의 과거 CVE 패치를 ground truth로 회귀 평가 → ④ Precision 우선(오탐 최소화)으로 보안팀 신뢰 확보 후 Recall 확대.</p>
+  </div>
+</section>
+
+<!-- 10 설계 결정 -->
+<section class="section" id="decisions">
+  <div class="eyebrow">Section 10</div>
+  <h2>설계 결정 · 교훈</h2>
+  <table>
+    <tr><th>이슈</th><th>원인</th><th>해결</th></tr>
+    <tr><td>thinking 미지원 에러</td><td>Opus 4.7/4.8은 구 <code>thinking.type=enabled</code> 미지원</td><td><code>thinking.type=adaptive</code> + <code>output_config.effort</code> 사용</td></tr>
+    <tr><td>이미지 갱신 안 됨</td><td>Runtime이 버전에 이미지 다이제스트 고정</td><td><code>update-agent-runtime</code>으로 새 버전 생성</td></tr>
+    <tr><td>"model identifier invalid"</td><td>UI가 보낸 <code>region=ap-northeast-2</code>를 모델 리전으로 사용 → us.* 프로파일 미가용</td><td>컨테이너 <code>AWS_REGION</code> 신뢰, payload region 무시</td></tr>
+    <tr><td>JWT 401</td><td>ID token(aud) 사용</td><td>access token의 <code>client_id</code> 클레임 매칭</td></tr>
+    <tr><td>4.6 간헐 실패</td><td>4.6+adaptive thinking 스트리밍 불안정</td><td>Challenger thinking off + Phase 3.5 예외 격리</td></tr>
+    <tr><td>로컬 폴더 접근</td><td>AgentCore는 격리 컨테이너</td><td>File System Access API로 파일 읽어 업로드 → 임시 디렉토리 materialize</td></tr>
+    <tr><td>우측 상단 UUID 표시</td><td>email alias Pool은 Username이 UUID</td><td>id token의 email 클레임 표시</td></tr>
+  </table>
+</section>
+
+</div>
+<footer>
+  FSI-Mythos on AgentCore — Technical Architecture Document · 작성: Robin (AWS FSI SA) · 2026-06-02 · Confidential / Internal Use<br>
+  본 시스템은 방어 목적 보안 취약점 발견만 수행하며, 익스플로잇 무기화에 사용할 수 없습니다.
+</footer>
+</div>
+</div>
+
+<script>
+mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose',flowchart:{useMaxWidth:true,htmlLabels:true}});
+// TOC 스크롤 스파이
+const sections=document.querySelectorAll('.section[id]');
+const links=document.querySelectorAll('.toc a');
+window.addEventListener('scroll',()=>{
+  let cur='';
+  sections.forEach(s=>{if(s.getBoundingClientRect().top<160)cur=s.id});
+  links.forEach(a=>a.classList.toggle('active',a.getAttribute('href')==='#'+cur));
+});
+</script>
+</body>
+</html>

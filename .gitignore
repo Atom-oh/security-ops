@@ -1,0 +1,23 @@
+# deps / build
+node_modules/
+dist/
+.vite/
+__pycache__/
+*.pyc
+.venv/
+venv/
+# terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+# secrets / local
+.env
+.env.local
+frontend/.env
+*.pem
+# co-agent
+.claude/co-agent-consensus/
+.playwright-mcp/
+.headroom/

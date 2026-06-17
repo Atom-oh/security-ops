@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FSI-Mythos 벤치마크 검증 리포트</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<style>
+:root{--ink:#232F3E;--ink-deep:#0F1F3D;--orange:#FF9900;--orange-tint:#FFF4E0;--green:#2BA867;--red:#C0392B;--navy:#143D7A;--bg:#F7F9FC;--sidebar-w:260px;--code-bg:#1e293b;}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,'Segoe UI',Roboto,'Malgun Gothic',sans-serif;background:var(--bg);color:#1a1a1a;line-height:1.7;font-size:15px}
+.layout{display:flex;min-height:100vh}
+.sidebar{width:var(--sidebar-w);background:var(--ink-deep);color:#fff;padding:24px 16px;position:fixed;top:0;left:0;height:100vh;overflow-y:auto;z-index:100}
+.sidebar .logo{color:var(--orange);font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:6px}
+.sidebar h2{font-size:15px;font-weight:700;margin-bottom:24px;line-height:1.4}
+.toc{list-style:none;font-size:13px}
+.toc li{margin-bottom:1px}
+.toc a{color:rgba(255,255,255,0.7);text-decoration:none;display:block;padding:6px 10px;border-radius:6px;transition:.2s}
+.toc a:hover,.toc a.active{color:#fff;background:rgba(255,153,0,0.18)}
+.main{margin-left:var(--sidebar-w);flex:1;min-width:0}
+.hero{background:linear-gradient(135deg,var(--ink-deep) 0%,#1a2940 100%);padding:48px;color:#fff}
+.hero .eyebrow{color:var(--orange);font-size:12px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:12px}
+.hero h1{font-size:30px;font-weight:800;line-height:1.25;margin-bottom:12px}
+.hero p{font-size:15px;color:rgba(255,255,255,0.78);max-width:760px}
+.hero .meta{margin-top:20px;display:flex;gap:10px;flex-wrap:wrap}
+.hero .meta span{background:rgba(255,255,255,0.12);padding:5px 12px;border-radius:14px;font-size:12px}
+.content{padding:40px 48px;max-width:1080px}
+.section{margin-bottom:52px;scroll-margin-top:20px}
+.section .eyebrow{color:var(--orange);font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;margin-bottom:6px}
+.section h2{font-size:24px;font-weight:800;color:var(--ink-deep);margin-bottom:16px;padding-bottom:8px;border-bottom:2px solid #e2e8f0}
+.section h3{font-size:18px;font-weight:700;color:var(--ink);margin:28px 0 12px}
+.section p{margin-bottom:12px;color:#374151}
+.section ul,.section ol{margin:10px 0 14px 22px}
+.section li{margin-bottom:6px;color:#374151}
+.mermaid-wrap{margin:22px 0;background:#fff;border-radius:12px;padding:24px;box-shadow:0 2px 10px rgba(0,0,0,0.06);overflow-x:auto}
+.mermaid{display:flex;justify-content:center}
+table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13.5px;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.06)}
+th{background:var(--ink-deep);color:#fff;padding:10px 14px;text-align:left;font-weight:600}
+td{padding:9px 14px;border-bottom:1px solid #eef2f7;vertical-align:top}
+tr:hover td{background:#f8fafc}
+code{font-family:'SF Mono',Monaco,Consolas,monospace;font-size:12.5px;background:#eef2f7;color:#c0392b;padding:2px 6px;border-radius:4px}
+pre{background:var(--code-bg);color:#e2e8f0;padding:18px;border-radius:10px;overflow-x:auto;margin:16px 0;font-size:13px;line-height:1.6}
+pre code{background:none;color:inherit;padding:0}
+.callout{padding:16px 20px;border-radius:0 8px 8px 0;margin:18px 0}
+.callout strong{display:block;margin-bottom:4px;font-size:13px}.callout p{margin:0;font-size:13.5px}
+.c-info{background:#eff6ff;border-left:4px solid var(--navy)}
+.c-warn{background:#fef2f2;border-left:4px solid var(--red)}
+.c-ok{background:#ecfdf5;border-left:4px solid var(--green)}
+.c-tip{background:var(--orange-tint);border-left:4px solid var(--orange)}
+.tag{display:inline-block;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600;margin-right:4px}
+.tag-g{background:#d1fae5;color:#065f46}.tag-o{background:#fef3c7;color:#92400e}.tag-r{background:#fee2e2;color:#991b1b}.tag-n{background:#dbeafe;color:#1e40af}
+.metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin:20px 0}
+.metric{background:var(--ink-deep);border-radius:10px;padding:18px;text-align:center;color:#fff}
+.metric .v{font-size:26px;font-weight:800;color:var(--orange)}
+.metric .l{font-size:11px;color:rgba(255,255,255,0.7);margin-top:4px}
+.win{color:var(--green);font-weight:700}.lose{color:var(--red);font-weight:700}
+.pending{background:#fffbeb;border:1px dashed #f59e0b;border-radius:8px;padding:14px 18px;color:#92400e;font-size:13.5px}
+footer{padding:30px 48px;color:#94a3b8;font-size:12px;text-align:center;border-top:1px solid #e2e8f0}
+.bar{display:inline-block;height:14px;background:var(--orange);border-radius:3px;vertical-align:middle}
+.bar2{background:#94a3b8}
+</style>
+</head>
+<body>
+<div class="layout">
+<nav class="sidebar">
+  <div class="logo">Robin Insight</div>
+  <h2>FSI-Mythos<br>벤치마크 검증 리포트</h2>
+  <ul class="toc">
+    <li><a href="#summary">01 요약 (Executive)</a></li>
+    <li><a href="#method">02 평가 방법론</a></li>
+    <li><a href="#corpus">03 평가 코퍼스</a></li>
+    <li><a href="#harness">04 벤치마크 하니스</a></li>
+    <li><a href="#tier0">05 Tier-0 결과 (6)</a></li>
+    <li><a href="#compare">06 SAST 비교</a></li>
+    <li><a href="#tier1">07 Tier-1 결과 (16)</a></li>
+    <li><a href="#tier2">08 Tier-2 재현성</a></li>
+    <li><a href="#cost">09 비용·성능</a></li>
+    <li><a href="#external">10 외부 벤치마크 매핑</a></li>
+    <li><a href="#next">11 한계·다음 단계</a></li>
+  </ul>
+</nav>
+
+<div class="main">
+<header class="hero">
+  <div class="eyebrow">Benchmark Validation Report</div>
+  <h1>FSI-Mythos on AgentCore<br>취약점 탐지 성능 검증</h1>
+  <p>배포된 FSI-Mythos 솔루션을 실제 호출해 취약점 탐지 성능을 정량 측정하고, SAST 도구(Semgrep) 및 공개 벤치마크 체계와 비교한 검증 리포트.</p>
+  <div class="meta">
+    <span>🗓 2026-06-02</span>
+    <span>☁️ AWS us-west-2</span>
+    <span>🎯 라벨링 취약/정상 쌍</span>
+    <span>⚖️ vs Semgrep</span>
+  </div>
+</header>
+
+<div class="content">
+
+<!-- 01 요약 -->
+<section class="section" id="summary">
+  <div class="eyebrow">Section 01</div>
+  <h2>요약 (Executive Summary)</h2>
+  <p>FSI-Mythos AgentCore 솔루션을 <strong>라벨링된 취약/정상 코드 쌍</strong>에서 실제 스캔하여 Precision/Recall/F1 등 표준 지표로 측정했습니다. 동일 코퍼스에 Semgrep(SAST)을 실행해 공정 비교했습니다.</p>
+  <div class="metric-grid">
+    <div class="metric"><div class="v">16/16</div><div class="l">Tier-1 정확 판정</div></div>
+    <div class="metric"><div class="v">1.00</div><div class="l">F1 Score</div></div>
+    <div class="metric"><div class="v">0.00</div><div class="l">오탐률 (FPR)</div></div>
+    <div class="metric"><div class="v">0</div><div class="l">Flaky (재현성)</div></div>
+  </div>
+  <div class="callout c-ok">
+    <strong>✅ 핵심 결과 (Tier-1, 16케이스 / 8 CWE)</strong>
+    <p>FSI-Mythos는 8개 CWE 취약점(명령주입·SQL주입·버퍼오버플로우·경로순회·약한암호·역직렬화·인증우회·XSS)을 <strong>모두 탐지</strong>(Recall 1.0, 미탐 0)하고 정상 코드 8건을 모두 통과(오탐 0)했습니다. 동일 코퍼스에서 Semgrep auto 규칙은 4건을 미탐(Recall 0.5)해, <strong>LLM 에이전트의 의미론적 추론이 규칙 기반 SAST의 탐지 공백을 보완</strong>함을 확인했습니다.</p>
+  </div>
+  <table>
+    <tr><th>도구</th><th>케이스</th><th>Precision</th><th>Recall</th><th>F1</th><th>FPR</th><th>CWE 정확도</th></tr>
+    <tr><td><strong>FSI-Mythos</strong></td><td>Tier-1 (16)</td><td class="win">1.000</td><td class="win">1.000</td><td class="win">1.000</td><td>0.000</td><td>1.000</td></tr>
+    <tr><td>Semgrep (auto)</td><td>Tier-1 (16)</td><td>1.000</td><td class="lose">0.500</td><td>0.667</td><td>0.000</td><td>0.750</td></tr>
+    <tr><td>FSI-Mythos</td><td>Tier-0 (6)</td><td>1.000</td><td>1.000</td><td>1.000</td><td>0.000</td><td>1.000</td></tr>
+  </table>
+  <div class="callout c-tip">
+    <strong>🔁 재현성 (Tier-2)</strong>
+    <p>대표 6케이스를 각 3회 독립 호출한 결과, 취약 케이스는 3/3 일관 탐지, 안전 케이스는 3/3 정상 통과, <strong>flaky(흔들림) 케이스 0개</strong>. 비결정적 LLM임에도 탐지 판정이 완전히 안정적이며 pass@1=pass@3=1.0입니다.</p>
+  </div>
+</section>
+
+<!-- 02 방법론 -->
+<section class="section" id="method">
+  <div class="eyebrow">Section 02</div>
+  <h2>평가 방법론</h2>
+  <h3>판정 규칙</h3>
+  <table>
+    <tr><th>케이스 라벨</th><th>시스템 출력</th><th>판정</th></tr>
+    <tr><td>vulnerable</td><td>validated finding ≥ 1</td><td><span class="tag tag-g">TP</span></td></tr>
+    <tr><td>vulnerable</td><td>validated finding = 0</td><td><span class="tag tag-r">FN (미탐)</span></td></tr>
+    <tr><td>safe</td><td>validated finding ≥ 1</td><td><span class="tag tag-r">FP (오탐)</span></td></tr>
+    <tr><td>safe</td><td>validated finding = 0</td><td><span class="tag tag-g">TN</span></td></tr>
+  </table>
+  <p><strong>validated</strong>는 Validator(Opus 4.8)가 CONFIRMED 또는 LIKELY로 판정한 finding만 인정합니다 (DISMISSED 제외). CWE 정확도는 TP 케이스에서 finding의 <code>cwe_id</code>가 정답 CWE 집합에 포함되는지로 측정합니다.</p>
+  <h3>비용 통제형 4-Tier 설계</h3>
+  <div class="mermaid-wrap">
+  <div class="mermaid">
+flowchart LR
+    T0["Tier-0 스모크<br/>6케이스 · pass@1<br/>하니스 검증"] --> T1["Tier-1 코어<br/>16케이스 · pass@1<br/>8 CWE 변별력"]
+    T1 --> T2["Tier-2 재현성<br/>pass@3<br/>일관성 측정"]
+    T2 --> T3["Tier-3 실세계<br/>PrimeVul 등<br/>현실 성능"]
+    style T0 fill:#d1fae5
+    style T1 fill:#fef3c7
+  </div>
+  </div>
+  <ul>
+    <li><strong>무료 검증 우선</strong> — 채점기·Semgrep·케이스 로딩은 모델 호출 없이 먼저 검증</li>
+    <li><strong>결과 영속화</strong> — 호출 결과를 JSON 저장 → 재채점은 무료, 재현 가능</li>
+    <li><strong>비용 상한</strong> — Tier별 케이스 수·pass@k·max_files 제한</li>
+  </ul>
+</section>
+
+<!-- 03 코퍼스 -->
+<section class="section" id="corpus">
+  <div class="eyebrow">Section 03</div>
+  <h2>평가 코퍼스</h2>
+  <p>8개 주요 CWE 각각에 대해 <strong>취약 버전과 안전 버전을 쌍(paired)</strong>으로 작성했습니다. 같은 기능의 취약/안전 쌍을 두면 미탐(FN)과 오탐(FP)을 균형 있게 측정할 수 있습니다.</p>
+  <table>
+    <tr><th>CWE</th><th>취약점 유형</th><th>언어</th><th>Tier</th><th>취약 패턴 → 안전 패턴</th></tr>
+    <tr><td>CWE-78</td><td>OS 명령 주입</td><td>Python</td><td>0</td><td><code>os.system(입력)</code> → subprocess 인자배열+검증</td></tr>
+    <tr><td>CWE-89</td><td>SQL 주입</td><td>Python</td><td>0</td><td>문자열 포매팅 → 파라미터 바인딩</td></tr>
+    <tr><td>CWE-120</td><td>버퍼 오버플로우</td><td>C</td><td>0</td><td><code>strcpy/sprintf</code> → <code>snprintf</code></td></tr>
+    <tr><td>CWE-22</td><td>경로 순회</td><td>Python</td><td>1</td><td>검증 없는 결합 → realpath 이탈 차단</td></tr>
+    <tr><td>CWE-327</td><td>약한 암호화</td><td>Python</td><td>1</td><td>MD5+고정키/IV → bcrypt+랜덤 nonce</td></tr>
+    <tr><td>CWE-502</td><td>안전하지 않은 역직렬화</td><td>Python</td><td>1</td><td><code>pickle.loads</code> → JSON+스키마검증</td></tr>
+    <tr><td>CWE-287</td><td>인증 우회</td><td>JavaScript</td><td>1</td><td><code>jwt.decode</code> → <code>jwt.verify</code>+알고리즘고정</td></tr>
+    <tr><td>CWE-79</td><td>XSS</td><td>JavaScript</td><td>1</td><td><code>innerHTML</code> → <code>textContent</code></td></tr>
+  </table>
+  <div class="callout c-info">
+    <strong>💡 코퍼스 구성</strong>
+    <p>총 16케이스 = 8 CWE × (취약 + 안전). Tier-0은 6케이스(3쌍), Tier-1은 전체 16케이스. 매니페스트(<code>corpus/manifest.json</code>)에 라벨·정답 CWE·언어가 정의됩니다.</p>
+  </div>
+</section>
+
+<!-- 04 하니스 -->
+<section class="section" id="harness">
+  <div class="eyebrow">Section 04</div>
+  <h2>벤치마크 하니스</h2>
+  <div class="mermaid-wrap">
+  <div class="mermaid">
+flowchart LR
+    MAN["manifest.json<br/>라벨·정답CWE"] --> RUN["run.py<br/>케이스→AgentCore 스캔"]
+    RUN -->|Bearer JWT| AC["AgentCore Runtime<br/>실제 스캔"]
+    AC --> RES["results/tierN.json<br/>원시 결과 영속화"]
+    RES --> SCORE["score.py<br/>P/R/F1/CWE 채점"]
+    SCORE --> CARD["scorecard.json"]
+    SG["Semgrep<br/>--config auto"] --> ADAPT["semgrep_adapter.py"]
+    ADAPT --> SCORE
+    CARD --> CMP["compare.py<br/>비교 리포트"]
+  </div>
+  </div>
+  <table>
+    <tr><th>모듈</th><th>역할</th><th>검증</th></tr>
+    <tr><td><code>corpus/</code></td><td>16 라벨링 케이스 + 매니페스트</td><td>파일 정합성 OK</td></tr>
+    <tr><td><code>run.py</code></td><td>케이스를 files 페이로드로 업로드해 스캔, 결과 저장</td><td>케이스 로딩·SSL OK</td></tr>
+    <tr><td><code>score.py</code></td><td>혼동행렬·P/R/F1/FPR/CWE 채점</td><td>dry-run 자가검증 통과</td></tr>
+    <tr><td><code>semgrep_adapter.py</code></td><td>Semgrep JSON → 채점 포맷 변환</td><td>6 findings 매핑 OK</td></tr>
+    <tr><td><code>compare.py</code></td><td>도구 간 비교 Markdown 생성</td><td>OK</td></tr>
+  </table>
+</section>
+
+<!-- 05 Tier-0 -->
+<section class="section" id="tier0">
+  <div class="eyebrow">Section 05</div>
+  <h2>Tier-0 결과 (실측)</h2>
+  <p>6케이스(3 CWE × 취약/안전), pass@1, max_files=1로 <strong>실제 AgentCore Runtime을 호출</strong>해 측정.</p>
+  <h3>혼동 행렬 · 지표</h3>
+  <table>
+    <tr><th></th><th>값</th><th></th><th>값</th></tr>
+    <tr><td>TP (정탐)</td><td class="win">3</td><td>Precision</td><td class="win">1.000</td></tr>
+    <tr><td>FP (오탐)</td><td>0</td><td>Recall</td><td class="win">1.000</td></tr>
+    <tr><td>FN (미탐)</td><td>0</td><td>F1</td><td class="win">1.000</td></tr>
+    <tr><td>TN (정상)</td><td>3</td><td>FPR</td><td>0.000</td></tr>
+  </table>
+  <h3>케이스별 상세</h3>
+  <table>
+    <tr><th>케이스</th><th>라벨</th><th>판정</th><th>validated</th><th>탐지 CWE</th></tr>
+    <tr><td>cmd-injection-vuln</td><td>vulnerable</td><td><span class="tag tag-g">TP</span></td><td>2</td><td>CWE-78 ✓</td></tr>
+    <tr><td>cmd-injection-safe</td><td>safe</td><td><span class="tag tag-g">TN</span></td><td>0</td><td>-</td></tr>
+    <tr><td>sqli-vuln</td><td>vulnerable</td><td><span class="tag tag-g">TP</span></td><td>2</td><td>CWE-89 ✓</td></tr>
+    <tr><td>sqli-safe</td><td>safe</td><td><span class="tag tag-g">TN</span></td><td>0</td><td>-</td></tr>
+    <tr><td>buffer-overflow-vuln</td><td>vulnerable</td><td><span class="tag tag-g">TP</span></td><td>2</td><td>CWE-120 ✓</td></tr>
+    <tr><td>buffer-overflow-safe</td><td>safe</td><td><span class="tag tag-g">TN</span></td><td>0</td><td>-</td></tr>
+  </table>
+  <div class="callout c-tip">
+    <strong>🎯 관찰</strong>
+    <p>취약 케이스는 모두 finding 2건씩(함수 2개 각각) 정확히 탐지, 안전 케이스는 0건으로 오탐이 전혀 없었습니다. Validator의 적대적 검증이 안전 코드를 취약으로 오판하지 않았음을 의미합니다.</p>
+  </div>
+</section>
+
+<!-- 06 비교 -->
+<section class="section" id="compare">
+  <div class="eyebrow">Section 06</div>
+  <h2>SAST 비교 (vs Semgrep)</h2>
+  <p>동일한 Tier-0 6케이스에 Semgrep <code>--config auto</code>(기본 OSS 규칙)를 실행해 비교했습니다.</p>
+  <h3>지표 비교</h3>
+  <table>
+    <tr><th>지표</th><th>FSI-Mythos</th><th>Semgrep</th><th>차이</th></tr>
+    <tr><td>Precision</td><td>1.000</td><td>1.000</td><td>동일</td></tr>
+    <tr><td>Recall (TPR)</td><td class="win">1.000</td><td>0.333</td><td class="win">+0.667</td></tr>
+    <tr><td>F1</td><td class="win">1.000</td><td>0.500</td><td class="win">+0.500</td></tr>
+    <tr><td>FPR</td><td>0.000</td><td>0.000</td><td>동일</td></tr>
+  </table>
+  <h3>케이스별 탐지 매트릭스</h3>
+  <table>
+    <tr><th>케이스</th><th>라벨</th><th>FSI-Mythos</th><th>Semgrep</th></tr>
+    <tr><td>cmd-injection-vuln</td><td>vulnerable</td><td class="win">✅ 탐지</td><td class="lose">❌ 미탐</td></tr>
+    <tr><td>cmd-injection-safe</td><td>safe</td><td>✅ 정상</td><td>✅ 정상</td></tr>
+    <tr><td>sqli-vuln</td><td>vulnerable</td><td>✅ 탐지</td><td>✅ 탐지</td></tr>
+    <tr><td>sqli-safe</td><td>safe</td><td>✅ 정상</td><td>✅ 정상</td></tr>
+    <tr><td>buffer-overflow-vuln</td><td>vulnerable</td><td class="win">✅ 탐지</td><td class="lose">❌ 미탐</td></tr>
+    <tr><td>buffer-overflow-safe</td><td>safe</td><td>✅ 정상</td><td>✅ 정상</td></tr>
+  </table>
+  <div class="callout c-info">
+    <strong>💡 해석</strong>
+    <p>두 도구 모두 <strong>오탐 0</strong>(Precision 1.0)이지만, Semgrep 기본 규칙은 Python <code>os.system</code> 명령주입과 C <code>strcpy</code> 버퍼오버플로우를 탐지하지 못했습니다(전용 규칙셋 필요). FSI-Mythos는 의미론적 추론으로 데이터 흐름(사용자 입력 → 위험 싱크)을 추적해 탐지했습니다. <strong>SAST는 Precision·속도, LLM 에이전트는 Recall·범용성</strong>에 강점 — 상호 보완적입니다.</p>
+  </div>
+  <div class="callout c-warn">
+    <strong>⚠️ 공정성 주의</strong>
+    <p>Semgrep은 <code>--config auto</code> 기본 규칙만 사용했습니다. <code>p/security-audit</code>·<code>p/owasp-top-ten</code> 등 전용 규칙셋이나 Pro 규칙을 쓰면 Recall이 올라갑니다. 또한 본 코퍼스는 소규모라 절대 수치보다 <strong>방향성</strong>으로 해석해야 합니다.</p>
+  </div>
+</section>
+
+<!-- 07 Tier-1 -->
+<section class="section" id="tier1">
+  <div class="eyebrow">Section 07</div>
+  <h2>Tier-1 결과 (확장)</h2>
+  <p>16케이스(8 CWE × 취약/안전)로 확장. 경로순회·약한암호·역직렬화·인증우회·XSS 등 더 다양한 CWE에서의 변별력 측정.</p>
+  <div id="tier1-content">
+  <h3>혼동 행렬 · 지표 (16케이스 실측)</h3>
+  <table>
+    <tr><th></th><th>FSI-Mythos</th><th>Semgrep</th></tr>
+    <tr><td>TP (정탐)</td><td class="win">8</td><td>4</td></tr>
+    <tr><td>FP (오탐)</td><td>0</td><td>0</td></tr>
+    <tr><td>FN (미탐)</td><td class="win">0</td><td>4</td></tr>
+    <tr><td>TN (정상)</td><td>8</td><td>8</td></tr>
+    <tr><td><strong>Precision</strong></td><td class="win">1.000</td><td>1.000</td></tr>
+    <tr><td><strong>Recall</strong></td><td class="win">1.000</td><td>0.500</td></tr>
+    <tr><td><strong>F1</strong></td><td class="win">1.000</td><td>0.667</td></tr>
+    <tr><td><strong>CWE 정확도</strong></td><td class="win">1.000</td><td>0.750</td></tr>
+  </table>
+  <h3>케이스별 탐지 매트릭스 (8 CWE)</h3>
+  <table>
+    <tr><th>CWE</th><th>케이스</th><th>FSI-Mythos</th><th>Semgrep</th></tr>
+    <tr><td>CWE-78</td><td>명령주입</td><td class="win">✅ 탐지</td><td class="lose">❌ 미탐</td></tr>
+    <tr><td>CWE-89</td><td>SQL주입</td><td>✅ 탐지</td><td>✅ 탐지</td></tr>
+    <tr><td>CWE-120/121</td><td>버퍼오버플로우</td><td class="win">✅ 탐지</td><td class="lose">❌ 미탐</td></tr>
+    <tr><td>CWE-22</td><td>경로순회</td><td class="win">✅ 탐지</td><td class="lose">❌ 미탐</td></tr>
+    <tr><td>CWE-327</td><td>약한암호</td><td>✅ 탐지</td><td>✅ 탐지</td></tr>
+    <tr><td>CWE-502</td><td>역직렬화</td><td>✅ 탐지</td><td>✅ 탐지</td></tr>
+    <tr><td>CWE-287</td><td>인증우회</td><td>✅ 탐지</td><td>✅ 탐지</td></tr>
+    <tr><td>CWE-79</td><td>XSS</td><td class="win">✅ 탐지</td><td class="lose">❌ 미탐</td></tr>
+  </table>
+  <div class="callout c-ok">
+    <strong>✅ Tier-1 결과 (16케이스)</strong>
+    <p>FSI-Mythos는 8개 CWE 취약점을 <strong>모두 탐지</strong>(Recall 1.000, FN 0)하고 안전 코드 8건 모두 통과(FP 0)했습니다. CWE 분류 정확도도 보정 후 1.000(버퍼오버플로우는 CWE-120의 하위인 CWE-121로 더 정밀하게 분류). Semgrep auto 규칙은 명령주입·버퍼오버플로우·경로순회·XSS 4건을 미탐(Recall 0.500).</p>
+  </div>
+  <div class="callout c-info">
+    <strong>📊 CWE 분류 관찰</strong>
+    <p>weak-crypto에서 FSI-Mythos는 MD5(CWE-327)뿐 아니라 하드코딩 키(CWE-798)·고정 IV(CWE-329)까지 다중 탐지했고, 버퍼오버플로우는 스택 특화 CWE-121로 분류해 SAST보다 세밀한 유형 식별을 보였습니다.</p>
+  </div>
+  </div>
+</section>
+
+<!-- 08 Tier-2 재현성 -->
+<section class="section" id="tier2">
+  <div class="eyebrow">Section 08</div>
+  <h2>Tier-2 재현성 (pass@k)</h2>
+  <p>LLM 에이전트는 비결정적이므로 <strong>동일 케이스를 여러 번 독립 호출</strong>해 탐지가 일관적인지 측정해야 합니다. 대표 6케이스(명령주입·약한암호·인증우회의 취약/안전 쌍)를 <strong>각 3회 독립 호출</strong>(end-to-end)하여 측정했습니다.</p>
+  <h3>측정 지표</h3>
+  <ul>
+    <li><strong>detect_rate</strong>: 3회 중 탐지(validated≥1)된 비율 (취약은 1.0, 안전은 0.0이 이상적)</li>
+    <li><strong>pass@k</strong>: k회 시도 시 1회 이상 탐지될 확률 (관측 조합 기반)</li>
+    <li><strong>CWE Jaccard</strong>: 회차별 탐지 CWE 집합의 일관성 (1.0=완전 동일)</li>
+    <li><strong>flaky</strong>: 회차마다 탐지 여부가 흔들리는 케이스</li>
+  </ul>
+  <div id="tier2-content">
+  <div class="metric-grid">
+    <div class="metric"><div class="v">1.00</div><div class="l">취약 탐지율 (3/3)</div></div>
+    <div class="metric"><div class="v">0.00</div><div class="l">안전 오탐율</div></div>
+    <div class="metric"><div class="v">0</div><div class="l">Flaky 케이스</div></div>
+    <div class="metric"><div class="v">1.00</div><div class="l">pass@1 = pass@3</div></div>
+  </div>
+  <h3>케이스별 재현성 (3회 독립 호출)</h3>
+  <table>
+    <tr><th>케이스</th><th>라벨</th><th>탐지 시퀀스</th><th>탐지율</th><th>CWE Jaccard</th><th>Flaky</th></tr>
+    <tr><td>cmd-injection-vuln</td><td>vulnerable</td><td>●●●</td><td class="win">1.00</td><td>1.000</td><td>아니오</td></tr>
+    <tr><td>cmd-injection-safe</td><td>safe</td><td>○○○</td><td>0.00</td><td>-</td><td>아니오</td></tr>
+    <tr><td>weak-crypto-vuln</td><td>vulnerable</td><td>●●●</td><td class="win">1.00</td><td>0.733</td><td>아니오</td></tr>
+    <tr><td>weak-crypto-safe</td><td>safe</td><td>○○○</td><td>0.00</td><td>-</td><td>아니오</td></tr>
+    <tr><td>auth-bypass-vuln</td><td>vulnerable</td><td>●●●</td><td class="win">1.00</td><td>1.000</td><td>아니오</td></tr>
+    <tr><td>auth-bypass-safe</td><td>safe</td><td>○○○</td><td>0.00</td><td>-</td><td>아니오</td></tr>
+  </table>
+  <p style="font-size:13px;color:#64748b">● 탐지 / ○ 미탐 · 각 케이스 3회 독립 호출</p>
+  <div class="callout c-ok">
+    <strong>✅ 재현성 결과</strong>
+    <p>비결정적 LLM(temperature=1.0)임에도 <strong>탐지 판정은 완전히 안정적</strong>입니다. 취약 3케이스는 3/3 일관 탐지, 안전 3케이스는 3/3 정상 통과, <strong>flaky 케이스 0개</strong>. pass@1과 pass@3이 모두 1.0이라 단 1회 스캔으로도 신뢰할 수 있음을 의미합니다.</p>
+  </div>
+  <div class="callout c-info">
+    <strong>📊 CWE 일관성 관찰</strong>
+    <p>명령주입·인증우회는 회차별 CWE 집합이 완전 동일(Jaccard 1.0). weak-crypto는 0.733으로, <strong>핵심 CWE(327 약한해시·329 고정IV·798 하드코딩키)는 3회 모두 일관 탐지</strong>하되 부가 CWE만 회차별로 달랐습니다(run1-2: CWE-20 입력검증, run3: CWE-353 무결성). 즉 핵심 취약점 판정은 안정적이고, 추가 맥락 CWE에서만 약간의 다양성이 나타납니다.</p>
+  </div>
+  </div>
+</section>
+
+<!-- 09 비용 -->
+<section class="section" id="cost">
+  <div class="eyebrow">Section 09</div>
+  <h2>비용 · 성능 특성</h2>
+  <table>
+    <tr><th>항목</th><th>Tier-0 (6)</th><th>Tier-1 (16)</th></tr>
+    <tr><td>취약 케이스 평균 시간</td><td>~140초</td><td>~95초</td></tr>
+    <tr><td>안전 케이스 평균 시간</td><td>~19초</td><td>~24초</td></tr>
+    <tr><td>전체 소요</td><td>~477초 (8분)</td><td>~954초 (16분)</td></tr>
+    <tr><td>설정</td><td colspan="2">pass@1, max_files=1, 샌드박스 off</td></tr>
+  </table>
+  <p>취약 케이스는 Hunter→Challenger→Validator 전체를 거쳐 90~140초, 안전 케이스는 Hunter가 빈 결과를 내 후속 단계를 건너뛰어 19~24초로 약 4~7배 빠릅니다.</p>
+  <div class="callout c-tip">
+    <strong>🎯 성능 인사이트</strong>
+    <p>취약점이 없는 코드는 Hunter가 빈 결과를 내 후속 단계를 건너뛰어 <strong>7배 빠릅니다</strong>(19s vs 140s). 실무에서 대부분 코드가 정상임을 고려하면 평균 비용은 낮아집니다. pass@k를 높이면 재현성↑·시간/비용↑.</p>
+  </div>
+</section>
+
+<!-- 10 외부 -->
+<section class="section" id="external">
+  <div class="eyebrow">Section 10</div>
+  <h2>외부 벤치마크 매핑</h2>
+  <p>본 코퍼스의 CWE를 공개 벤치마크 체계에 매핑해 외부 비교 가능성을 확보합니다.</p>
+  <table>
+    <tr><th>본 코퍼스 CWE</th><th>OWASP Benchmark</th><th>PrimeVul/DiverseVul</th><th>비고</th></tr>
+    <tr><td>CWE-89 SQLi</td><td>✓ sqli</td><td>✓</td><td>OWASP 핵심 카테고리</td></tr>
+    <tr><td>CWE-78 명령주입</td><td>✓ cmdi</td><td>✓</td><td>OWASP 핵심</td></tr>
+    <tr><td>CWE-22 경로순회</td><td>✓ pathtraver</td><td>✓</td><td>OWASP 핵심</td></tr>
+    <tr><td>CWE-327 약한암호</td><td>✓ crypto/hash</td><td>✓</td><td>OWASP weak crypto</td></tr>
+    <tr><td>CWE-79 XSS</td><td>✓ xss</td><td>✓</td><td>OWASP 핵심</td></tr>
+    <tr><td>CWE-120 버퍼오버플로우</td><td>-</td><td>✓ (C/C++ 다수)</td><td>PrimeVul/DiverseVul 주력</td></tr>
+    <tr><td>CWE-502 역직렬화</td><td>-</td><td>✓</td><td>실세계 빈발</td></tr>
+    <tr><td>CWE-287 인증우회</td><td>-</td><td>✓</td><td>로직 취약점</td></tr>
+  </table>
+  <p>본격 외부 비교는 Tier-3에서 <strong>PrimeVul</strong>(권장, 라벨 정제)이나 <strong>OWASP Benchmark</strong>를 직접 로드해 동일 하니스로 측정합니다. 데이터 누출 방지를 위해 시간순 분할(chronological split)을 적용해야 합니다.</p>
+</section>
+
+<!-- 11 다음 단계 -->
+<section class="section" id="next">
+  <div class="eyebrow">Section 11</div>
+  <h2>한계 · 다음 단계</h2>
+  <h3>현재 한계</h3>
+  <ul>
+    <li><strong>소규모 코퍼스</strong> — 통계적 유의성보다 하니스 검증·방향성 확인이 목적</li>
+    <li><strong>합성 코드</strong> — 교과서적 취약 패턴이라 실세계보다 단순. Tier-3 실세계 데이터 필요</li>
+    <li><strong>SAST 단일 비교</strong> — Semgrep auto 규칙만 비교. CodeQL/Checkmarx/전용 규칙셋 추가 필요</li>
+    <li><strong>데이터 누출 미통제</strong> — 합성 코퍼스라 무관하나, 공개 CVE 사용 시 모델 학습 여부 통제 필요</li>
+  </ul>
+  <h3>로드맵</h3>
+  <table>
+    <tr><th>단계</th><th>내용</th><th>목적</th><th>상태</th></tr>
+    <tr><td>Tier-0</td><td>6케이스 (3 CWE)</td><td>하니스 검증</td><td><span class="tag tag-g">완료</span></td></tr>
+    <tr><td>Tier-1</td><td>16케이스 (8 CWE)</td><td>다양한 CWE 변별력</td><td><span class="tag tag-g">완료</span></td></tr>
+    <tr><td>Tier-2</td><td>6케이스 × 3회 재현성</td><td>발견 일관성·안정성</td><td><span class="tag tag-g">완료</span></td></tr>
+    <tr><td>Tier-3</td><td>PrimeVul/OWASP Benchmark</td><td>실세계 성능, 외부 비교</td><td><span class="tag tag-o">예정</span></td></tr>
+    <tr><td>확장</td><td>CodeQL·전용 규칙셋 비교</td><td>SAST 공정 비교 강화</td><td><span class="tag tag-o">예정</span></td></tr>
+    <tr><td>운영</td><td>자사 레거시 CVE 패치를 ground truth로 회귀</td><td>도메인 특화 검증</td><td><span class="tag tag-o">예정</span></td></tr>
+  </table>
+</section>
+
+</div>
+<footer>
+  FSI-Mythos on AgentCore — Benchmark Validation Report · 작성: Robin (AWS FSI SA) · 2026-06-02 · Confidential / Internal Use<br>
+  본 리포트의 수치는 소규모 부트스트랩 코퍼스 실측 기반이며, 방향성 확인이 주 목적입니다.
+</footer>
+</div>
+</div>
+<script>
+mermaid.initialize({startOnLoad:true,theme:'neutral',securityLevel:'loose',flowchart:{useMaxWidth:true,htmlLabels:true}});
+const sections=document.querySelectorAll('.section[id]');
+const links=document.querySelectorAll('.toc a');
+window.addEventListener('scroll',()=>{let cur='';sections.forEach(s=>{if(s.getBoundingClientRect().top<160)cur=s.id});links.forEach(a=>a.classList.toggle('active',a.getAttribute('href')==='#'+cur))});
+</script>
+</body>
+</html>
