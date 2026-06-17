@@ -24,16 +24,19 @@ done
 AUTH_CONFIG=$(jq -n --arg iss "$ISSUER" --arg clid "$CLIENT_ID" \
   '{customJWTAuthorizer:{discoveryUrl:($iss + "/.well-known/openid-configuration"),allowedClients:[$clid]}}')
 ARTIFACT=$(jq -n --arg uri "$IMAGE" '{containerConfiguration:{containerUri:$uri}}')
+NET_CONFIG='{"networkMode":"PUBLIC"}'
 
+# Robust existence check: trim whitespace/newlines; treat empty or "None" as absent.
 existing=$(aws bedrock-agentcore-control list-agent-runtimes --region "$REGION" \
-  --query "agentRuntimes[?agentRuntimeName=='${NAME}'].agentRuntimeId | [0]" --output text 2>/dev/null || echo "None")
+  --query "agentRuntimes[?agentRuntimeName=='${NAME}'].agentRuntimeId | [0]" \
+  --output text 2>/dev/null | head -n1 | tr -d '[:space:]' || true)
 
-if [ "$existing" = "None" ] || [ -z "$existing" ]; then
+if [ -z "$existing" ] || [ "$existing" = "None" ]; then
   echo "[agentcore] creating runtime ${NAME}"
   aws bedrock-agentcore-control create-agent-runtime --region "$REGION" \
     --agent-runtime-name "$NAME" \
     --role-arn "$ROLE_ARN" \
-    --network-configuration '{"networkMode":"PUBLIC"}' \
+    --network-configuration "$NET_CONFIG" \
     --authorizer-configuration "$AUTH_CONFIG" \
     --agent-runtime-artifact "$ARTIFACT"
 else
@@ -41,6 +44,7 @@ else
   aws bedrock-agentcore-control update-agent-runtime --region "$REGION" \
     --agent-runtime-id "$existing" \
     --role-arn "$ROLE_ARN" \
+    --network-configuration "$NET_CONFIG" \
     --authorizer-configuration "$AUTH_CONFIG" \
     --agent-runtime-artifact "$ARTIFACT"
 fi
