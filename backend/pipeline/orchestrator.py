@@ -100,6 +100,7 @@ class FSIMythosPipeline:
         # Phase 7 (pre) — suppress known FPs before challenging (cheaper)
         if self.fp_store is not None:
             all_findings = suppress_known_fps(self.fp_store, all_findings, self.user_id)
+        hunted_candidates = list(all_findings)  # post-suppression candidate set (for FP memory)
 
         # Phase 3.5 — challenge (grouped by file for code context)
         self._emit(PHASES[4])
@@ -146,7 +147,9 @@ class FSIMythosPipeline:
         # Phase 7 — record dismissed as FPs (best-effort)
         self._emit(PHASES[7])
         if self.fp_store is not None:
-            dismissed = [f for f in challenged if f not in validated]
+            # everything hunted but not finally validated is a (candidate) false positive —
+            # including findings dropped by the Challenger in Phase 3.5.
+            dismissed = [f for f in hunted_candidates if f not in validated]
             record_false_positives(self.fp_store, dismissed, self.user_id)
 
         return {"summary": summary, "report": report, "gate": gate}

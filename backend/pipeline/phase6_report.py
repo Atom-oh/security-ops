@@ -6,6 +6,7 @@ pipeline (fail-closed for a financial-sector posture).
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from pipeline.config import Finding, Severity
@@ -22,8 +23,13 @@ _ASFF_SEVERITY = {
 _BLOCKING_SEVERITIES = {Severity.CRITICAL, Severity.HIGH}
 
 
-def to_asff(finding: Finding, account_id: str, region: str) -> Dict:
-    """Render one finding as an ASFF record."""
+def to_asff(finding: Finding, account_id: str, region: str, created_at: Optional[str] = None) -> Dict:
+    """Render one finding as an ASFF record.
+
+    ``created_at`` (ISO8601) defaults to now — Security Hub tracks finding lifecycle by these
+    timestamps, so they must be dynamic, not hardcoded.
+    """
+    ts = created_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     return {
         "SchemaVersion": "2018-10-08",
         "Id": finding.id,
@@ -33,8 +39,8 @@ def to_asff(finding: Finding, account_id: str, region: str) -> Dict:
         "GeneratorId": "fsi-mythos-pipeline",
         "AwsAccountId": account_id,
         "Types": ["Software and Configuration Checks/Vulnerabilities/CVE"],
-        "CreatedAt": "2026-06-01T00:00:00.000Z",
-        "UpdatedAt": "2026-06-01T00:00:00.000Z",
+        "CreatedAt": ts,
+        "UpdatedAt": ts,
         "Severity": _ASFF_SEVERITY.get(finding.severity, _ASFF_SEVERITY[Severity.INFO]),
         "Title": finding.title,
         "Description": finding.description or finding.title,

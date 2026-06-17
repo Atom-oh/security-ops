@@ -41,6 +41,13 @@ def _cors(origin: str) -> Dict:
 
 
 def _default_spawn(fn: Callable[[], None]) -> None:
+    """Run an async job in a background thread.
+
+    This is valid on AgentCore Runtime, whose container persists for the session lifetime
+    (unlike AWS Lambda, which freezes after the response — there a daemon thread would die).
+    ``Deps.spawn`` is injectable so a deployment that needs a durable trigger can swap in an
+    SQS/EventBridge/async-invoke dispatcher without touching ``route``.
+    """
     threading.Thread(target=fn, daemon=True).start()
 
 
@@ -59,26 +66,41 @@ class Deps:
 
 
 def _user_id(payload: Dict, context) -> str:
-    """Prefer the verified JWT claim from context; fall back to payload for local/tests."""
+    """Identity comes ONLY from the verified JWT claims in context — never from the request
+    payload (a payload-controlled user_id would let a caller read another user's history).
+
+    A payload ``user_id`` is honored only when ``FSI_ALLOW_PAYLOAD_USER=1`` (local dev/tests),
+    never in the deployed container.
+    """
     claims = {}
     if context is not None:
         claims = getattr(context, "claims", None) or (
             context.get("claims") if isinstance(context, dict) else {}
         ) or {}
-    return claims.get("email") or claims.get("username") or payload.get("user_id") or "anonymous"
+    identity = claims.get("email") or claims.get("username")
+    if not identity and os.environ.get("FSI_ALLOW_PAYLOAD_USER") == "1":
+        identity = payload.get("user_id")
+    return identity or "anonymous"
 
 
 def _materialize_upload(payload: Dict) -> Optional[str]:
-    """If the payload carries uploaded files, write them to a temp dir and return it."""
+    """If the payload carries uploaded files, write them to a temp dir and return it.
+
+    Hardened against path traversal ("zip slip"): each resolved destination must stay inside
+    the temp root, else the entry is skipped.
+    """
     upload = payload.get("upload")
     if not upload or not upload.get("files"):
         return None
     root = tempfile.mkdtemp(prefix="fsi-upload-")
+    root_abs = os.path.abspath(root)
     for f in upload["files"]:
         rel = f.get("path", "").lstrip("/")
         if not rel:
             continue
-        dest = os.path.join(root, rel)
+        dest = os.path.abspath(os.path.join(root, rel))
+        if dest != root_abs and not dest.startswith(root_abs + os.sep):
+            continue  # path traversal attempt — skip
         os.makedirs(os.path.dirname(dest) or root, exist_ok=True)
         data = f.get("content_b64")
         with open(dest, "wb") as fh:
@@ -100,7 +122,9 @@ def _build_config(payload: Dict, region: str) -> ScanConfig:
     return cfg
 
 
-def _run_scan(payload: Dict, user_id: str, deps: Deps) -> Dict:
+def _run_scan(payload: Dict, user_id: str, deps: Deps, progress=None) -> Dict:
+    import shutil
+
     upload_dir = _materialize_upload(payload)
     cfg = _build_config(payload, deps.region)
     if upload_dir:
@@ -112,8 +136,13 @@ def _run_scan(payload: Dict, user_id: str, deps: Deps) -> Dict:
         fp_store=deps.fp_store,
         sandbox=deps.sandbox,
         user_id=user_id,
+        progress=progress,
     )
-    return pipe.run()
+    try:
+        return pipe.run()
+    finally:
+        if upload_dir:
+            shutil.rmtree(upload_dir, ignore_errors=True)  # avoid /tmp leak
 
 
 def route(payload: Dict, context=None, deps: Optional[Deps] = None) -> Dict:
@@ -145,9 +174,12 @@ def route(payload: Dict, context=None, deps: Optional[Deps] = None) -> Dict:
         # write IN_PROGRESS up front so the poller sees it immediately
         _persist(deps, user_id, scan_id, payload, status="IN_PROGRESS", result=None)
 
+        def _progress(phase: str) -> None:
+            _safe_update(deps, user_id, scan_id, currentPhase=phase)
+
         def _job() -> None:
             try:
-                result = _run_scan(payload, user_id, deps)
+                result = _run_scan(payload, user_id, deps, progress=_progress)
                 _persist(deps, user_id, scan_id, payload, status="done", result=result, update=True)
             except Exception as exc:  # noqa: BLE001 — record failure, never crash the worker
                 _safe_update(deps, user_id, scan_id, status="error", error=str(exc))

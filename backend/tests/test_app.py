@@ -60,13 +60,23 @@ def test_unknown_action_is_400():
     assert res["statusCode"] == 400
 
 
+_CTX = {"claims": {"email": "u@x"}}  # verified JWT identity
+
+
 def test_sync_scan_runs_and_persists(tmp_path):
     hist = FakeHistory()
-    res = route({"action": "scan", "project_path": _target_dir(tmp_path), "user_id": "u@x"}, deps=_deps(hist))
+    res = route({"action": "scan", "project_path": _target_dir(tmp_path)}, context=_CTX, deps=_deps(hist))
     assert res["status"] == "done"
     assert res["scanId"]
     assert "summary" in res
     assert hist.saved and hist.saved[0][0] == "u@x"
+
+
+def test_payload_user_id_ignored_without_claims(tmp_path):
+    # security: a payload-supplied user_id must NOT set identity (no claims → anonymous)
+    hist = FakeHistory()
+    route({"action": "scan", "project_path": _target_dir(tmp_path), "user_id": "attacker@evil"}, deps=_deps(hist))
+    assert hist.saved[0][0] == "anonymous"
 
 
 def test_async_scan_returns_immediately_and_completes(tmp_path):
@@ -100,9 +110,9 @@ def test_async_scan_records_error(tmp_path):
 def test_list_and_get(tmp_path):
     hist = FakeHistory()
     hist.items = [{"userId": "u@x", "scanId": "s1"}]
-    res = route({"action": "list_history", "user_id": "u@x"}, deps=_deps(hist))
+    res = route({"action": "list_history"}, context=_CTX, deps=_deps(hist))
     assert res["items"] == [{"userId": "u@x", "scanId": "s1"}]
-    res2 = route({"action": "get_scan", "scanId": "s1", "user_id": "u@x"}, deps=_deps(hist))
+    res2 = route({"action": "get_scan", "scanId": "s1"}, context=_CTX, deps=_deps(hist))
     assert res2["scan"]["scanId"] == "s1"
 
 

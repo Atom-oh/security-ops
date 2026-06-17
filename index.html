@@ -43,6 +43,16 @@
     color: var(--text-dim); margin: 0 0 18px;
   }
 
+  /* demo preview */
+  .demo { margin-bottom: 56px; }
+  .demo-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 20px; align-items: start; }
+  figure.shot { margin: 0; background: var(--card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+  figure.shot video, figure.shot img { display: block; width: 100%; height: auto; background: #0e1422; }
+  figure.shot figcaption { padding: 12px 16px; font-size: 13px; color: var(--text-dim); border-top: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  figure.shot figcaption .dl { color: var(--accent); text-decoration: none; font-weight: 600; white-space: nowrap; }
+  figure.shot figcaption .dl:hover { text-decoration: underline; }
+  @media (max-width: 760px) { .demo-grid { grid-template-columns: 1fr; } }
+
   .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
   .card {
     display: flex; flex-direction: column;
@@ -109,6 +119,30 @@
       <h1>Claude Mythos &middot; 금융사 적용 문서 허브</h1>
       <p class="subtitle">Claude Mythos 분석과 국내 금융사 적용 방안, FSI-Mythos 아키텍처 및 벤치마크 검증 자료를 한곳에 모았습니다. 카드를 클릭하면 해당 문서가 열립니다.</p>
     </header>
+
+    <section class="demo">
+      <p class="section-label">데모 미리보기</p>
+      <div class="demo-grid">
+        <figure class="shot">
+          <video controls preload="metadata" poster="assets/demo-dashboard.png" playsinline>
+            <source src="assets/demo-recording.mov" type="video/mp4">
+            <source src="assets/demo-recording.mov" type="video/quicktime">
+            브라우저가 동영상을 지원하지 않습니다.
+          </video>
+          <figcaption>
+            <span>FSI-Mythos AI 보안 스캐닝 — 동작 녹화</span>
+            <a class="dl" href="assets/demo-recording.mov" download>다운로드 ↓</a>
+          </figcaption>
+        </figure>
+        <figure class="shot">
+          <img src="assets/demo-dashboard.png" alt="AI 보안 스캐닝 대시보드 스크린샷" loading="lazy">
+          <figcaption>
+            <span>AI 보안 스캐닝 대시보드 화면</span>
+            <a class="dl" href="assets/demo-dashboard.png" download>다운로드 ↓</a>
+          </figcaption>
+        </figure>
+      </div>
+    </section>
 
     <p class="section-label">문서 목록</p>
     <main class="grid">

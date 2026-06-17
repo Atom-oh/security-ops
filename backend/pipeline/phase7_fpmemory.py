@@ -33,18 +33,29 @@ class InMemoryFPStore:
 
 class AgentCoreFPStore:
     """FP store backed by AgentCore Memory. Lazily binds the client so unit tests that use
-    the in-memory store never import the SDK."""
+    the in-memory store never import the SDK.
 
-    def __init__(self, memory_id: str, client=None) -> None:
+    The per-user namespace is used consistently for both write and read (``fp/<user_id>``)
+    so recall actually finds what record wrote, and recall paginates via ``nextToken`` so a
+    growing FP history isn't silently truncated. Verify the exact Memory API shape against
+    your AgentCore SDK version at deploy time.
+    """
+
+    def __init__(self, memory_id: str, region=None, client=None) -> None:
         self.memory_id = memory_id
+        self._region = region
         self._client = client
+
+    @staticmethod
+    def _namespace(user_id: str) -> str:
+        return f"fp/{user_id}"
 
     @property
     def client(self):
         if self._client is None:
             import boto3
 
-            self._client = boto3.client("bedrock-agentcore")
+            self._client = boto3.client("bedrock-agentcore", region_name=self._region)
         return self._client
 
     def record(self, user_id: str, pattern: Dict) -> None:
@@ -53,21 +64,32 @@ class AgentCoreFPStore:
         self.client.create_event(
             memoryId=self.memory_id,
             actorId=user_id,
+            sessionId=self._namespace(user_id),
             payload=[{"text": json.dumps({"fp": pattern}, ensure_ascii=False)}],
         )
 
     def recall(self, user_id: str) -> List[Dict]:
         import json
 
-        resp = self.client.retrieve_memory_records(
-            memoryId=self.memory_id, namespace=user_id, searchCriteria={"searchQuery": "fp"}
-        )
         out: List[Dict] = []
-        for rec in resp.get("memoryRecords", []):
-            try:
-                out.append(json.loads(rec["content"]["text"])["fp"])
-            except (KeyError, ValueError, TypeError):
-                continue
+        next_token = None
+        while True:
+            kwargs = dict(
+                memoryId=self.memory_id,
+                namespace=self._namespace(user_id),
+                searchCriteria={"searchQuery": "fp"},
+            )
+            if next_token:
+                kwargs["nextToken"] = next_token
+            resp = self.client.retrieve_memory_records(**kwargs)
+            for rec in resp.get("memoryRecords", []):
+                try:
+                    out.append(json.loads(rec["content"]["text"])["fp"])
+                except (KeyError, ValueError, TypeError):
+                    continue
+            next_token = resp.get("nextToken")
+            if not next_token:
+                break
         return out
 
 

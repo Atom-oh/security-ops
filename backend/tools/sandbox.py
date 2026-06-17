@@ -69,6 +69,8 @@ def verify_findings(
     """When enabled, attempt sandbox reproduction per finding and boost confirmed ones."""
     if not enabled:
         return findings
+    # NOTE(perf): one interpreter session per finding. A future optimization is to reuse a
+    # single session per file and run multiple PoC checks within it.
     for f in findings:
         try:
             result = sandbox.verify_poc_in_sandbox(f, code)
