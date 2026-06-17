@@ -40,6 +40,10 @@ function isCodeFile(name: string): boolean {
   return CODE_EXTENSIONS.has(name.slice(dot).toLowerCase());
 }
 
+// Upload pool cap. Only `max_files` of these get deep-analyzed (after risk ranking), so the
+// pool just needs to be a reasonable candidate set — not the whole repo.
+const MAX_UPLOAD_FILES = 20;
+
 export function ScanForm({ busy, onSubmit }: { busy: boolean; onSubmit: (v: ScanFormValue) => void }) {
   const [source, setSource] = useState<"container" | "upload">("container");
   const [projectPath, setProjectPath] = useState("/app/sample-target");
@@ -55,7 +59,7 @@ export function ScanForm({ busy, onSubmit }: { busy: boolean; onSubmit: (v: Scan
       isCodeFile((f as any).webkitRelativePath || f.name),
     );
     const out: { path: string; content_b64: string }[] = [];
-    for (const f of code.slice(0, 50)) {
+    for (const f of code.slice(0, MAX_UPLOAD_FILES)) {
       out.push({ path: (f as any).webkitRelativePath || f.name, content_b64: await fileToB64(f) });
     }
     setFiles(out);
@@ -88,7 +92,7 @@ export function ScanForm({ busy, onSubmit }: { busy: boolean; onSubmit: (v: Scan
         </label>
       ) : (
         <label style={{ display: "grid", gap: "var(--space-1)" }}>
-          <span style={labelStyle}>폴더 선택 (최대 50파일)</span>
+          <span style={labelStyle}>폴더 선택 (코드 파일 최대 {MAX_UPLOAD_FILES}개)</span>
           {/* @ts-expect-error webkitdirectory is non-standard */}
           <input type="file" webkitdirectory="" multiple onChange={(e) => onFiles(e.target.files)} />
           <span style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)" }}>{files.length}개 선택됨</span>
