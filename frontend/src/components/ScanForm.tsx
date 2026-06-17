@@ -22,10 +22,28 @@ async function fileToB64(file: File): Promise<string> {
   return btoa(bin);
 }
 
+// Only source code is uploaded (js, ts, py, java, cpp, c, go families) — everything else
+// (assets, docs, lockfiles, binaries) is filtered out client-side.
+const CODE_EXTENSIONS = new Set([
+  ".js", ".jsx", ".mjs", ".cjs",
+  ".ts", ".tsx",
+  ".py",
+  ".java",
+  ".cpp", ".cc", ".cxx", ".hpp", ".hh",
+  ".c", ".h",
+  ".go",
+]);
+
+function isCodeFile(name: string): boolean {
+  const dot = name.lastIndexOf(".");
+  if (dot < 0) return false;
+  return CODE_EXTENSIONS.has(name.slice(dot).toLowerCase());
+}
+
 export function ScanForm({ busy, onSubmit }: { busy: boolean; onSubmit: (v: ScanFormValue) => void }) {
   const [source, setSource] = useState<"container" | "upload">("container");
   const [projectPath, setProjectPath] = useState("/app/sample-target");
-  const [maxFiles, setMaxFiles] = useState(8);
+  const [maxFiles, setMaxFiles] = useState(3);
   const [passAtK, setPassAtK] = useState(1);
   const [sandbox, setSandbox] = useState(false);
   const [async, setAsync] = useState(false);
@@ -33,8 +51,11 @@ export function ScanForm({ busy, onSubmit }: { busy: boolean; onSubmit: (v: Scan
 
   async function onFiles(list: FileList | null) {
     if (!list) return;
+    const code = Array.from(list).filter((f) =>
+      isCodeFile((f as any).webkitRelativePath || f.name),
+    );
     const out: { path: string; content_b64: string }[] = [];
-    for (const f of Array.from(list).slice(0, 50)) {
+    for (const f of code.slice(0, 50)) {
       out.push({ path: (f as any).webkitRelativePath || f.name, content_b64: await fileToB64(f) });
     }
     setFiles(out);
@@ -103,8 +124,8 @@ export function ScanForm({ busy, onSubmit }: { busy: boolean; onSubmit: (v: Scan
 
       <div style={{ display: "flex", gap: "var(--space-4)" }}>
         {[
-          { v: false, label: "동기 (즉시 결과)" },
-          { v: true, label: "비동기 (백그라운드)" },
+          { v: false, label: "동기 (권장 · 결과까지 대기)" },
+          { v: true, label: "비동기 (실험적)" },
         ].map((m) => (
           <label key={String(m.v)} style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
             <input type="radio" checked={async === m.v} onChange={() => setAsync(m.v)} />
@@ -115,8 +136,11 @@ export function ScanForm({ busy, onSubmit }: { busy: boolean; onSubmit: (v: Scan
 
       <div>
         <button className="btn-primary" disabled={busy} onClick={submit}>
-          {busy ? "스캔 중…" : "스캔 시작"}
+          {busy ? "스캔 중… (수 분 소요)" : "스캔 시작"}
         </button>
+        <div style={{ fontSize: "var(--text-xs)", color: "var(--text-muted)", marginTop: "var(--space-2)" }}>
+          파일당 약 30~60초 (Opus 다중 에이전트). 동기 모드는 완료까지 기다립니다 — 파일 수가 많으면 수 분 걸릴 수 있습니다.
+        </div>
       </div>
     </div>
   );

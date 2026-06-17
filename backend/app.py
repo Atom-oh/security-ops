@@ -10,6 +10,7 @@ The HTTP/SDK glue is thin: ``route(payload, context, deps)`` is pure and unit-te
 from __future__ import annotations
 
 import base64
+import logging
 import os
 import tempfile
 import threading
@@ -21,6 +22,9 @@ from typing import Callable, Dict, List, Optional
 from agents.bedrock import BedrockConverse
 from pipeline.config import ScanConfig
 from pipeline.orchestrator import FSIMythosPipeline
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("fsi.app")
 
 CORS_HEADERS = {
     "Access-Control-Allow-Headers": "Authorization, Content-Type",
@@ -164,6 +168,7 @@ def route(payload: Dict, context=None, deps: Optional[Deps] = None) -> Dict:
         return {"action": None, "status": "error", "error": "missing 'action'", "cors": _cors(origin)}
 
     user_id = _user_id(payload, context)
+    log.info("route action=%s user=%s", action, user_id)
 
     if action == "list_history":
         items = deps.history.list_history(user_id, limit=int(payload.get("limit", 50)))
@@ -175,7 +180,12 @@ def route(payload: Dict, context=None, deps: Optional[Deps] = None) -> Dict:
 
     if action == "scan":
         scan_id = _new_scan_id()
-        result = _run_scan(payload, user_id, deps)
+        try:
+            result = _run_scan(payload, user_id, deps)
+        except Exception as exc:  # noqa: BLE001 — surface the error instead of a 500
+            log.exception("sync scan failed")
+            _persist(deps, user_id, scan_id, payload, status="error", result=None)
+            return {"cors": _cors(origin), "action": action, "scanId": scan_id, "status": "error", "error": str(exc)}
         _persist(deps, user_id, scan_id, payload, status="done", result=result)
         return {"cors": _cors(origin), "action": action, "scanId": scan_id, "status": "done", **result}
 

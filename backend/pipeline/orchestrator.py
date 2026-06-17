@@ -7,7 +7,11 @@ persist live status to DynamoDB.
 """
 from __future__ import annotations
 
+import logging
+import time
 from typing import Callable, Dict, List, Optional
+
+log = logging.getLogger("fsi.pipeline")
 
 from pipeline.config import Finding, ScanConfig
 from pipeline.phase0_languages import detect_languages
@@ -59,10 +63,15 @@ class FSIMythosPipeline:
 
     def run(self) -> Dict:
         cfg = self.config
+        t0 = time.time()
+        log.info("scan start: path=%s max_files=%s pass_at_k=%s region=%s models=[hunter=%s ranker=%s validator=%s]",
+                 cfg.project_path, cfg.max_files, cfg.pass_at_k, cfg.region,
+                 cfg.hunter_model, cfg.ranker_model, cfg.validator_model)
 
         # Phase 0
         self._emit(PHASES[0])
         lang_files = detect_languages(cfg.project_path)
+        log.info("phase0: %s", {k.value: len(v) for k, v in lang_files.items()})
 
         # Phase 1 — slice every file, build per-file slices + sink counts
         self._emit(PHASES[1])
@@ -77,14 +86,18 @@ class FSIMythosPipeline:
                     lang_by_file[path] = language
                     sink_counts[path] = len(sl)
 
+        log.info("phase1: %d files with sinks", len(sink_counts))
+
         # Phase 2 — rank
         self._emit(PHASES[2])
         ranked = rank_files(sink_counts, cfg, converse=self.converse)
+        log.info("phase2: ranked %d files: %s", len(ranked), [r.get("file") for r in ranked])
 
         # Phase 3/3.5/4 — per ranked file
         self._emit(PHASES[3])
         all_findings: List[Finding] = []
         per_file_targets: Dict[str, Dict] = {}
+        hunt_failures = 0
         for entry in ranked:
             path = entry["file"]
             slices = slices_by_file.get(path, [])
@@ -95,7 +108,20 @@ class FSIMythosPipeline:
                 "sink_summary": ", ".join(f"{s['sink']}@{s['line']}" for s in slices),
             }
             per_file_targets[path] = target
-            all_findings.extend(hunt(target, cfg, converse=self.converse))
+            # Isolate per-file hunt errors (e.g. a transient Bedrock failure) so one bad file
+            # doesn't abort the whole scan.
+            try:
+                found = hunt(target, cfg, converse=self.converse)
+                log.info("phase3 hunt %s: %d findings", path, len(found))
+                all_findings.extend(found)
+            except Exception:
+                hunt_failures += 1
+                log.exception("phase3 hunt failed for %s", path)
+
+        # A few failed files are tolerated, but if EVERY hunt failed the scan can't claim the
+        # target is clean — surface it as an error (false-negative guard for a security tool).
+        if ranked and hunt_failures == len(ranked):
+            raise RuntimeError(f"all {hunt_failures} file hunts failed (e.g. Bedrock unavailable)")
 
         # Phase 7 (pre) — suppress known FPs before challenging (cheaper)
         if self.fp_store is not None:
@@ -118,7 +144,11 @@ class FSIMythosPipeline:
         for path, target in per_file_targets.items():
             group = [f for f in challenged if f.file_path == path]
             if group:
-                validated.extend(validate(group, target, cfg, converse=self.converse))
+                try:
+                    validated.extend(validate(group, target, cfg, converse=self.converse))
+                except Exception:
+                    log.exception("phase4 validate failed for %s; keeping unvalidated", path)
+                    validated.extend(group)
         validated.extend([f for f in challenged if f.file_path not in per_file_targets])
 
         # optional sandbox PoC verification
@@ -152,4 +182,5 @@ class FSIMythosPipeline:
             dismissed = [f for f in hunted_candidates if f not in validated]
             record_false_positives(self.fp_store, dismissed, self.user_id)
 
+        log.info("scan done in %.1fs: %s gate=%s", time.time() - t0, summary, gate["status"])
         return {"summary": summary, "report": report, "gate": gate}
