@@ -212,7 +212,7 @@ build/validate rather than unit tests.
 - [ ] Verify `docker build --platform linux/arm64` succeeds (gate).
 - [ ] Commit.
 
-### Task 20: Vite+TS scaffold
+### Task 20: Vite+TS scaffold + design system
 
 **Files:**
 - Create: `frontend/package.json`
@@ -222,8 +222,16 @@ build/validate rather than unit tests.
 - Create: `frontend/src/main.tsx`
 - Create: `frontend/src/App.tsx`
 - Create: `frontend/.env.example`
+- Create: `frontend/src/styles/colors.css`
+- Create: `frontend/src/styles/typography.css`
+- Create: `frontend/src/styles/spacing.css`
+- Create: `frontend/src/styles/base.css`
 
 - [ ] Scaffold app with env vars (VITE_REGION, VITE_USER_POOL_ID, VITE_USER_POOL_CLIENT_ID, VITE_RUNTIME_ARN).
+- [ ] Adopt the existing **"paper + ink + Claude-orange"** design system: copy the root
+  `colors.css`/`typography.css`/`spacing.css` token files into `frontend/src/styles/` as the
+  design foundation (CSS custom properties, no Tailwind — the stale `tailwind.config.ts` is not used).
+  `base.css` wires resets + imports the tokens; `main.tsx` imports it.
 - [ ] Verify `npm ci && npm run build`.
 - [ ] Commit.
 
@@ -279,7 +287,9 @@ build/validate rather than unit tests.
 - Create: `frontend/src/components/Sidebar.tsx`
 - Create: `frontend/src/styles.css`
 
-- [ ] History table; header/sidebar; hash routing (`#scan/#history`).
+- [ ] History table; header/sidebar; hash routing (`#scan/#history`). All components styled with the
+  paper+ink+Claude-orange tokens (cards rounded-lg on white, Claude-orange active nav/primary actions,
+  tabular numerals for metrics, soft two-stop card shadow, Claude focus ring).
 - [ ] Verify build.
 - [ ] Commit.
 

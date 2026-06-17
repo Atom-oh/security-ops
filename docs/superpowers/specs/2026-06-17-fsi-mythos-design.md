@@ -90,6 +90,16 @@ Static SPA served from S3 (private) via CloudFront + OAC + WAF.
 5. **Local-folder scan:** browser File System Access API reads files → uploaded → materialized
    into a temp dir inside the (isolated) container.
 
+## 4a. Frontend design system
+The SPA adopts the existing **"paper + ink + Claude-orange"** token set already in the repo
+(`colors.css`, `typography.css`, `spacing.css`): warm paper page (`#FAF9F5`), warm-neutral ink
+text, a single Claude-orange brand hue (`#D97757`) for active nav / primary actions / lead chart
+series; system sans UI + system mono for code/IDs; tabular numerals for compared metrics; 4px
+spacing grid; cards rounded-lg on white with a soft two-stop warm shadow; Claude-orange focus
+ring; gentle ease-out motion. These token files become `frontend/src/styles/` (CSS custom
+properties; no Tailwind — the stale `tailwind.config.ts` navy/cyan theme is not used). `DESIGN.md`
+is the design reference; `index.html` (dark doc-hub) is a separate reference-doc landing page.
+
 ## 5. Repository layout
 ```
 backend/   app.py · pipeline/ (config, orchestrator, phase0..7) · agents/ (prompts, models)

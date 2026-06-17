@@ -7,7 +7,6 @@
 <style>
   :root {
     --bg: #0b0f1a;
-    --bg-soft: #121826;
     --card: #161e2e;
     --card-hover: #1c2740;
     --border: #263149;
@@ -15,7 +14,8 @@
     --text-dim: #9aa7c0;
     --accent: #d97757;
     --accent-soft: rgba(217, 119, 87, 0.12);
-    --ring: rgba(217, 119, 87, 0.4);
+    --ring: rgba(217, 119, 87, 0.45);
+    --ok: #6ee7a8;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -27,63 +27,73 @@
     line-height: 1.6;
     -webkit-font-smoothing: antialiased;
   }
-  .wrap { max-width: 920px; margin: 0 auto; padding: 72px 24px 96px; }
-  header { margin-bottom: 48px; }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 72px 24px 96px; }
+  header { margin-bottom: 44px; }
   .eyebrow {
     display: inline-block;
     font-size: 12px; font-weight: 600; letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--accent);
-    background: var(--accent-soft);
-    padding: 6px 12px; border-radius: 999px;
-    margin-bottom: 20px;
+    text-transform: uppercase; color: var(--accent);
+    background: var(--accent-soft); padding: 6px 12px; border-radius: 999px; margin-bottom: 20px;
   }
   h1 { font-size: 38px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; }
-  .subtitle { margin-top: 14px; font-size: 17px; color: var(--text-dim); max-width: 620px; }
-  .grid { display: grid; gap: 16px; margin-top: 8px; }
+  .subtitle { margin-top: 14px; font-size: 17px; color: var(--text-dim); max-width: 640px; }
+
+  .section-label {
+    font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--text-dim); margin: 0 0 18px;
+  }
+
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
   .card {
-    display: flex; align-items: flex-start; gap: 18px;
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 24px 26px;
-    text-decoration: none;
-    color: inherit;
-    transition: transform .18s ease, border-color .18s ease, background .18s ease;
-    position: relative;
+    display: flex; flex-direction: column;
+    background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+    overflow: hidden; text-decoration: none; color: inherit;
+    transition: transform .18s ease, border-color .18s ease, box-shadow .18s ease;
   }
-  .card:hover {
-    transform: translateY(-2px);
-    background: var(--card-hover);
-    border-color: var(--ring);
-  }
+  .card:hover { transform: translateY(-3px); border-color: var(--ring); box-shadow: 0 14px 40px rgba(0,0,0,.35); }
   .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-  .icon {
-    flex-shrink: 0;
-    width: 46px; height: 46px;
-    display: grid; place-items: center;
-    border-radius: 12px;
-    background: var(--accent-soft);
-    font-size: 22px;
+  .thumb-wrap { position: relative; aspect-ratio: 1280 / 720; overflow: hidden; background: #0e1422; border-bottom: 1px solid var(--border); }
+  .thumb-wrap img { width: 100%; height: 100%; object-fit: cover; object-position: top center; display: block; transition: transform .3s ease; }
+  .card:hover .thumb-wrap img { transform: scale(1.03); }
+  .badge {
+    position: absolute; top: 12px; left: 12px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.03em;
+    color: #0b0f1a; background: var(--accent); padding: 4px 10px; border-radius: 6px;
   }
-  .card-body { flex: 1; min-width: 0; }
-  .card h2 { font-size: 18px; font-weight: 650; letter-spacing: -0.01em; }
-  .card p { margin-top: 6px; font-size: 14.5px; color: var(--text-dim); }
-  .meta { margin-top: 12px; display: flex; gap: 10px; flex-wrap: wrap; }
-  .tag {
-    font-size: 11.5px; font-weight: 600; letter-spacing: 0.02em;
-    color: var(--text-dim);
-    border: 1px solid var(--border);
-    padding: 3px 9px; border-radius: 6px;
-  }
-  .arrow { flex-shrink: 0; align-self: center; color: var(--text-dim); transition: transform .18s ease, color .18s ease; }
-  .card:hover .arrow { transform: translateX(3px); color: var(--accent); }
+  .badge.latest { background: var(--ok); }
+  .card-body { padding: 20px 22px 22px; }
+  .card h2 { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
+  .card p { margin-top: 7px; font-size: 14px; color: var(--text-dim); }
+  .meta { margin-top: 13px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .tag { font-size: 11px; font-weight: 600; color: var(--text-dim); border: 1px solid var(--border); padding: 3px 9px; border-radius: 6px; }
+  .open { margin-top: 14px; display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--accent); }
+  .card:hover .open svg { transform: translateX(3px); }
+  .open svg { transition: transform .18s ease; }
+
+  /* usage guide */
+  .guide { margin-top: 64px; background: linear-gradient(180deg, #131b2b, #11192800); border: 1px solid var(--border); border-radius: 18px; padding: 32px 34px; }
+  .guide h3 { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
+  .guide .lead { margin-top: 8px; color: var(--text-dim); font-size: 14.5px; }
+  .steps { margin-top: 24px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  .step { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .step .n { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 14px; }
+  .step h4 { margin-top: 12px; font-size: 14.5px; font-weight: 650; }
+  .step p { margin-top: 6px; font-size: 13px; color: var(--text-dim); }
+  .step code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--text); background: #0e1422; border: 1px solid var(--border); padding: 1px 6px; border-radius: 5px; word-break: break-all; }
+  .urlbox { margin-top: 24px; background: #0e1422; border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .urlbox .lbl { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); }
+  .urlbox code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; color: var(--ok); }
+  .note { margin-top: 16px; font-size: 13px; color: var(--text-dim); border-left: 3px solid var(--accent); padding-left: 14px; }
+
   footer { margin-top: 56px; padding-top: 24px; border-top: 1px solid var(--border); font-size: 13px; color: var(--text-dim); }
   footer a { color: var(--accent); text-decoration: none; }
-  @media (max-width: 560px) {
+
+  @media (max-width: 760px) {
     .wrap { padding: 48px 18px 64px; }
-    h1 { font-size: 30px; }
-    .card { padding: 20px; gap: 14px; }
+    h1 { font-size: 29px; }
+    .grid { grid-template-columns: 1fr; }
+    .steps { grid-template-columns: 1fr; }
+    .guide { padding: 24px 20px; }
   }
 </style>
 </head>
@@ -92,53 +102,84 @@
     <header>
       <span class="eyebrow">FSI · Mythos</span>
       <h1>Claude Mythos &middot; 금융사 적용 문서 허브</h1>
-      <p class="subtitle">Claude Mythos 분석과 국내 금융사 적용 방안, FSI-Mythos 아키텍처 및 벤치마크 검증 자료를 한곳에 모았습니다.</p>
+      <p class="subtitle">Claude Mythos 분석과 국내 금융사 적용 방안, FSI-Mythos 아키텍처 및 벤치마크 검증 자료를 한곳에 모았습니다. 카드를 클릭하면 해당 문서가 열립니다.</p>
     </header>
 
+    <p class="section-label">문서 목록</p>
     <main class="grid">
       <a class="card" href="claude-mythos-analysis-v2.html">
-        <div class="icon">📊</div>
+        <div class="thumb-wrap"><span class="badge latest">최신 · v2</span><img src="assets/thumb-analysis-v2.jpeg" alt="Claude Mythos 분석 v2 미리보기" loading="lazy"></div>
         <div class="card-body">
           <h2>Claude Mythos 분석 및 국내 금융사 적용 방안 (v2)</h2>
-          <p>최신 버전 — Mythos 핵심 분석과 국내 금융권 적용 전략을 정리한 메인 리포트.</p>
-          <div class="meta"><span class="tag">분석 리포트</span><span class="tag">v2 · 최신</span><span class="tag">2026-06-01</span></div>
+          <p>Mythos 핵심 분석과 국내 금융권 적용 전략을 정리한 메인 리포트.</p>
+          <div class="meta"><span class="tag">분석 리포트</span><span class="tag">2026-06-01</span></div>
+          <span class="open">문서 열기 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg></span>
         </div>
-        <svg class="arrow" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-      </a>
-
-      <a class="card" href="claude-mythos-analysis-v1.html">
-        <div class="icon">📄</div>
-        <div class="card-body">
-          <h2>Claude Mythos 분석 및 국내 금융사 적용 방안 (v1)</h2>
-          <p>초기 버전 — 분석 리포트의 첫 번째 드래프트 (히스토리 참고용).</p>
-          <div class="meta"><span class="tag">분석 리포트</span><span class="tag">v1 · 이전</span><span class="tag">2026-06-01</span></div>
-        </div>
-        <svg class="arrow" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
       </a>
 
       <a class="card" href="fsi-mythos-architecture.html">
-        <div class="icon">🏗️</div>
+        <div class="thumb-wrap"><span class="badge">아키텍처</span><img src="assets/thumb-architecture.jpeg" alt="FSI-Mythos 아키텍처 미리보기" loading="lazy"></div>
         <div class="card-body">
           <h2>FSI-Mythos on AgentCore — 아키텍처 문서</h2>
           <p>Amazon Bedrock AgentCore 기반 FSI-Mythos 시스템 아키텍처 설계 문서.</p>
           <div class="meta"><span class="tag">아키텍처</span><span class="tag">AgentCore</span><span class="tag">2026-06-02</span></div>
+          <span class="open">문서 열기 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg></span>
         </div>
-        <svg class="arrow" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
       </a>
 
       <a class="card" href="fsi-mythos-benchmark.html">
-        <div class="icon">🧪</div>
+        <div class="thumb-wrap"><span class="badge">벤치마크</span><img src="assets/thumb-benchmark.jpeg" alt="FSI-Mythos 벤치마크 미리보기" loading="lazy"></div>
         <div class="card-body">
           <h2>FSI-Mythos 벤치마크 검증 리포트</h2>
           <p>FSI-Mythos 구현의 성능·정확도 벤치마크 결과 및 검증 분석.</p>
           <div class="meta"><span class="tag">벤치마크</span><span class="tag">검증 리포트</span><span class="tag">2026-06-02</span></div>
+          <span class="open">문서 열기 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg></span>
         </div>
-        <svg class="arrow" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+      </a>
+
+      <a class="card" href="claude-mythos-analysis-v1.html">
+        <div class="thumb-wrap"><span class="badge" style="background:#586282;color:#e6ebf5">이전 · v1</span><img src="assets/thumb-analysis-v1.jpeg" alt="Claude Mythos 분석 v1 미리보기" loading="lazy"></div>
+        <div class="card-body">
+          <h2>Claude Mythos 분석 및 국내 금융사 적용 방안 (v1)</h2>
+          <p>분석 리포트의 첫 번째 드래프트 (히스토리 참고용).</p>
+          <div class="meta"><span class="tag">분석 리포트</span><span class="tag">2026-06-01</span></div>
+          <span class="open">문서 열기 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg></span>
+        </div>
       </a>
     </main>
 
+    <section class="guide">
+      <h3>사용 가이드</h3>
+      <p class="lead">이 사이트는 Amazon S3(<code>atom-workshop/mythos</code>)에 호스팅되며 CloudFront로 배포됩니다.</p>
+
+      <div class="steps">
+        <div class="step">
+          <div class="n">1</div>
+          <h4>문서 열기</h4>
+          <p>위 카드를 클릭하면 해당 HTML 문서가 새 페이지로 열립니다. 브라우저 뒤로 가기로 이 허브로 돌아올 수 있습니다.</p>
+        </div>
+        <div class="step">
+          <div class="n">2</div>
+          <h4>직접 링크 접근</h4>
+          <p>각 문서는 고정 URL을 가집니다. 예: <code>/mythos/fsi-mythos-architecture.html</code> 형태로 직접 접근·공유할 수 있습니다.</p>
+        </div>
+        <div class="step">
+          <div class="n">3</div>
+          <h4>최신 버전 확인</h4>
+          <p><span style="color:var(--ok);font-weight:600;">최신</span> 배지가 붙은 문서가 현재 권장 버전입니다. v1은 변경 이력 참고용입니다.</p>
+        </div>
+      </div>
+
+      <div class="urlbox">
+        <span class="lbl">Base URL</span>
+        <code>https://d3nsxyown2wkel.cloudfront.net/mythos/</code>
+      </div>
+
+      <p class="note">문서가 업데이트되어도 URL은 동일하게 유지됩니다. 캐시로 인해 변경이 즉시 반영되지 않으면 브라우저 강력 새로고침(Ctrl/Cmd + Shift + R)을 해주세요.</p>
+    </section>
+
     <footer>
-      FSI-Mythos 문서 허브 &middot; <a href="https://s3.console.aws.amazon.com/s3/buckets/atom-workshop?prefix=mythos/">s3://atom-workshop/mythos/</a>
+      FSI-Mythos 문서 허브 &middot; 호스팅: <a href="https://s3.console.aws.amazon.com/s3/buckets/atom-workshop?prefix=mythos/">s3://atom-workshop/mythos/</a> &middot; CloudFront 배포
     </footer>
   </div>
 </body>
