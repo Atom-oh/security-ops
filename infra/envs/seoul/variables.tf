@@ -33,6 +33,9 @@ variable "model_arns" {
   default = [
     "arn:aws:bedrock:*::foundation-model/anthropic.claude-*",
     "arn:aws:bedrock:*:*:inference-profile/*anthropic.claude-*",
+    # v2.2 cross-family ensemble: OpenAI models via the bedrock-mantle endpoint (us-east-1/2).
+    "arn:aws:bedrock:*::foundation-model/openai.*",
+    "arn:aws:bedrock:*:*:inference-profile/*openai.*",
   ]
 }
 

@@ -88,5 +88,6 @@ export interface ScanRequest {
   validator_model?: string;
   ranker_model?: string;
   sandbox_enabled?: boolean;
+  ensemble_enabled?: boolean;
   upload?: { files: { path: string; content_b64: string }[] };
 }

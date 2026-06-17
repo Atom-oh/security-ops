@@ -56,6 +56,7 @@ export function ScanForm({ busy, onSubmit }: { busy: boolean; onSubmit: (v: Scan
   const [maxFiles, setMaxFiles] = useState(3);
   const [passAtK, setPassAtK] = useState(1);
   const [sandbox, setSandbox] = useState(false);
+  const [ensemble, setEnsemble] = useState(false);
   const [async, setAsync] = useState(false);
   const [files, setFiles] = useState<{ path: string; content_b64: string }[]>([]);
   const [dropped, setDropped] = useState(0);
@@ -87,7 +88,9 @@ export function ScanForm({ busy, onSubmit }: { busy: boolean; onSubmit: (v: Scan
   }
 
   function submit() {
-    const req: ScanRequest = { max_files: maxFiles, pass_at_k: passAtK, sandbox_enabled: sandbox };
+    const req: ScanRequest = {
+      max_files: maxFiles, pass_at_k: passAtK, sandbox_enabled: sandbox, ensemble_enabled: ensemble,
+    };
     if (source === "container") req.project_path = projectPath;
     else req.upload = { files };
     onSubmit({ req, async });
@@ -147,6 +150,11 @@ export function ScanForm({ busy, onSubmit }: { busy: boolean; onSubmit: (v: Scan
       <label style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
         <input type="checkbox" checked={sandbox} onChange={(e) => setSandbox(e.target.checked)} />
         <span>샌드박스 PoC 검증 (Code Interpreter)</span>
+      </label>
+
+      <label style={{ display: "flex", gap: "var(--space-2)", alignItems: "center" }}>
+        <input type="checkbox" checked={ensemble} onChange={(e) => setEnsemble(e.target.checked)} />
+        <span>교차패밀리 앙상블 (GPT-5.5 독립 검증 · 양 패밀리 확인=확정, 불일치=에스컬레이션)</span>
       </label>
 
       <div style={{ display: "flex", gap: "var(--space-4)" }}>
