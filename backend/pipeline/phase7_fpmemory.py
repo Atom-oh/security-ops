@@ -13,9 +13,22 @@ from pipeline.config import Finding
 
 
 def _signature(f: Finding) -> Dict:
-    """A location-independent FP fingerprint (so the same class of FP is recognized
-    across files)."""
-    return {"cwe_id": f.cwe_id, "title": f.title.strip().lower()}
+    """A *location-scoped* FP fingerprint: keyed by (file, cwe, title).
+
+    Scoping to the file is deliberate. A class-only key ((cwe, title)) lets one dismissed
+    'SQL injection' silently suppress every real SQLi in *other* files — a global
+    false-negative ratchet. Keying by file confines suppression to the exact place the FP
+    was dismissed, so same-class vulns elsewhere still reach Challenger/Validator.
+    """
+    return {
+        "file_path": f.file_path,
+        "cwe_id": f.cwe_id,
+        "title": f.title.strip().lower(),
+    }
+
+
+def _key(sig: Dict) -> tuple:
+    return (sig.get("file_path"), sig.get("cwe_id"), sig.get("title"))
 
 
 class InMemoryFPStore:
@@ -105,12 +118,9 @@ def suppress_known_fps(store, findings: List[Finding], user_id: str) -> List[Fin
     """Drop findings matching a remembered FP pattern. Isolated: any store error returns the
     findings unchanged."""
     try:
-        known = {(p.get("cwe_id"), p.get("title")) for p in store.recall(user_id)}
+        known = {_key(p) for p in store.recall(user_id)}
     except Exception:
         return findings
     if not known:
         return findings
-    return [
-        f for f in findings
-        if (_signature(f)["cwe_id"], _signature(f)["title"]) not in known
-    ]
+    return [f for f in findings if _key(_signature(f)) not in known]
