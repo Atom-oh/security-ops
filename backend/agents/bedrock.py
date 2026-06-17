@@ -6,12 +6,39 @@ boto3 client is created lazily and is injectable so unit tests never touch the n
 """
 from __future__ import annotations
 
+import json
+import re
+from typing import Any, Dict, Optional
 import os
-from typing import Dict, Optional
 
 from agents.models import resolve_model_id, thinking_fields
 
 DEFAULT_REGION = "us-west-2"
+
+
+def extract_json(text: str) -> Any:
+    """Best-effort parse of a JSON object/array out of an LLM response.
+
+    Tolerates ```json fences and surrounding prose. Returns ``None`` if nothing parses.
+    """
+    if not text:
+        return None
+    fenced = re.search(r"```(?:json)?\s*(.*?)```", text, re.DOTALL)
+    candidate = fenced.group(1) if fenced else text
+    try:
+        return json.loads(candidate.strip())
+    except (ValueError, TypeError):
+        pass
+    # fall back to the first balanced [...] or {...} span
+    for open_c, close_c in (("[", "]"), ("{", "}")):
+        start = candidate.find(open_c)
+        end = candidate.rfind(close_c)
+        if start != -1 and end > start:
+            try:
+                return json.loads(candidate[start : end + 1])
+            except (ValueError, TypeError):
+                continue
+    return None
 
 
 class BedrockConverse:
