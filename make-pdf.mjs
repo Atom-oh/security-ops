@@ -6,12 +6,22 @@ import path from 'node:path';
 const CDP = 'http://127.0.0.1:9333';
 const here = process.cwd();
 
+const DIR = 'reference-docs';
 const JOBS = [
-  ['20260601 - Claude Mythos 분석 및 국내 금융사 적용 방안 - v2.html', 'claude-mythos-analysis-v2.pdf'],
-  ['20260601 - Claude Mythos 분석 및 국내 금융사 적용 방안 - v1.html', 'claude-mythos-analysis-v1.pdf'],
-  ['20260602 - FSI-MythosARCHITECTURE.html', 'fsi-mythos-architecture.pdf'],
-  ['20260602 - FSI-Mythos - BENCHMARK.html', 'fsi-mythos-benchmark.pdf'],
+  [`${DIR}/20260601 - Claude Mythos 분석 및 국내 금융사 적용 방안 - v2.html`, 'claude-mythos-analysis-v2.pdf'],
+  [`${DIR}/20260601 - Claude Mythos 분석 및 국내 금융사 적용 방안 - v1.html`, 'claude-mythos-analysis-v1.pdf'],
+  [`${DIR}/20260602 - FSI-MythosARCHITECTURE.html`, 'fsi-mythos-architecture.pdf'],
+  [`${DIR}/20260602 - FSI-Mythos - BENCHMARK.html`, 'fsi-mythos-benchmark.pdf'],
 ];
+
+// Injected before printing: the docs use a position:fixed sidebar + margin-left
+// main, which overlaps/repeats on every printed page. Neutralize it for print.
+const PRINT_CSS = `
+  .sidebar { display: none !important; }
+  .layout { display: block !important; }
+  .main { margin-left: 0 !important; width: 100% !important; max-width: 100% !important; }
+  html, body { height: auto !important; overflow: visible !important; }
+`;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -72,6 +82,10 @@ async function main() {
     await send('Page.navigate', { url: fileUrl(src) }, sessionId);
     await lp;
     await sleep(1200); // let fonts/JS settle
+    await send('Runtime.evaluate', {
+      expression: `(() => { const s = document.createElement('style'); s.textContent = ${JSON.stringify(PRINT_CSS)}; document.head.appendChild(s); })()`,
+    }, sessionId);
+    await sleep(300);
     const { data } = await send('Page.printToPDF', {
       printBackground: true,
       preferCSSPageSize: false,
