@@ -7,6 +7,7 @@ UUIDs/hashes/session-ids, and never obvious placeholders.
 """
 from __future__ import annotations
 
+import math
 import re
 from typing import List
 
@@ -40,6 +41,49 @@ def _is_placeholder(val: str) -> bool:
     return False
 
 
+# Config/reference values (not literal credentials) that cause the bulk of prefilter FPs:
+# a URL (token_url="https://..."), an ARN, an env interpolation, a Secrets-Manager path
+# ("prod/db/password"), or an HTTP header name ("X-Api-Key"). Excluded PRECISELY — never by
+# a blunt `"/" in val`, which would drop real base64 secret keys (they contain `/`).
+_SCHEME_ARN = re.compile(r"(?ix)^(?:[a-z][a-z0-9+.\-]*://|arn:aws:)")  # URL scheme / ARN
+# Env interpolation ONLY: ``${VAR}`` or bare ``$ALLCAPS`` — NOT every ``$``-prefixed value.
+# (A blunt ``$`` exclusion would blind us to bcrypt/argon2 hashes like ``$2b$..`` and to
+# passwords such as ``$up3rS3cr3t``.) Case-sensitive on purpose.
+_ENV_REF = re.compile(r"^\$(?:\{[A-Za-z_]\w*\}|[A-Z][A-Z0-9_]*)$")
+_PATH_REF = re.compile(r"^[\w.\-]+(?:/[\w.\-]+)+$")              # a/b/c style ref
+_HEADER_REF = re.compile(r"^[A-Z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+$")  # X-Api-Key
+
+
+def _shannon(s: str) -> float:
+    """Shannon entropy in bits/char (0 for empty)."""
+    if not s:
+        return 0.0
+    counts = {c: s.count(c) for c in set(s)}
+    n = len(s)
+    return -sum((k / n) * math.log2(k / n) for k in counts.values())
+
+
+def _is_credential_like(val: str) -> bool:
+    """Decide whether a value assigned to a *secret-named* key is a literal credential.
+
+    The name already signals intent (api_key/password/token/...), so we flag broadly and
+    only carve out clear non-secrets:
+      * placeholders;
+      * scheme URLs / ARNs / ``${ENV}`` interpolations;
+      * low-entropy path or header references (``prod/db/password``, ``X-Api-Key``) — but a
+        high-entropy value that merely contains ``/`` or ``-`` (a base64 secret key) is KEPT;
+      * anything shorter than 8 chars.
+    This keeps real secrets (incl. base64 with ``/`` and short complex passwords) while
+    dropping the URL/header/ref false positives."""
+    if _is_placeholder(val):
+        return False
+    if _SCHEME_ARN.match(val) or _ENV_REF.match(val):
+        return False
+    if _shannon(val) < 3.6 and (_PATH_REF.match(val) or _HEADER_REF.match(val)):
+        return False
+    return len(val) >= 8
+
+
 def _finding(path: str, lineno: int, title: str, severity: Severity, evidence: str) -> Finding:
     return Finding(
         title=title,
@@ -66,7 +110,7 @@ def scan_secrets(file_path: str, language=None, content: str = "") -> List[Findi
             out.append(_finding(file_path, idx, "하드코딩된 개인 키", Severity.CRITICAL, "PRIVATE KEY"))
             continue
         m = _SECRET_ASSIGN.search(line)
-        if m and not _is_placeholder(m.group("val")):
+        if m and _is_credential_like(m.group("val")):
             out.append(
                 _finding(file_path, idx, f"하드코딩된 시크릿 ({m.group('name')})", Severity.HIGH,
                          f"{m.group('name')}=…")

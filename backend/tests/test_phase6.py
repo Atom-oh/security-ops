@@ -61,3 +61,62 @@ def test_gate_passes_on_low_only():
 
 def test_gate_empty_passes():
     assert cicd_gate_check([])["status"] == "PASSED"
+
+
+def _raw(sev, chain=False):
+    """A raw Hunter finding: no verdict yet (not validated)."""
+    return Finding(
+        title=f"{sev.value} raw", file_path="x.py", line_range=(1, 1),
+        severity=sev, chain_potential=chain,
+    )
+
+
+def test_chaining_does_not_block_unvalidated_low():
+    # HIGH-4b: a raw single-file Hunter chaining guess on a LOW finding must NOT hard-block CI.
+    res = cicd_gate_check([_raw(Severity.LOW, chain=True)])
+    assert res["status"] == "PASSED"
+    assert res["blocked"] == 0
+
+
+def test_chaining_blocks_when_validated():
+    # A validated (CONFIRMED) chaining finding still blocks.
+    res = cicd_gate_check([_f(Severity.MEDIUM, chain=True)])  # _f has verdict=CONFIRMED
+    assert res["status"] == "BLOCKED"
+
+
+def test_gate_cap_unscanned_is_advisory_not_incomplete():
+    # HIGH #1 (refined): files merely deprioritized below max_files are risk-ranked + still
+    # secret-scanned → advisory PASS, not INCOMPLETE (else every real repo is forever INCOMPLETE).
+    cov = {"total_code_files": 5, "scanned_files": 3, "unscanned_files": 2, "dropped_over_budget": 0}
+    res = cicd_gate_check([_f(Severity.LOW)], coverage=cov)
+    assert res["status"] == "PASSED"
+    assert any("advisory" in r for r in res["reasons"])
+
+
+def test_gate_incomplete_on_budget_drop():
+    # Files dropped over budget were never scanned at all → fail-closed INCOMPLETE.
+    cov = {"total_code_files": 10, "scanned_files": 8, "unscanned_files": 0, "dropped_over_budget": 2}
+    assert cicd_gate_check([], coverage=cov)["status"] == "INCOMPLETE"
+
+
+def test_gate_incomplete_when_nothing_scanned():
+    cov = {"total_code_files": 4, "scanned_files": 0, "unscanned_files": 4, "dropped_over_budget": 0}
+    assert cicd_gate_check([], coverage=cov)["status"] == "INCOMPLETE"
+
+
+def test_gate_chaining_blocks_on_escalate():
+    # ESCALATE chains need human review → fail-closed block.
+    esc = Finding(title="esc", file_path="x.py", line_range=(1, 1), severity=Severity.MEDIUM,
+                  chain_potential=True, verdict=Verdict.ESCALATE)
+    assert cicd_gate_check([esc])["status"] == "BLOCKED"
+
+
+def test_gate_blocked_precedes_incomplete():
+    # A real blocking finding outranks incomplete coverage.
+    cov = {"total_code_files": 5, "scanned_files": 1, "unscanned_files": 0, "dropped_over_budget": 4}
+    assert cicd_gate_check([_f(Severity.CRITICAL)], coverage=cov)["status"] == "BLOCKED"
+
+
+def test_gate_passes_when_coverage_complete():
+    cov = {"total_code_files": 2, "scanned_files": 2, "unscanned_files": 0, "dropped_over_budget": 0}
+    assert cicd_gate_check([_f(Severity.LOW)], coverage=cov)["status"] == "PASSED"

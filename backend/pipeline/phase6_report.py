@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
-from pipeline.config import Finding, Severity
+from pipeline.config import Finding, Severity, Verdict
 
 _ASFF_SEVERITY = {
     Severity.CRITICAL: {"Label": "CRITICAL", "Normalized": 90},
@@ -77,12 +77,38 @@ def generate_report(findings: List[Finding]) -> Dict:
     }
 
 
-def cicd_gate_check(findings: List[Finding], threshold: Optional[Dict] = None) -> Dict:
-    """Return ``{status, blocked, info, reasons}``. Fail-closed on Critical/High/chaining."""
-    blocking_sevs = _BLOCKING_SEVERITIES
+def cicd_gate_check(
+    findings: List[Finding],
+    coverage: Optional[Dict] = None,
+    threshold: Optional[Dict] = None,
+) -> Dict:
+    """Return ``{status, blocked, info, incomplete, reasons}``. Fail-closed.
+
+    ``status`` is one of ``BLOCKED`` / ``INCOMPLETE`` / ``PASSED``:
+
+    * **BLOCKED** — a Critical/High finding, or a *validated* chaining finding, exists.
+      ``chain_potential`` only blocks when the finding survived validation
+      (verdict CONFIRMED/LIKELY): a raw single-file Hunter guess no longer hard-blocks CI
+      (HIGH-4b). High-confidence deterministic findings (e.g. secret prefilter, no LLM
+      verdict) still block via severity.
+    * **INCOMPLETE** — no blocking finding, but ``coverage`` shows files were *dropped over
+      budget* (never even considered) or *nothing* was deep-scanned while code exists. A scan
+      that couldn't look at part of the codebase must not certify "clean" (HIGH #1). Files
+      merely deprioritized below the ``max_files`` deep-scan cap do NOT force INCOMPLETE —
+      they are risk-ranked and still secret-scanned (Phase 2.5); the count is reported in
+      ``coverage`` for transparency and surfaced as an advisory reason.
+    * **PASSED** — no blocking findings and nothing dropped over budget.
+    """
     blocked = []
     for f in findings:
-        if f.severity in blocking_sevs or f.chain_potential:
+        sev_block = f.severity in _BLOCKING_SEVERITIES
+        # chaining blocks only once the finding is past raw Hunter output: CONFIRMED/LIKELY,
+        # or ESCALATE (needs human review → fail-closed). A raw unvalidated/DISMISSED guess
+        # does not hard-block (HIGH-4b).
+        chain_block = f.chain_potential and f.verdict in (
+            Verdict.CONFIRMED, Verdict.LIKELY, Verdict.ESCALATE,
+        )
+        if sev_block or chain_block:
             blocked.append(f)
     info_count = len(findings) - len(blocked)
     reasons = [
@@ -90,9 +116,35 @@ def cicd_gate_check(findings: List[Finding], threshold: Optional[Dict] = None) -
         + (" [chaining]" if f.chain_potential else "")
         for f in blocked
     ]
+
+    incomplete = False
+    if coverage:
+        unscanned = coverage.get("unscanned_files", 0) or 0
+        dropped = coverage.get("dropped_over_budget", 0) or 0
+        total = coverage.get("total_code_files", 0) or 0
+        scanned = coverage.get("scanned_files", 0) or 0
+        if dropped > 0:  # files we couldn't even consider → fail-closed
+            reasons.append(f"{dropped} file(s) dropped over budget — never scanned")
+            incomplete = True
+        if total > 0 and scanned == 0:  # nothing deep-scanned at all → fail-closed
+            reasons.append("no files were deep-scanned — cannot certify clean")
+            incomplete = True
+        if unscanned > 0:  # risk-deprioritized below max_files — advisory only, not blocking
+            reasons.append(
+                f"advisory: {unscanned}/{total} lower-risk file(s) not deep-scanned "
+                f"(max_files cap; still secret-scanned)"
+            )
+
+    if blocked:
+        status = "BLOCKED"
+    elif incomplete:
+        status = "INCOMPLETE"
+    else:
+        status = "PASSED"
     return {
-        "status": "BLOCKED" if blocked else "PASSED",
+        "status": status,
         "blocked": len(blocked),
         "info": info_count,
+        "incomplete": incomplete,
         "reasons": reasons,
     }

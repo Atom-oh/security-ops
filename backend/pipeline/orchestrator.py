@@ -115,16 +115,38 @@ class FSIMythosPipeline:
                  total_code_files, len(kept_paths), dropped_over_budget, len(ranked),
                  [r.get("file") for r in ranked])
 
-        # Phase 2.5 — deterministic secret pre-filter over all candidates (cheap, no LLM).
+        # Phase 2.5 — deterministic secret pre-filter (cheap, no LLM). Run over EVERY detected
+        # file, not just the ranked/budget-kept subset: secret scanning costs no tokens, so a
+        # hardcoded key in a low-risk or budget-dropped file must not be missed (HIGH #3).
         prefilter_findings: List[Finding] = []
-        for path in kept_paths:
+        for path in lang_by_file:
             try:
                 with open(path, "r", encoding="utf-8", errors="ignore") as fh:
                     prefilter_findings.extend(scan_secrets(path, lang_by_file.get(path), fh.read(40000)))
             except OSError:
                 continue
         if prefilter_findings:
-            log.info("phase2.5: %d deterministic secret findings", len(prefilter_findings))
+            log.info("phase2.5: %d deterministic secret findings (all files)", len(prefilter_findings))
+
+        # Cross-file awareness map: a compact index of the other candidate files so the Hunter
+        # can reason about interactions spanning files (HIGH-4a). Full interprocedural taint is
+        # deferred to v2.2; this at least stops related_context from being permanently empty.
+        candidate_index = [
+            {
+                "file": p,
+                "lang": getattr(lang_by_file.get(p), "value", str(lang_by_file.get(p))),
+                "sinks": sink_counts.get(p, 0),
+            }
+            for p in kept_paths
+        ]
+
+        def _related_context(path: str) -> str:
+            others = [c for c in candidate_index if c["file"] != path][:20]
+            if not others:
+                return ""
+            lines = ["다른 후보 파일(크로스파일 데이터 흐름·상호작용 검토용):"]
+            lines += [f"- {o['file']} ({o['lang']}, sinks={o['sinks']})" for o in others]
+            return "\n".join(lines)
 
         # Phase 3/3.5/4 — per ranked file
         self._emit(PHASES[3])
@@ -146,6 +168,7 @@ class FSIMythosPipeline:
                 "language": lang_by_file.get(path),
                 "code": code,
                 "sink_summary": sink_summary,
+                "related_context": _related_context(path),
             }
             per_file_targets[path] = target
             # Isolate per-file hunt errors (e.g. a transient Bedrock failure) so one bad file
@@ -199,14 +222,27 @@ class FSIMythosPipeline:
                 group = [f for f in validated if f.file_path == path]
                 verify_findings(self.sandbox, group, target.get("code", ""), enabled=True)
 
-        # Merge deterministic Phase 2.5 secret findings with the LLM-validated findings.
+        # Merge deterministic Phase 2.5 secret findings — but route them through FP suppression
+        # too (HIGH #2). Prefilter findings are validated=True and skip the Challenger/Validator,
+        # so without this a regex false positive would be an unsuppressible permanent CI block.
+        if self.fp_store is not None:
+            prefilter_findings = suppress_known_fps(self.fp_store, prefilter_findings, self.user_id)
         validated = validated + prefilter_findings
 
-        # Phase 6 — report + gate
+        # Coverage must be computed BEFORE the gate so an incomplete scan can fail-closed (#1).
+        coverage = {
+            "total_code_files": total_code_files,
+            "scanned_files": len(ranked),
+            "unscanned_files": max(0, total_code_files - len(ranked)),
+            "dropped_over_budget": dropped_over_budget,
+            "secret_prefilter_findings": len(prefilter_findings),
+        }
+
+        # Phase 6 — report + gate (gate is coverage-aware: unscanned/dropped → INCOMPLETE)
         self._emit(PHASES[6])
         report = generate_report(validated)
         report["asff"] = [to_asff(f, self.account_id, cfg.region) for f in validated]
-        gate = cicd_gate_check(validated)
+        gate = cicd_gate_check(validated, coverage=coverage)
         summary = {
             "total_findings": report["total_findings"],
             "critical": report["critical"],
@@ -225,13 +261,6 @@ class FSIMythosPipeline:
             dismissed = [f for f in hunted_candidates if f not in validated]
             record_false_positives(self.fp_store, dismissed, self.user_id)
 
-        coverage = {
-            "total_code_files": total_code_files,
-            "scanned_files": len(ranked),
-            "unscanned_files": max(0, total_code_files - len(ranked)),
-            "dropped_over_budget": dropped_over_budget,
-            "secret_prefilter_findings": len(prefilter_findings),
-        }
         summary["coverage"] = coverage
         log.info("scan done in %.1fs: %s gate=%s coverage=%s",
                  time.time() - t0, {k: v for k, v in summary.items() if k != "coverage"},
