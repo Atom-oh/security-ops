@@ -26,7 +26,7 @@ _GEO_PREFIX = {
     "sa": "us",
 }
 
-_KNOWN_PROFILE_PREFIXES = ("us.", "apac.", "eu.")
+_KNOWN_PROFILE_PREFIXES = ("us.", "apac.", "eu.", "global.")
 
 
 def region_profile_prefix(region: str) -> str:

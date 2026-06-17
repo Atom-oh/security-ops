@@ -10,12 +10,14 @@ from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import List, Optional, Tuple
 
-# Default per-role Claude model *logical* names. The region-aware inference-profile
-# prefix (apac.* / us.*) is resolved in agents.models — these are the bare ids.
-DEFAULT_HUNTER_MODEL = "anthropic.claude-opus-4-7-20260415-v1:0"
-DEFAULT_CHALLENGER_MODEL = "anthropic.claude-opus-4-6-20260205-v1:0"
-DEFAULT_VALIDATOR_MODEL = "anthropic.claude-opus-4-8-20260601-v1:0"
-DEFAULT_RANKER_MODEL = "anthropic.claude-opus-4-6-20260205-v1:0"
+# Default per-role Claude models. These are the cross-region inference profiles actually
+# available for Opus in the target account/region (global.* — verified via
+# list-inference-profiles). agents.models leaves an already-prefixed id untouched, and
+# falls back to the region prefix (apac.*/us.*) for bare ids. Override via env if needed.
+DEFAULT_HUNTER_MODEL = "global.anthropic.claude-opus-4-7"
+DEFAULT_CHALLENGER_MODEL = "global.anthropic.claude-opus-4-6-v1"
+DEFAULT_VALIDATOR_MODEL = "global.anthropic.claude-opus-4-8"
+DEFAULT_RANKER_MODEL = "global.anthropic.claude-opus-4-6-v1"
 
 
 class Severity(str, Enum):
