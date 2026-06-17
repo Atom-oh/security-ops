@@ -1,0 +1,114 @@
+/* ============================================================
+   COLORS — Claude Code Enterprise Analytics
+   Warm "paper + ink" base with a single Claude-orange brand hue.
+   Base ramps first, semantic aliases at the bottom.
+   ============================================================ */
+
+:root {
+  /* ---- Claude (brand orange) ----
+     The one saturated hue in the system. Used for the active nav,
+     primary actions, the brand mark, and the lead series in charts. */
+  --claude-50:  #FBF1EC;
+  --claude-100: #F5DCCF;
+  --claude-200: #EEBFAA;
+  --claude-300: #E69F7F;
+  --claude-400: #DF8663;
+  --claude-500: #D97757;  /* DEFAULT brand */
+  --claude-600: #B75E40;
+  --claude-700: #8E4830;
+  --claude-800: #653321;
+  --claude-900: #3D1F14;
+  --claude: var(--claude-500);
+
+  /* ---- Ink (warm neutral) ----
+     Text + structural greys. Warm, never blue-grey. ink-800 is the
+     darkest text colour used in product; ink-900 is reserved for
+     chart tooltips / max-contrast surfaces. */
+  --ink-50:  #F7F6F2;
+  --ink-100: #EDEBE4;
+  --ink-200: #D7D3C7;
+  --ink-300: #B5AFA0;
+  --ink-400: #8A8474;
+  --ink-500: #5F5A4D;
+  --ink-600: #3F3B32;
+  --ink-700: #2B2823;
+  --ink-800: #1F1E1D;
+  --ink-900: #14130F;
+
+  /* ---- Paper (page surfaces) ---- */
+  --paper:       #FAF9F5;  /* page background */
+  --paper-muted: #F3F1EB;  /* sunken / sidebar background */
+  --white:       #FFFFFF;  /* cards sit on white, above paper */
+
+  /* ---- Semantic accents ----
+     Positive = emerald (trend up, live status, healthy).
+     Negative = rose (trend down, risk, errors). Used sparingly. */
+  --emerald-50:  #ECFDF5;
+  --emerald-200: #A7F3D0;
+  --emerald-500: #10B981;
+  --emerald-700: #047857;
+  --rose-50:  #FFF1F2;
+  --rose-200: #FECDD3;
+  --rose-500: #F43F5E;
+  --rose-700: #BE123C;
+  --rose-800: #9F1239;
+
+  /* ---- Chart palette ----
+     Claude orange leads; monochrome ink for secondary/tertiary
+     series so a single bright hue stays readable. */
+  --chart-1: var(--claude-500);  /* primary series */
+  --chart-2: var(--ink-400);     /* secondary series */
+  --chart-3: var(--ink-800);     /* tertiary / total line */
+  --chart-4: var(--claude-700);  /* deep brand (stacked) */
+  --chart-5: var(--claude-200);  /* light brand (stacked) */
+  --chart-grid: var(--ink-100);
+  --chart-axis: var(--ink-400);
+  --chart-rejected: var(--ink-100); /* "rejected / empty" bar segment */
+
+  /* ============================================================
+     SEMANTIC ALIASES — reach for these in product code.
+     ============================================================ */
+
+  /* Surfaces */
+  --surface-page:    var(--paper);
+  --surface-sunken:  var(--paper-muted);
+  --surface-card:    var(--white);
+  --surface-inverse: var(--ink-800);
+
+  /* Text */
+  --text-primary:   var(--ink-800);
+  --text-secondary: var(--ink-500);
+  --text-muted:     var(--ink-400);
+  --text-faint:     var(--ink-300);
+  --text-inverse:   var(--paper);
+  --text-brand:     var(--claude-700);
+
+  /* Borders */
+  --border-subtle:  var(--ink-100);
+  --border-default: var(--ink-200);
+  --border-brand:   var(--claude-200);
+
+  /* Brand / interactive */
+  --brand:          var(--claude-500);
+  --brand-hover:    var(--claude-600);
+  --brand-subtle:   var(--claude-50);
+  --brand-subtle-border: var(--claude-200);
+  --brand-text:     var(--claude-700);
+  --on-brand:       var(--white);
+
+  /* Status */
+  --positive:        var(--emerald-500);
+  --positive-surface:var(--emerald-50);
+  --positive-text:   var(--emerald-700);
+  --positive-border: var(--emerald-200);
+  --negative:        var(--rose-500);
+  --negative-surface:var(--rose-50);
+  --negative-text:   var(--rose-700);
+  --negative-border: var(--rose-200);
+
+  /* Chart tooltip (dark inverse) */
+  --tooltip-bg:     var(--ink-800);
+  --tooltip-text:   var(--paper);
+  --tooltip-label:  var(--ink-200);
+  --tooltip-border: var(--ink-600);
+}

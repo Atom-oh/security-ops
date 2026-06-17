@@ -1,0 +1,49 @@
+/* ============================================================
+   SPACING, RADII, SHADOWS, MOTION — Claude Code Enterprise Analytics
+   4px base grid. Cards are rounded-xl on white with a soft two-stop
+   shadow. Motion is gentle: short ease-out fades, no bounces.
+   ============================================================ */
+
+:root {
+  /* Spacing — 4px grid */
+  --space-0:  0;
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  20px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Layout */
+  --page-pad:    32px;   /* p-8 — main content gutter */
+  --sidebar-w:   256px;  /* w-64 */
+  --grid-gap:    16px;   /* gap between KPI / chart cards */
+
+  /* Radii */
+  --radius-sm:   6px;    /* badges, segmented buttons */
+  --radius-md:   8px;    /* nav items, buttons, inputs, tooltips */
+  --radius-lg:   12px;   /* cards, KPI tiles, charts */
+  --radius-xl:   16px;   /* large panels */
+  --radius-full: 9999px; /* pills, status dots, avatars */
+
+  /* Borders */
+  --border-width: 1px;
+
+  /* Shadows — the single canonical "card" elevation, plus a deeper
+     pop for tooltips / slide-in panels. Warm-tinted, never pure black. */
+  --shadow-card: 0 1px 2px rgba(31, 30, 29, 0.04), 0 4px 16px rgba(31, 30, 29, 0.06);
+  --shadow-sm:   0 1px 2px rgba(31, 30, 29, 0.06);
+  --shadow-pop:  0 6px 24px rgba(31, 30, 29, 0.18);
+  --shadow-focus: 0 0 0 3px rgba(217, 119, 87, 0.22); /* claude focus ring */
+
+  /* Motion */
+  --ease-out:   cubic-bezier(0.16, 1, 0.3, 1); /* @kind other */
+  --ease-std:   cubic-bezier(0.4, 0, 0.2, 1);  /* @kind other */
+  --dur-fast:   120ms; /* @kind other */
+  --dur-normal: 200ms; /* @kind other */
+  --dur-slow:   320ms; /* @kind other */
+}
