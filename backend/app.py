@@ -63,6 +63,7 @@ class Deps:
     history: object = None
     fp_store: object = None
     sandbox: object = None
+    openai_provider: object = None
     account_id: str = "000000000000"
     region: str = field(default_factory=lambda: os.environ.get("AWS_REGION", "us-west-2"))
     allowed_origin: str = field(default_factory=lambda: os.environ.get("FRONTEND_ORIGIN", "*"))
@@ -125,7 +126,23 @@ def _build_config(payload: Dict, region: str) -> ScanConfig:
             setattr(cfg, key, payload[key])
     if "sandbox_enabled" in payload:
         cfg.sandbox_enabled = bool(payload["sandbox_enabled"])
+    if "ensemble_enabled" in payload:
+        cfg.ensemble_enabled = bool(payload["ensemble_enabled"])
     return cfg
+
+
+def _make_openai_provider(cfg: ScanConfig, deps: "Deps"):
+    """Build the cross-family OpenAI (Bedrock-mantle) provider when the ensemble is on.
+    Injectable via deps for tests; otherwise constructed from config (SigV4/IAM, no key)."""
+    if not cfg.ensemble_enabled:
+        return None
+    if getattr(deps, "openai_provider", None) is not None:
+        return deps.openai_provider
+    from agents.openai_mantle import OpenAIMantleProvider
+
+    return OpenAIMantleProvider(
+        model=cfg.openai_model, region=cfg.openai_region, api_kind=cfg.openai_api_kind
+    )
 
 
 def _run_scan(payload: Dict, user_id: str, deps: Deps, progress=None) -> Dict:
@@ -143,6 +160,7 @@ def _run_scan(payload: Dict, user_id: str, deps: Deps, progress=None) -> Dict:
         sandbox=deps.sandbox,
         user_id=user_id,
         progress=progress,
+        openai_provider=_make_openai_provider(cfg, deps),
     )
     try:
         return pipe.run()

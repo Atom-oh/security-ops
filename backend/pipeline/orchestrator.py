@@ -47,6 +47,7 @@ class FSIMythosPipeline:
         sandbox=None,
         user_id: str = "anonymous",
         progress: Optional[Callable[[str], None]] = None,
+        openai_provider=None,
     ):
         self.config = config
         self.converse = converse
@@ -55,6 +56,7 @@ class FSIMythosPipeline:
         self.sandbox = sandbox
         self.user_id = user_id
         self._progress = progress
+        self.openai_provider = openai_provider
 
     def _emit(self, phase: str) -> None:
         if self._progress:
@@ -221,6 +223,19 @@ class FSIMythosPipeline:
             for path, target in per_file_targets.items():
                 group = [f for f in validated if f.file_path == path]
                 verify_findings(self.sandbox, group, target.get("code", ""), enabled=True)
+
+        # Phase 4.5 — cross-family ensemble (opt-in). An independent OpenAI model re-judges
+        # each finding; disagreement escalates rather than silently dropping.
+        if cfg.ensemble_enabled and self.openai_provider is not None:
+            from pipeline.ensemble import cross_family_validate
+            ensembled: List[Finding] = []
+            for path, target in per_file_targets.items():
+                group = [f for f in validated if f.file_path == path]
+                if group:
+                    ensembled.extend(cross_family_validate(group, target, cfg, self.openai_provider))
+            ensembled.extend([f for f in validated if f.file_path not in per_file_targets])
+            log.info("phase4.5 ensemble: %d→%d findings (cross-family)", len(validated), len(ensembled))
+            validated = ensembled
 
         # Merge deterministic Phase 2.5 secret findings — but route them through FP suppression
         # too (HIGH #2). Prefilter findings are validated=True and skip the Challenger/Validator,

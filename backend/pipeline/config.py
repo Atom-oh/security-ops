@@ -119,6 +119,13 @@ class ScanConfig:
     max_total_files: int = 200
     max_total_bytes: int = 5 * 1024 * 1024  # 5 MiB
 
+    # Cross-family ensemble (v2.2): an independent OpenAI model (on Bedrock via mantle)
+    # re-judges findings for epistemic diversity. Opt-in escalation, OFF by default.
+    ensemble_enabled: bool = False
+    openai_model: str = "openai.gpt-5.5"
+    openai_region: str = "us-east-2"
+    openai_api_kind: str = "responses"  # gpt-5.5 → Responses API; gpt-oss → "chat"
+
     # FSI specialization
     fsi_mode: bool = True
     scan_scope: str = "defensive"  # defensive | full
@@ -143,6 +150,7 @@ class Finding:
     chain_potential: bool = False
     verdict: Optional[Verdict] = None
     validated: bool = False
+    cross_family: Optional[str] = None  # ensemble vote: "both" | "disagree" | None
     id: str = field(default="", init=True)
 
     def __post_init__(self) -> None:
