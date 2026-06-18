@@ -51,6 +51,7 @@ def _to_finding(raw: dict, file_path: str) -> Finding:
         cwe_id=raw.get("cwe_id"),
         description=str(raw.get("description", "")),
         exploitation_scenario=str(raw.get("exploitation_scenario", "")),
+        remediation=str(raw.get("remediation", "")),
         patch_suggestion=str(raw.get("patch_suggestion", "")),
         chain_potential=bool(raw.get("chain_potential", False)),
     )

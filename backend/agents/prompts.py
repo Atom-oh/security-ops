@@ -81,7 +81,8 @@ def hunter_user_prompt(
         f"## 코드 ({language})\n{build_untrusted_block(code_content, nonce)}"
         f"{related}\n\n"
         "코드에서 실제 악용 가능한 보안 취약점만 JSON 배열로 보고하세요. 각 항목: "
-        '{"title","cwe_id","severity","line_range","description","exploitation_scenario","patch_suggestion","chain_potential"}.'
+        '{"title","cwe_id","severity","line_range","description","exploitation_scenario","remediation","patch_suggestion","chain_potential"}. '
+        '"remediation"은 한 줄 권장 조치(요약), "patch_suggestion"은 구체적 패치입니다.'
     )
 
 

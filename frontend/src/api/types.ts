@@ -10,6 +10,7 @@ export interface Finding {
   cwe_id: string | null;
   description: string;
   exploitation_scenario: string;
+  remediation?: string;
   patch_suggestion: string;
   confidence: number;
   chain_potential: boolean;

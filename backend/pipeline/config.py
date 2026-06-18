@@ -145,7 +145,8 @@ class Finding:
     cwe_id: Optional[str] = None
     description: str = ""
     exploitation_scenario: str = ""
-    patch_suggestion: str = ""
+    remediation: str = ""  # short one-line recommended action (권장 조치)
+    patch_suggestion: str = ""  # detailed patch / fix
     confidence: float = 0.0  # 0..1, set after validation
     chain_potential: bool = False
     verdict: Optional[Verdict] = None
