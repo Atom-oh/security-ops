@@ -38,3 +38,27 @@ for the aggregate gate.
 - AgentCore Runtime + `apac.*` Opus inference-profile availability in `ap-northeast-2`
   (confirm at deploy; fall back to `us-west-2`/`us.*` via `-var region=`).
 - Exact `bedrock-agentcore-control` CLI flag shapes (see `infra/modules/agentcore/README.md`).
+
+## Scan-stall fix (2026-06-18) — verification
+
+**Code (verified, unit-tested):**
+- T1 heartbeat: `update_status` auto-stamps `updatedAt`; pipeline beats per file in Phases 3/3.5/4/4.5.
+- T2 staleness: `tools/staleness.annotate_stale` adds advisory `statusView=timed_out` on read; canonical `status` untouched.
+- T3 dispatch: `SqsDispatchSpawn` + `scan_worker` (consumer-only, trusted `userId`, expiring `try_claim` lease, dispatch-failure→error).
+- Gates: `bash tests/run-all.sh` → backend 155 passed, vite build OK, `terraform validate` OK.
+
+**Remaining deploy steps (NOT unit-verifiable — require AWS):**
+1. `terraform apply` the new `data` module SQS main queue + DLQ.
+2. **Fargate/ECS worker** (NOT Lambda — its 900s cap reproduces the freeze): a long-running
+   consumer that polls `scan_worker_queue_url`, calls `app.scan_worker(message, deps)` in-process,
+   and deletes the message on a terminal result. IAM (least-priv): sqs receive/delete on the
+   queue, dynamodb update on SCAN_HISTORY, bedrock invoke. Set `STALE_AFTER_SEC` to match the
+   lease TTL and the queue visibility timeout (> worst-case scan).
+3. Set `SCAN_WORKER_QUEUE_URL` on the AgentCore runtime (else it warns and uses the
+   non-durable in-thread fallback) + grant it `sqs:SendMessage` on the queue.
+
+**Staging smoke checklist:**
+- [ ] Run a real upload scan → reaches `done` (not stuck) within expected time.
+- [ ] Kill the worker mid-Phase-3 → record goes stale on read (advisory `timed_out`) and the
+      message is reclaimed after lease expiry / lands in DLQ after `maxReceiveCount`.
+- [ ] Confirm history records carry the real `userId` (depends on the separate JWT-claims fix).
