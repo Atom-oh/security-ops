@@ -28,6 +28,7 @@ export function ResultView({
   coverage,
   done,
   currentPhase,
+  currentDetail,
   error,
 }: {
   summary?: Summary;
@@ -36,6 +37,7 @@ export function ResultView({
   coverage?: Coverage;
   done: boolean;
   currentPhase?: string;
+  currentDetail?: string;
   error?: string;
 }) {
   // IN_PROGRESS records persist empty objects ({}); treat those as "no data yet" so we don't
@@ -59,7 +61,7 @@ export function ResultView({
           스캔 실패: {error}
         </div>
       )}
-      <PipelineProgress done={done} currentPhase={currentPhase} />
+      <PipelineProgress done={done} currentPhase={currentPhase} currentDetail={currentDetail} />
       {cov && <CoverageBar c={cov} />}
       {hasGate && <CicdGate gate={gate!} />}
       {hasSummary && <ScanSummaryCards summary={summary!} />}

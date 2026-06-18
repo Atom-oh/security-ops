@@ -65,6 +65,7 @@ export interface ScanResult {
   gate?: Gate;
   coverage?: Coverage;
   currentPhase?: string;
+  currentDetail?: string;
   error?: string;
 }
 
@@ -81,6 +82,7 @@ export interface HistoryItem {
   gate?: Gate;
   coverage?: Coverage;
   currentPhase?: string;
+  currentDetail?: string;
   error?: string;
 }
 

@@ -12,9 +12,11 @@ export const PHASES = [
 export function PipelineProgress({
   done,
   currentPhase,
+  currentDetail,
 }: {
   done: boolean;
   currentPhase?: string;
+  currentDetail?: string;
 }) {
   const activeIdx = done ? PHASES.length : Math.max(0, PHASES.indexOf(currentPhase ?? ""));
   return (
@@ -31,22 +33,23 @@ export function PipelineProgress({
             <li
               key={p}
               style={{
-                display: "flex",
-                justifyContent: "space-between",
                 padding: "var(--space-2) var(--space-3)",
                 borderRadius: "var(--radius-md)",
                 background: active ? "var(--brand-subtle)" : "transparent",
               }}
             >
-              <span>{p}</span>
-              <span
-                style={{
-                  fontSize: "var(--text-xs)",
-                  color: complete ? "var(--positive-text)" : "var(--text-muted)",
-                }}
-              >
-                {complete ? "완료" : active ? "진행 중" : "대기"}
-              </span>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ fontWeight: active ? "var(--weight-medium)" : "var(--weight-regular)" }}>{p}</span>
+                <span style={{ fontSize: "var(--text-xs)", color: complete ? "var(--positive-text)" : "var(--text-muted)" }}>
+                  {complete ? "완료" : active ? "진행 중" : "대기"}
+                </span>
+              </div>
+              {/* live per-phase detail (e.g. detected languages, files chosen to scan, current hunt target) */}
+              {active && currentDetail && (
+                <div style={{ marginTop: "2px", fontSize: "var(--text-xs)", color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
+                  ↳ {currentDetail}
+                </div>
+              )}
             </li>
           );
         })}

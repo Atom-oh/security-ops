@@ -60,10 +60,15 @@ class FSIMythosPipeline:
         self._heartbeat = heartbeat
         self.openai_provider = openai_provider
 
-    def _emit(self, phase: str) -> None:
+    def _emit(self, phase: str, detail: str = "") -> None:
         if self._progress:
             try:
-                self._progress(phase)
+                self._progress(phase, detail)
+            except TypeError:
+                try:
+                    self._progress(phase)  # back-compat: 1-arg callbacks
+                except Exception:
+                    pass
             except Exception:
                 pass  # progress reporting must never break the scan
 
@@ -87,6 +92,9 @@ class FSIMythosPipeline:
         self._emit(PHASES[0])
         lang_files = detect_languages(cfg.project_path)
         log.info("phase0: %s", {k.value: len(v) for k, v in lang_files.items()})
+        _lang_summary = ", ".join(f"{k.value} {len(v)}" for k, v in lang_files.items()) or "없음"
+        _total = sum(len(v) for v in lang_files.values())
+        self._emit(PHASES[0], f"감지된 언어: {_lang_summary} · 총 {_total}개 파일")
 
         # Phase 1 — slice every file, build per-file slices + sink counts
         self._emit(PHASES[1])
@@ -115,6 +123,7 @@ class FSIMythosPipeline:
         total_code_files = len(file_sizes)
         files_with_sinks = sum(1 for c in sink_counts.values() if c > 0)
         log.info("phase1: %d code files, %d with explicit sinks", total_code_files, files_with_sinks)
+        self._emit(PHASES[1], f"위험 싱크 포함 {files_with_sinks}개 / 전체 {total_code_files}개 코드파일")
 
         # Phase 2 — deterministic risk triage (FSI-weighted), budget-guarded, then top-N.
         self._emit(PHASES[2])
@@ -127,6 +136,8 @@ class FSIMythosPipeline:
         log.info("phase2: triaged %d→%d candidates (budget dropped %d); top %d: %s",
                  total_code_files, len(kept_paths), dropped_over_budget, len(ranked),
                  [r.get("file") for r in ranked])
+        _targets = ", ".join(os.path.basename(r["file"]) for r in ranked[:6])
+        self._emit(PHASES[2], f"위험도 상위 {len(ranked)}개 스캔 대상 선정: {_targets}")
 
         # Phase 2.5 — deterministic secret pre-filter (cheap, no LLM). Run over EVERY detected
         # file, not just the ranked/budget-kept subset: secret scanning costs no tokens, so a
@@ -166,8 +177,9 @@ class FSIMythosPipeline:
         all_findings: List[Finding] = []
         per_file_targets: Dict[str, Dict] = {}
         hunt_failures = 0
-        for entry in ranked:
+        for idx, entry in enumerate(ranked, 1):
             path = entry["file"]
+            self._emit(PHASES[3], f"에이전틱 헌트 {idx}/{len(ranked)}: {os.path.basename(path)}")
             slices = slices_by_file.get(path, [])
             if slices:
                 code = "\n...\n".join(s["numbered_context"] for s in slices)

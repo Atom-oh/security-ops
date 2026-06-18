@@ -47,6 +47,7 @@ export function ScanPage() {
             report: item.report,
             gate: item.gate,
             currentPhase: (item as unknown as { currentPhase?: string }).currentPhase,
+            currentDetail: (item as unknown as { currentDetail?: string }).currentDetail,
             error: (item as unknown as { error?: string }).error,
           });
           if (item.status === "done" || item.status === "error") {
@@ -85,6 +86,7 @@ export function ScanPage() {
           coverage={result.coverage}
           done={!!done}
           currentPhase={result.currentPhase}
+          currentDetail={result.currentDetail}
           error={result.error}
         />
       )}

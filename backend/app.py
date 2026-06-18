@@ -289,8 +289,8 @@ def route(payload: Dict, context=None, deps: Optional[Deps] = None) -> Dict:
         # write IN_PROGRESS up front so the poller sees it immediately
         _persist(deps, user_id, scan_id, payload, status="IN_PROGRESS", result=None)
 
-        def _progress(phase: str) -> None:
-            _safe_update(deps, user_id, scan_id, currentPhase=phase)
+        def _progress(phase: str, detail: str = "") -> None:
+            _safe_update(deps, user_id, scan_id, currentPhase=phase, currentDetail=detail)
 
         def _heartbeat() -> None:
             # intra-phase liveness ping (bumps updatedAt via auto-stamp) so a long but healthy
@@ -349,8 +349,8 @@ def scan_worker(message: Dict, deps: Deps) -> Dict:
     if claim is not None and not claim(user_id, scan_id, token, _now_iso()):
         return {"scanId": scan_id, "status": "IN_PROGRESS", "skipped": "lease held by another worker"}
 
-    def _progress(phase: str) -> None:
-        _safe_update(deps, user_id, scan_id, currentPhase=phase)
+    def _progress(phase: str, detail: str = "") -> None:
+        _safe_update(deps, user_id, scan_id, currentPhase=phase, currentDetail=detail)
 
     def _heartbeat() -> None:
         _safe_update(deps, user_id, scan_id)

@@ -72,7 +72,8 @@ def test_pipeline_end_to_end(tmp_path):
     assert result["gate"]["status"] == "BLOCKED"  # critical + chaining
     assert result["report"]["asff"][0]["Severity"]["Label"] == "CRITICAL"
     # progress callback fired for every phase
-    assert seen == PHASES
+    # every phase is reported (phases may be emitted more than once now, with detail)
+    assert all(p in seen for p in PHASES)
 
 
 def test_files_without_sinks_are_still_hunted(tmp_path):
