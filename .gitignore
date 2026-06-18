@@ -21,5 +21,6 @@ frontend/.env
 .claude/co-agent-consensus/
 .playwright-mcp/
 .headroom/
-.claude/
+.claude/co-agent.local.json
+.claude/settings.local.json
 .serena/
