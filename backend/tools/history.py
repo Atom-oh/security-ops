@@ -55,6 +55,7 @@ class ScanHistory:
             "maxFiles": max_files,
             "passAtK": pass_at_k,
             "status": status,
+            "updatedAt": created_at,  # liveness baseline; bumped by every update_status
             "summary": json.dumps(summary or {}, ensure_ascii=False),
             "report": json.dumps(report or {}, ensure_ascii=False),
             "gate": json.dumps(gate or {}, ensure_ascii=False),
@@ -83,18 +84,33 @@ class ScanHistory:
             ExpressionAttributeValues=values,
         )
 
-    def try_claim(self, user_id: str, scan_id: str, token: str, now_iso: str) -> bool:
+    def try_claim(
+        self, user_id: str, scan_id: str, token: str, now_iso: str,
+        lease_ttl_sec: int = 1800,
+    ) -> bool:
         """Atomically claim a scan for one worker (SQS is at-least-once). Returns True if this
-        caller won the lease, False if another worker already holds it. Conditional on no
-        existing lease, so a duplicate/redelivered message can't double-run the scan."""
+        caller won the lease, False if a *live* lease is already held.
+
+        The lease is **fencing/expiring**: it can be reclaimed once `leaseAt` is older than
+        `lease_ttl_sec`. Without expiry, a worker that dies mid-scan would hold the lease
+        forever and the scan could never be retried — moving the stuck-scan bug rather than
+        fixing it. ISO8601 UTC timestamps compare lexicographically, so the cutoff comparison
+        is a plain string compare."""
+        from datetime import timedelta
         from botocore.exceptions import ClientError
 
+        try:
+            cutoff = (
+                datetime.fromisoformat(now_iso.replace("Z", "+00:00")) - timedelta(seconds=lease_ttl_sec)
+            ).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        except ValueError:
+            cutoff = now_iso  # unparseable → only claim if no lease at all
         try:
             self.table.update_item(
                 Key={"userId": user_id, "scanId": scan_id},
                 UpdateExpression="SET leaseToken = :t, leaseAt = :n",
-                ConditionExpression="attribute_not_exists(leaseToken)",
-                ExpressionAttributeValues={":t": token, ":n": now_iso},
+                ConditionExpression="attribute_not_exists(leaseToken) OR leaseAt < :cutoff",
+                ExpressionAttributeValues={":t": token, ":n": now_iso, ":cutoff": cutoff},
             )
             return True
         except ClientError as exc:

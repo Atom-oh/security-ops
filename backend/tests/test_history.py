@@ -78,10 +78,19 @@ def test_update_status_keeps_caller_updated_at(history):
 
 
 def test_try_claim_is_exclusive(history):
-    # SQS at-least-once: the first worker claims the lease, a duplicate delivery loses (Task 3).
+    # SQS at-least-once: the first worker claims the lease, a fresh duplicate delivery loses.
     history.save_scan("u@x", "s4", "2026-06-17T00:00:00Z", "/p", 8, 1, status="IN_PROGRESS")
-    assert history.try_claim("u@x", "s4", "tok-A", "2026-06-18T00:00:00Z") is True
-    assert history.try_claim("u@x", "s4", "tok-B", "2026-06-18T00:00:01Z") is False
+    assert history.try_claim("u@x", "s4", "tok-A", "2026-06-18T00:00:00.000000Z") is True
+    assert history.try_claim("u@x", "s4", "tok-B", "2026-06-18T00:00:01.000000Z") is False
+
+
+def test_try_claim_reclaims_expired_lease(history):
+    # A worker that died holding the lease must not block forever: an expired lease is reclaimable.
+    history.save_scan("u@x", "s5", "2026-06-17T00:00:00Z", "/p", 8, 1, status="IN_PROGRESS")
+    assert history.try_claim("u@x", "s5", "tok-dead", "2026-06-18T00:00:00.000000Z") is True
+    # >30min later, the dead lease is reclaimable by a new worker
+    assert history.try_claim("u@x", "s5", "tok-new", "2026-06-18T01:00:00.000000Z",
+                             lease_ttl_sec=1800) is True
 
 
 def test_get_missing_returns_none(history):

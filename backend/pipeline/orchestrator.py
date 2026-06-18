@@ -209,6 +209,7 @@ class FSIMythosPipeline:
         self._emit(PHASES[4])
         challenged: List[Finding] = []
         for path, target in per_file_targets.items():
+            self._beat()  # 3.5 is also a multi-file LLM loop — keep liveness ticking
             group = [f for f in all_findings if f.file_path == path]
             if group:
                 challenged.extend(challenge(group, target, cfg, converse=self.converse))
@@ -219,6 +220,7 @@ class FSIMythosPipeline:
         self._emit(PHASES[5])
         validated: List[Finding] = []
         for path, target in per_file_targets.items():
+            self._beat()  # Phase 4 validation is also a per-file LLM loop
             group = [f for f in challenged if f.file_path == path]
             if group:
                 try:
@@ -242,6 +244,7 @@ class FSIMythosPipeline:
             from pipeline.ensemble import cross_family_validate
             ensembled: List[Finding] = []
             for path, target in per_file_targets.items():
+                self._beat()  # Phase 4.5 cross-family ensemble is also a per-file LLM loop
                 group = [f for f in validated if f.file_path == path]
                 if group:
                     ensembled.extend(cross_family_validate(group, target, cfg, self.openai_provider))

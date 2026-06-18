@@ -331,9 +331,13 @@ def scan_worker(message: Dict, deps: Deps) -> Dict:
     Idempotent for SQS at-least-once delivery: skip if the record is already terminal, and
     claim a lease so a duplicate/redelivered message can't double-run. Runs ``_run_scan`` in
     this (long-running) process with a heartbeat, then persists done/error."""
-    scan_id = message["scanId"]
-    user_id = message.get("userId", "anonymous")
+    scan_id = message.get("scanId")
+    user_id = message.get("userId")
     payload = message.get("payload", {})
+    if not scan_id or not user_id:
+        # Malformed/poison message — never default identity (would target the wrong partition).
+        log.error("scan_worker rejecting malformed message: %s", {k: message.get(k) for k in ("scanId", "userId")})
+        return {"status": "error", "error": "malformed worker message (missing scanId/userId)"}
 
     existing = deps.history.get_scan(user_id, scan_id) if deps.history else None
     if existing and existing.get("status") in ("done", "error"):
@@ -355,7 +359,11 @@ def scan_worker(message: Dict, deps: Deps) -> Dict:
         result = _run_scan(payload, user_id, deps, progress=_progress, heartbeat=_heartbeat)
         _persist(deps, user_id, scan_id, payload, status="done", result=result, update=True)
         return {"scanId": scan_id, "status": "done"}
-    except Exception as exc:  # noqa: BLE001 — never crash the consumer; record + let DLQ handle retries
+    except Exception as exc:  # noqa: BLE001
+        # Terminal: record error and return normally so SQS deletes the message — we do NOT
+        # re-raise to retry. Retrying the same message can't recover anyway (its lease is held
+        # until expiry), and would burn LLM spend on poison pills. Crash recovery instead comes
+        # from the *expiring* lease: a later delivery reclaims the lease once it goes stale.
         log.exception("scan_worker failed for %s", scan_id)
         _safe_update(deps, user_id, scan_id, status="error", error=str(exc))
         return {"scanId": scan_id, "status": "error", "error": str(exc)}
@@ -410,11 +418,20 @@ try:  # pragma: no cover - exercised only inside the container
         region = os.environ.get("AWS_REGION", "us-west-2")
         import boto3
 
+        # Durable async: if a worker queue is configured, enqueue scans to SQS for the Fargate
+        # worker. Without it, scan_async falls back to the in-thread daemon (NOT durable on the
+        # runtime) — so a deployment that relies on async MUST set SCAN_WORKER_QUEUE_URL.
+        queue_url = os.environ.get("SCAN_WORKER_QUEUE_URL")
+        dispatch = SqsDispatchSpawn(queue_url, region=region) if queue_url else None
+        if not queue_url:
+            log.warning("SCAN_WORKER_QUEUE_URL unset — async scans use the non-durable in-thread path")
+
         deps = Deps(
             converse=BedrockConverse(region=region),
             history=_default_history(region),
             account_id=_account_id(),
             region=region,
+            dispatch=dispatch,
         )
         return route(payload, context, deps)
 

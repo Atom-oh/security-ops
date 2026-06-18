@@ -101,6 +101,12 @@ def test_worker_exception_persists_error(tmp_path):
     assert hist.records[("admin", "s#1")]["status"] in ("error", "done")
 
 
+def test_worker_rejects_malformed_message():
+    deps = Deps(converse=EmptyConverse(), history=FakeHistory(), region="ap-northeast-2")
+    out = scan_worker({"payload": {}}, deps)  # no scanId/userId
+    assert out["status"] == "error" and "malformed" in out["error"]
+
+
 def test_sqs_dispatch_sends_message():
     import boto3
     from botocore.stub import Stubber
