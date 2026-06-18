@@ -23,6 +23,7 @@ from typing import Callable, Dict, List, Optional
 from agents.bedrock import BedrockConverse
 from pipeline.config import ScanConfig
 from pipeline.orchestrator import FSIMythosPipeline
+from tools.staleness import DEFAULT_STALE_AFTER_SEC, annotate_stale
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("fsi.app")
@@ -35,6 +36,13 @@ CORS_HEADERS = {
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+
+
+def _stale_after_sec() -> int:
+    try:
+        return int(os.environ.get("STALE_AFTER_SEC", DEFAULT_STALE_AFTER_SEC))
+    except ValueError:
+        return DEFAULT_STALE_AFTER_SEC
 
 
 def _new_scan_id() -> str:
@@ -230,10 +238,14 @@ def route(payload: Dict, context=None, deps: Optional[Deps] = None) -> Dict:
 
     if action == "list_history":
         items = deps.history.list_history(user_id, limit=int(payload.get("limit", 50)))
+        now = _now_iso()
+        items = [annotate_stale(it, now, _stale_after_sec()) for it in (items or [])]
         return {"cors": _cors(origin), "action": action, "items": items}
 
     if action == "get_scan":
         item = deps.history.get_scan(user_id, payload["scanId"])
+        if item:
+            item = annotate_stale(item, _now_iso(), _stale_after_sec())
         return {"cors": _cors(origin), "action": action, "scan": item}
 
     if action == "scan":

@@ -77,6 +77,9 @@ export interface HistoryItem {
   summary?: ScanSummary;
   report?: ScanReport;
   gate?: Gate;
+  coverage?: Coverage;
+  currentPhase?: string;
+  error?: string;
 }
 
 export interface ScanRequest {

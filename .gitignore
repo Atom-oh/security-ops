@@ -22,3 +22,4 @@ frontend/.env
 .playwright-mcp/
 .headroom/
 .claude/
+.serena/

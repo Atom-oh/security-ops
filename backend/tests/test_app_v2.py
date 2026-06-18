@@ -12,14 +12,22 @@ class EmptyConverse:
 
 
 class FakeHistory:
-    def __init__(self):
+    def __init__(self, items=None, scan=None):
         self.saved = []
+        self._items = items or []
+        self._scan = scan
 
     def save_scan(self, user_id, scan_id, **kw):
         self.saved.append(kw)
 
     def update_status(self, *a, **k):
         pass
+
+    def list_history(self, user_id, limit=50):
+        return list(self._items)
+
+    def get_scan(self, user_id, scan_id):
+        return self._scan
 
 
 def test_sync_scan_response_has_coverage(tmp_path: Path):
@@ -35,6 +43,22 @@ def test_sync_scan_response_has_coverage(tmp_path: Path):
     assert res["coverage"]["total_code_files"] == 2
     # persisted via summary.coverage
     assert hist.saved[0]["summary"]["coverage"]["total_code_files"] == 2
+
+
+def test_read_path_annotates_stale_in_progress():
+    # Task 2: a long-stuck IN_PROGRESS scan is surfaced as timed_out on read (advisory),
+    # while canonical status is untouched.
+    stuck = {"status": "IN_PROGRESS", "createdAt": "2020-01-01T00:00:00.000000Z",
+             "currentPhase": "Phase 3 · 헌트", "scanId": "old#1"}
+    deps = Deps(converse=EmptyConverse(), history=FakeHistory(items=[stuck], scan=stuck),
+                region="ap-northeast-2", allowed_origin="*")
+    ctx = {"claims": {"sub": "u1"}}
+    lst = route({"action": "list_history"}, context=ctx, deps=deps)
+    assert lst["items"][0]["statusView"] == "timed_out"
+    assert lst["items"][0]["stale"] is True
+    assert lst["items"][0]["status"] == "IN_PROGRESS"  # canonical untouched
+    one = route({"action": "get_scan", "scanId": "old#1"}, context=ctx, deps=deps)
+    assert one["scan"]["statusView"] == "timed_out"
 
 
 def test_model_selection_from_payload(tmp_path):

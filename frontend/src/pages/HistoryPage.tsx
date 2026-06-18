@@ -3,6 +3,7 @@ import { useAuth } from "../auth/AuthContext";
 import { getScan, listHistory } from "../api/agentcore";
 import { HistoryItem } from "../api/types";
 import { ResultView } from "./ResultView";
+import { historyItemToScanResult, isTerminalScanStatus } from "./historyResult";
 
 export function HistoryPage() {
   const { getToken } = useAuth();
@@ -11,8 +12,12 @@ export function HistoryPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  const updateItem = useCallback((scan: HistoryItem) => {
+    setItems((prev) => prev.map((item) => (item.scanId === scan.scanId ? scan : item)));
+  }, []);
+
+  const refresh = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true);
     setError("");
     try {
       const token = await getToken();
@@ -21,7 +26,7 @@ export function HistoryPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "이력 조회 실패");
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   }, [getToken]);
 
@@ -32,10 +37,44 @@ export function HistoryPage() {
   async function view(scanId: string) {
     const token = await getToken();
     const { scan } = await getScan(token, scanId);
-    if (scan) setSelected(scan);
+    if (scan) {
+      setSelected(scan);
+      updateItem(scan);
+    }
   }
 
+  const refreshSelected = useCallback(async (scanId: string) => {
+    try {
+      const token = await getToken();
+      const { scan } = await getScan(token, scanId);
+      if (!scan) return;
+      setSelected(scan);
+      updateItem(scan);
+    } catch {
+      /* transient — keep polling */
+    }
+  }, [getToken, updateItem]);
+
+  useEffect(() => {
+    if (selected || !items.some((item) => !isTerminalScanStatus(item.status))) return;
+    const id = window.setInterval(() => {
+      void refresh(false);
+    }, 6000);
+    return () => window.clearInterval(id);
+  }, [items, selected, refresh]);
+
+  useEffect(() => {
+    if (!selected || isTerminalScanStatus(selected.status)) return;
+    void refreshSelected(selected.scanId);
+    const id = window.setInterval(() => {
+      void refreshSelected(selected.scanId);
+    }, 6000);
+    return () => window.clearInterval(id);
+  }, [selected, refreshSelected]);
+
   if (selected) {
+    const selectedResult = historyItemToScanResult(selected);
+    const done = selectedResult.status === "done";
     return (
       <div style={{ display: "grid", gap: "var(--space-4)" }}>
         <button
@@ -44,7 +83,15 @@ export function HistoryPage() {
         >
           ← 이력으로
         </button>
-        <ResultView summary={selected.summary} report={selected.report} gate={selected.gate} done />
+        <ResultView
+          summary={selectedResult.summary}
+          report={selectedResult.report}
+          gate={selectedResult.gate}
+          coverage={selectedResult.coverage}
+          done={done}
+          currentPhase={selectedResult.currentPhase}
+          error={selectedResult.error}
+        />
       </div>
     );
   }
@@ -82,7 +129,7 @@ export function HistoryPage() {
                     onClick={() => view(it.scanId)}
                     style={{ background: "transparent", border: "1px solid var(--border-default)", borderRadius: "var(--radius-sm)", padding: "2px var(--space-3)" }}
                   >
-                    결과 보기
+                    {isTerminalScanStatus(it.status) ? "결과 보기" : "진행 보기"}
                   </button>
                 </td>
               </tr>
