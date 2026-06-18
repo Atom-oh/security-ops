@@ -10,6 +10,7 @@ The HTTP/SDK glue is thin: ``route(payload, context, deps)`` is pure and unit-te
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import os
 import tempfile
@@ -70,24 +71,61 @@ class Deps:
     spawn: Callable[[Callable[[], None]], None] = _default_spawn
 
 
-def _user_id(payload: Dict, context) -> str:
-    """Identity comes ONLY from the verified JWT claims in context — never from the request
-    payload (a payload-controlled user_id would let a caller read another user's history).
+def _decode_jwt_claims(token: str) -> Dict:
+    """Decode (NOT verify) a JWT payload. The AgentCore JWT authorizer has already verified
+    the signature/audience before the request reaches us, so we only need the claims."""
+    try:
+        payload_b64 = token.split(".")[1]
+        payload_b64 += "=" * (-len(payload_b64) % 4)  # pad base64url
+        return json.loads(base64.urlsafe_b64decode(payload_b64))
+    except Exception:
+        return {}
 
-    Prefers ``sub`` — the stable per-user UUID that is always present in a Cognito ACCESS
-    token (which is what the SPA sends). ``email`` is NOT in the access token by default, so
-    we fall back to it only for ID-token/test contexts. A payload ``user_id`` is honored only
-    when ``FSI_ALLOW_PAYLOAD_USER=1`` (local dev/tests), never in the deployed container.
+
+def _headers_from_context(context) -> Dict[str, str]:
+    """AgentCore passes a RequestContext with ``request_headers``; also tolerate a dict or an
+    object exposing ``.claims`` (older shape / tests)."""
+    if context is None:
+        return {}
+    hdrs = getattr(context, "request_headers", None)
+    if hdrs is None and isinstance(context, dict):
+        hdrs = context.get("request_headers")
+    return hdrs or {}
+
+
+def _user_id(payload: Dict, context) -> str:
+    """Stable per-user identity from the verified bearer JWT — never from the request payload.
+
+    The SPA sends the Cognito ACCESS token as ``Authorization: Bearer <jwt>``; AgentCore's JWT
+    authorizer verifies it, then we read the claims off the request header. Prefer ``sub`` (the
+    stable per-user UUID, always present in an access token). Falls back to a context ``claims``
+    dict (tests) and, only when ``FSI_ALLOW_PAYLOAD_USER=1``, the payload (local dev).
     """
-    claims = {}
-    if context is not None:
-        claims = getattr(context, "claims", None) or (
-            context.get("claims") if isinstance(context, dict) else {}
-        ) or {}
+    # 1) bearer JWT from the request headers (the real deployed path)
+    headers = _headers_from_context(context)
+    auth = ""
+    for k, v in headers.items():
+        if k.lower() == "authorization":
+            auth = v or ""
+            break
+    if auth.lower().startswith("bearer "):
+        claims = _decode_jwt_claims(auth[7:])
+        identity = claims.get("sub") or claims.get("username") or claims.get("client_id")
+        if identity:
+            return identity
+
+    # 2) explicit claims on the context (test/ID-token shape)
+    claims = getattr(context, "claims", None) or (
+        context.get("claims") if isinstance(context, dict) else None
+    ) or {}
     identity = claims.get("sub") or claims.get("username") or claims.get("email")
-    if not identity and os.environ.get("FSI_ALLOW_PAYLOAD_USER") == "1":
-        identity = payload.get("user_id")
-    return identity or "anonymous"
+    if identity:
+        return identity
+
+    # 3) local-dev escape hatch only
+    if os.environ.get("FSI_ALLOW_PAYLOAD_USER") == "1":
+        return payload.get("user_id") or "anonymous"
+    return "anonymous"
 
 
 def _materialize_upload(payload: Dict) -> Optional[str]:

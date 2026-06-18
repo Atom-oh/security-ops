@@ -143,3 +143,26 @@ def test_user_id_from_context_claims(tmp_path):
 def test_sdk_optional_import():
     # app module imports cleanly even without the AgentCore SDK installed
     assert appmod.app is None or appmod.app is not None
+
+
+def _fake_jwt(claims: dict) -> str:
+    import base64, json
+    def b64(o): return base64.urlsafe_b64encode(json.dumps(o).encode()).decode().rstrip("=")
+    return f"{b64({'alg':'none'})}.{b64(claims)}.sig"
+
+
+def test_identity_from_bearer_jwt_header(tmp_path):
+    # the real deployed path: RequestContext.request_headers carries Authorization: Bearer <jwt>
+    hist = FakeHistory()
+
+    class Ctx:
+        request_headers = {"Authorization": "Bearer " + _fake_jwt({"sub": "u-abc-123", "username": "u-abc-123"})}
+
+    route({"action": "scan", "project_path": _target_dir(tmp_path)}, context=Ctx(), deps=_deps(hist))
+    assert hist.saved[0][0] == "u-abc-123"  # keyed on the JWT sub, not anonymous
+
+
+def test_identity_anonymous_without_token(tmp_path):
+    hist = FakeHistory()
+    route({"action": "scan", "project_path": _target_dir(tmp_path)}, deps=_deps(hist))
+    assert hist.saved[0][0] == "anonymous"
