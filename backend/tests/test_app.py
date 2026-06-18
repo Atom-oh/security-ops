@@ -118,7 +118,9 @@ def test_list_and_get(tmp_path):
     hist = FakeHistory()
     hist.items = [{"userId": "u@x", "scanId": "s1"}]
     res = route({"action": "list_history"}, context=_CTX, deps=_deps(hist))
-    assert res["items"] == [{"userId": "u@x", "scanId": "s1"}]
+    # items are staleness-annotated (extra fields added), so assert by identity not equality
+    assert len(res["items"]) == 1
+    assert res["items"][0]["scanId"] == "s1" and res["items"][0]["userId"] == "u@x"
     res2 = route({"action": "get_scan", "scanId": "s1"}, context=_CTX, deps=_deps(hist))
     assert res2["scan"]["scanId"] == "s1"
 

@@ -100,7 +100,7 @@ export function HistoryPage() {
     <div style={{ display: "grid", gap: "var(--space-4)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h1 style={{ fontSize: "var(--text-xl)" }}>스캔 이력 ({items.length})</h1>
-        <button className="btn-primary" onClick={refresh} disabled={loading}>
+        <button className="btn-primary" onClick={() => refresh()} disabled={loading}>
           {loading ? "불러오는 중…" : "새로고침"}
         </button>
       </div>
