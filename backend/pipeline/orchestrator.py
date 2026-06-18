@@ -47,6 +47,7 @@ class FSIMythosPipeline:
         sandbox=None,
         user_id: str = "anonymous",
         progress: Optional[Callable[[str], None]] = None,
+        heartbeat: Optional[Callable[[], None]] = None,
         openai_provider=None,
     ):
         self.config = config
@@ -56,6 +57,7 @@ class FSIMythosPipeline:
         self.sandbox = sandbox
         self.user_id = user_id
         self._progress = progress
+        self._heartbeat = heartbeat
         self.openai_provider = openai_provider
 
     def _emit(self, phase: str) -> None:
@@ -64,6 +66,15 @@ class FSIMythosPipeline:
                 self._progress(phase)
             except Exception:
                 pass  # progress reporting must never break the scan
+
+    def _beat(self) -> None:
+        """Liveness ping during long phases (e.g. the multi-minute Phase-3 Hunter). Without
+        intra-phase heartbeats a healthy long scan would trip the staleness guard."""
+        if self._heartbeat:
+            try:
+                self._heartbeat()
+            except Exception:
+                pass  # heartbeat must never break the scan
 
     def run(self) -> Dict:
         cfg = self.config
@@ -173,6 +184,7 @@ class FSIMythosPipeline:
                 "related_context": _related_context(path),
             }
             per_file_targets[path] = target
+            self._beat()  # intra-phase liveness ping (Phase 3 can run many minutes)
             # Isolate per-file hunt errors (e.g. a transient Bedrock failure) so one bad file
             # doesn't abort the whole scan.
             try:

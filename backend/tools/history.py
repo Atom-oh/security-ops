@@ -10,9 +10,14 @@ parsed back to objects on read.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 _JSON_FIELDS = ("summary", "report", "gate")
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
 class ScanHistory:
@@ -58,9 +63,12 @@ class ScanHistory:
         return item
 
     def update_status(self, user_id: str, scan_id: str, **fields) -> None:
-        """Patch an existing scan record (used by async mode to advance status/result)."""
-        if not fields:
-            return
+        """Patch an existing scan record (used by async mode to advance status/result).
+
+        Every write auto-stamps ``updatedAt`` (unless the caller supplied one) so a scan's
+        liveness is observable and a frozen worker can be detected as stale on read."""
+        fields = dict(fields)
+        fields.setdefault("updatedAt", _now_iso())
         sets, names, values = [], {}, {}
         for i, (k, v) in enumerate(fields.items()):
             if k in _JSON_FIELDS:

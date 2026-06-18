@@ -62,5 +62,20 @@ def test_update_status(history):
     assert got["summary"]["critical"] == 1
 
 
+def test_update_status_autostamps_updated_at(history):
+    # Liveness: every update stamps updatedAt so staleness can be detected (Task 1).
+    history.save_scan("u@x", "s2", "2026-06-17T00:00:00Z", "/p", 8, 1, status="IN_PROGRESS")
+    history.update_status("u@x", "s2", currentPhase="Phase 3 · 에이전틱 헌트")
+    got = history.get_scan("u@x", "s2")
+    assert got.get("updatedAt"), "update_status must stamp updatedAt"
+    assert got["currentPhase"].startswith("Phase 3")
+
+
+def test_update_status_keeps_caller_updated_at(history):
+    history.save_scan("u@x", "s3", "2026-06-17T00:00:00Z", "/p", 8, 1, status="IN_PROGRESS")
+    history.update_status("u@x", "s3", updatedAt="2099-01-01T00:00:00Z")
+    assert history.get_scan("u@x", "s3")["updatedAt"] == "2099-01-01T00:00:00Z"
+
+
 def test_get_missing_returns_none(history):
     assert history.get_scan("u@x", "nope") is None

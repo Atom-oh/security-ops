@@ -94,6 +94,28 @@ def test_secret_found_in_unscanned_low_risk_file(tmp_path):
     assert "CWE-798" in cwes, "secret in the unscanned util.py must still be found"
 
 
+def test_heartbeat_fires_per_hunted_file(tmp_path):
+    # Task 1: the pipeline pings heartbeat inside Phase 3 (per file), not just per phase, so a
+    # long multi-file scan stays observably alive.
+    for i in range(3):
+        (tmp_path / f"svc{i}.py").write_text(f"def f{i}(r):\n    return r.body['x']\n")
+    cfg = ScanConfig(project_path=str(tmp_path), max_files=3, pass_at_k=1)
+    beats = []
+    FSIMythosPipeline(cfg, converse=EmptyConverse(), heartbeat=lambda: beats.append(1)).run()
+    assert len(beats) >= 3, "heartbeat should fire at least once per hunted file"
+
+
+def test_heartbeat_errors_never_break_scan(tmp_path):
+    (tmp_path / "a.py").write_text("def f(r):\n    return r.body['x']\n")
+    cfg = ScanConfig(project_path=str(tmp_path), max_files=1, pass_at_k=1)
+
+    def boom():
+        raise RuntimeError("heartbeat sink down")
+
+    res = FSIMythosPipeline(cfg, converse=EmptyConverse(), heartbeat=boom).run()
+    assert "coverage" in res  # scan completed despite heartbeat errors
+
+
 def test_cap_unscanned_passes_with_advisory(tmp_path):
     # HIGH #1 (refined): lower-risk files left below the max_files cap are still secret-scanned
     # and risk-ranked → clean PASS with an advisory, NOT a perpetual INCOMPLETE.

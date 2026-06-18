@@ -184,7 +184,7 @@ def _make_openai_provider(cfg: ScanConfig, deps: "Deps"):
     )
 
 
-def _run_scan(payload: Dict, user_id: str, deps: Deps, progress=None) -> Dict:
+def _run_scan(payload: Dict, user_id: str, deps: Deps, progress=None, heartbeat=None) -> Dict:
     import shutil
 
     upload_dir = _materialize_upload(payload)
@@ -199,6 +199,7 @@ def _run_scan(payload: Dict, user_id: str, deps: Deps, progress=None) -> Dict:
         sandbox=deps.sandbox,
         user_id=user_id,
         progress=progress,
+        heartbeat=heartbeat,
         openai_provider=_make_openai_provider(cfg, deps),
     )
     try:
@@ -254,9 +255,14 @@ def route(payload: Dict, context=None, deps: Optional[Deps] = None) -> Dict:
         def _progress(phase: str) -> None:
             _safe_update(deps, user_id, scan_id, currentPhase=phase)
 
+        def _heartbeat() -> None:
+            # intra-phase liveness ping (bumps updatedAt via auto-stamp) so a long but healthy
+            # Phase-3 scan is not flagged stale, and a frozen worker IS detectable.
+            _safe_update(deps, user_id, scan_id)
+
         def _job() -> None:
             try:
-                result = _run_scan(payload, user_id, deps, progress=_progress)
+                result = _run_scan(payload, user_id, deps, progress=_progress, heartbeat=_heartbeat)
                 _persist(deps, user_id, scan_id, payload, status="done", result=result, update=True)
             except Exception as exc:  # noqa: BLE001 — record failure, never crash the worker
                 _safe_update(deps, user_id, scan_id, status="error", error=str(exc))
