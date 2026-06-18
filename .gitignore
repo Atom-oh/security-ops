@@ -21,3 +21,4 @@ frontend/.env
 .claude/co-agent-consensus/
 .playwright-mcp/
 .headroom/
+.claude/
