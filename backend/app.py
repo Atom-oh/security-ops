@@ -54,14 +54,36 @@ def _cors(origin: str) -> Dict:
 
 
 def _default_spawn(fn: Callable[[], None]) -> None:
-    """Run an async job in a background thread.
+    """Run an async job in a background daemon thread — LOCAL/DEV ONLY.
 
-    This is valid on AgentCore Runtime, whose container persists for the session lifetime
-    (unlike AWS Lambda, which freezes after the response — there a daemon thread would die).
-    ``Deps.spawn`` is injectable so a deployment that needs a durable trigger can swap in an
-    SQS/EventBridge/async-invoke dispatcher without touching ``route``.
+    WARNING: this is NOT durable on AgentCore Runtime. The runtime is request/response: once
+    the entrypoint returns, the microVM is frozen/reaped and this thread is killed mid-scan,
+    stranding the record IN_PROGRESS. Production must set ``Deps.dispatch`` to enqueue the scan
+    to SQS for a long-running Fargate worker (see ``SqsDispatchSpawn`` / ``scan_worker``).
     """
     threading.Thread(target=fn, daemon=True).start()
+
+
+class SqsDispatchSpawn:
+    """Durable async dispatch: enqueue the scan to SQS for a Fargate worker to run to
+    completion (off the request-scoped AgentCore runtime). ``__call__`` takes the worker
+    MESSAGE (not a thunk) so the job survives the entrypoint returning."""
+
+    def __init__(self, queue_url: str, client=None, region: Optional[str] = None):
+        self.queue_url = queue_url
+        self._client = client
+        self._region = region
+
+    @property
+    def client(self):
+        if self._client is None:
+            import boto3
+
+            self._client = boto3.client("sqs", region_name=self._region)
+        return self._client
+
+    def __call__(self, message: Dict) -> None:
+        self.client.send_message(QueueUrl=self.queue_url, MessageBody=json.dumps(message))
 
 
 @dataclass
@@ -77,6 +99,9 @@ class Deps:
     region: str = field(default_factory=lambda: os.environ.get("AWS_REGION", "us-west-2"))
     allowed_origin: str = field(default_factory=lambda: os.environ.get("FRONTEND_ORIGIN", "*"))
     spawn: Callable[[Callable[[], None]], None] = _default_spawn
+    # Durable dispatcher: takes a worker message dict and enqueues it (SQS in prod). When None,
+    # scan_async falls back to the in-thread spawn (local/dev only — not durable).
+    dispatch: Optional[Callable[[Dict], None]] = None
 
 
 def _decode_jwt_claims(token: str) -> Dict:
@@ -272,17 +297,68 @@ def route(payload: Dict, context=None, deps: Optional[Deps] = None) -> Dict:
             # Phase-3 scan is not flagged stale, and a frozen worker IS detectable.
             _safe_update(deps, user_id, scan_id)
 
-        def _job() -> None:
+        if deps.dispatch is not None:
+            # Durable path: enqueue for the Fargate worker. The trusted user_id is carried in
+            # the message (the worker must NOT re-derive identity). If enqueue fails, compensate
+            # immediately so we never leave a bare IN_PROGRESS that can't be worked.
             try:
-                result = _run_scan(payload, user_id, deps, progress=_progress, heartbeat=_heartbeat)
-                _persist(deps, user_id, scan_id, payload, status="done", result=result, update=True)
-            except Exception as exc:  # noqa: BLE001 — record failure, never crash the worker
-                _safe_update(deps, user_id, scan_id, status="error", error=str(exc))
+                deps.dispatch({"action": "scan_worker", "scanId": scan_id,
+                               "userId": user_id, "payload": payload})
+            except Exception as exc:  # noqa: BLE001
+                log.exception("scan dispatch failed")
+                _safe_update(deps, user_id, scan_id, status="error", error=f"dispatch_failed: {exc}")
+                return {"cors": _cors(origin), "action": action, "scanId": scan_id,
+                        "status": "error", "error": "dispatch_failed"}
+        else:
+            # Local/dev fallback: in-thread daemon (NOT durable on AgentCore — see _default_spawn).
+            def _job() -> None:
+                try:
+                    result = _run_scan(payload, user_id, deps, progress=_progress, heartbeat=_heartbeat)
+                    _persist(deps, user_id, scan_id, payload, status="done", result=result, update=True)
+                except Exception as exc:  # noqa: BLE001 — record failure, never crash the worker
+                    _safe_update(deps, user_id, scan_id, status="error", error=str(exc))
 
-        deps.spawn(_job)
+            deps.spawn(_job)
         return {"cors": _cors(origin), "action": action, "scanId": scan_id, "status": "IN_PROGRESS"}
 
     return {"action": action, "status": "error", "error": f"unknown action: {action}", "cors": _cors(origin)}
+
+
+def scan_worker(message: Dict, deps: Deps) -> Dict:
+    """Consumer-only entrypoint for the durable SQS worker (Fargate). NOT a public ``route``
+    action — identity comes solely from the trusted enqueued ``userId``, never a caller claim.
+
+    Idempotent for SQS at-least-once delivery: skip if the record is already terminal, and
+    claim a lease so a duplicate/redelivered message can't double-run. Runs ``_run_scan`` in
+    this (long-running) process with a heartbeat, then persists done/error."""
+    scan_id = message["scanId"]
+    user_id = message.get("userId", "anonymous")
+    payload = message.get("payload", {})
+
+    existing = deps.history.get_scan(user_id, scan_id) if deps.history else None
+    if existing and existing.get("status") in ("done", "error"):
+        return {"scanId": scan_id, "status": existing["status"], "skipped": "already terminal"}
+
+    # Lease claim: only one worker may proceed (conditional; best-effort if store lacks claim).
+    token = uuid.uuid4().hex
+    claim = getattr(deps.history, "try_claim", None)
+    if claim is not None and not claim(user_id, scan_id, token, _now_iso()):
+        return {"scanId": scan_id, "status": "IN_PROGRESS", "skipped": "lease held by another worker"}
+
+    def _progress(phase: str) -> None:
+        _safe_update(deps, user_id, scan_id, currentPhase=phase)
+
+    def _heartbeat() -> None:
+        _safe_update(deps, user_id, scan_id)
+
+    try:
+        result = _run_scan(payload, user_id, deps, progress=_progress, heartbeat=_heartbeat)
+        _persist(deps, user_id, scan_id, payload, status="done", result=result, update=True)
+        return {"scanId": scan_id, "status": "done"}
+    except Exception as exc:  # noqa: BLE001 — never crash the consumer; record + let DLQ handle retries
+        log.exception("scan_worker failed for %s", scan_id)
+        _safe_update(deps, user_id, scan_id, status="error", error=str(exc))
+        return {"scanId": scan_id, "status": "error", "error": str(exc)}
 
 
 def _persist(deps: Deps, user_id, scan_id, payload, status, result, update=False) -> None:

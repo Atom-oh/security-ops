@@ -83,6 +83,25 @@ class ScanHistory:
             ExpressionAttributeValues=values,
         )
 
+    def try_claim(self, user_id: str, scan_id: str, token: str, now_iso: str) -> bool:
+        """Atomically claim a scan for one worker (SQS is at-least-once). Returns True if this
+        caller won the lease, False if another worker already holds it. Conditional on no
+        existing lease, so a duplicate/redelivered message can't double-run the scan."""
+        from botocore.exceptions import ClientError
+
+        try:
+            self.table.update_item(
+                Key={"userId": user_id, "scanId": scan_id},
+                UpdateExpression="SET leaseToken = :t, leaseAt = :n",
+                ConditionExpression="attribute_not_exists(leaseToken)",
+                ExpressionAttributeValues={":t": token, ":n": now_iso},
+            )
+            return True
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+                return False
+            raise
+
     def list_history(self, user_id: str, limit: int = 50) -> List[Dict]:
         from boto3.dynamodb.conditions import Key
 

@@ -77,5 +77,12 @@ def test_update_status_keeps_caller_updated_at(history):
     assert history.get_scan("u@x", "s3")["updatedAt"] == "2099-01-01T00:00:00Z"
 
 
+def test_try_claim_is_exclusive(history):
+    # SQS at-least-once: the first worker claims the lease, a duplicate delivery loses (Task 3).
+    history.save_scan("u@x", "s4", "2026-06-17T00:00:00Z", "/p", 8, 1, status="IN_PROGRESS")
+    assert history.try_claim("u@x", "s4", "tok-A", "2026-06-18T00:00:00Z") is True
+    assert history.try_claim("u@x", "s4", "tok-B", "2026-06-18T00:00:01Z") is False
+
+
 def test_get_missing_returns_none(history):
     assert history.get_scan("u@x", "nope") is None
