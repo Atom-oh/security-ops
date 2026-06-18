@@ -24,12 +24,12 @@ export interface ScanSummary {
   medium: number;
   low: number;
   chaining: number;
-  gate_status: "BLOCKED" | "PASSED";
+  gate_status: "BLOCKED" | "PASSED" | "INCOMPLETE";
   coverage?: Coverage;
 }
 
 export interface Gate {
-  status: "BLOCKED" | "PASSED";
+  status: "BLOCKED" | "PASSED" | "INCOMPLETE";
   blocked: number;
   info: number;
   reasons: string[];
