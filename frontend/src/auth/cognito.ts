@@ -25,12 +25,27 @@ export function signIn(email: string, password: string): Promise<CognitoUserSess
   });
 }
 
+// AgentCore rejects a token that expires "within the next minute" (Ineffectual token).
+// getSession only refreshes a FULLY expired token, so we proactively refresh when the access
+// token is within this buffer of expiry.
+const REFRESH_BUFFER_SEC = 300; // 5 min
+
+function isNearExpiry(session: CognitoUserSession): boolean {
+  const exp = session.getAccessToken().getExpiration(); // epoch seconds
+  return exp - Math.floor(Date.now() / 1000) < REFRESH_BUFFER_SEC;
+}
+
 export function currentSession(): Promise<CognitoUserSession | null> {
   const user = pool.getCurrentUser();
   if (!user) return Promise.resolve(null);
   return new Promise((resolve) => {
     user.getSession((err: Error | null, session: CognitoUserSession | null) => {
-      resolve(err ? null : session);
+      if (err || !session) return resolve(null);
+      if (!isNearExpiry(session)) return resolve(session);
+      // near expiry → force a refresh with the refresh token
+      user.refreshSession(session.getRefreshToken(), (rErr, fresh) => {
+        resolve(rErr ? session : fresh); // fall back to the current session if refresh fails
+      });
     });
   });
 }
