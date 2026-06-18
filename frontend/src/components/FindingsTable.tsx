@@ -26,17 +26,18 @@ function DetailRow({ f }: { f: Finding }) {
     <tr>
       <td colSpan={COLS} style={{ padding: "var(--space-4) var(--space-6)", background: "var(--surface-sunken)", borderTop: "1px solid var(--border-subtle)" }}>
         <div style={{ display: "grid", gap: "var(--space-3)", maxWidth: 900 }}>
-          <Field label="위치" value={`${f.file_path}:${f.line_range[0]}-${f.line_range[1]}`} mono />
-          <Field label="설명" value={f.description} />
-          <Field label="악용 시나리오" value={f.exploitation_scenario} />
-          <Field label="패치 제안" value={f.patch_suggestion} />
           <div style={{ display: "flex", gap: "var(--space-4)", fontSize: "var(--text-sm)", color: "var(--text-secondary)", flexWrap: "wrap" }}>
+            <span style={{ color: SEV_COLOR[f.severity], fontWeight: "var(--weight-medium)" }}>{f.severity.toUpperCase()}</span>
             <span>{f.cwe_id ?? "CWE 미상"}</span>
             <span>신뢰도 {Math.round(f.confidence * 100)}%</span>
             <span>판정 {f.verdict ?? "—"}</span>
             {f.chain_potential && <span>체이닝 가능</span>}
             {cross && <span>🤝 {cross}</span>}
           </div>
+          <Field label="위치" value={`${f.file_path}:${f.line_range[0]}-${f.line_range[1]}`} mono />
+          <Field label="설명" value={f.description} />
+          <Field label="공격 시나리오" value={f.exploitation_scenario} />
+          <Field label="패치 제안" value={f.patch_suggestion} />
         </div>
       </td>
     </tr>
