@@ -15,6 +15,7 @@ export interface Finding {
   chain_potential: boolean;
   verdict: Verdict | null;
   validated: boolean;
+  cross_family?: string | null; // ensemble vote: "both" | "disagree" | null
 }
 
 export interface ScanSummary {
