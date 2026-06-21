@@ -89,11 +89,21 @@ class PromptSet:
 
     @classmethod
     def from_resolved(cls, resolved: dict) -> "PromptSet":
+        # Any agent absent from `resolved` falls back to its raw code default (the trusted
+        # baseline) rather than crashing — a missing agent never silently weakens safety
+        # because every body is still wrapped by the immutable CODE_SAFETY_PREAMBLE.
+        defaults = {"ranker": RANKER_SYSTEM, "hunter": HUNTER_SYSTEM,
+                    "challenger": CHALLENGER_SYSTEM, "validator": VALIDATOR_SYSTEM}
+
+        def body_for(agent: str) -> str:
+            entry = resolved.get(agent)
+            return entry["body"] if entry and entry.get("body") else defaults[agent]
+
         return cls(
-            ranker=cls.assemble(resolved["ranker"]["body"]),
-            hunter=cls.assemble(resolved["hunter"]["body"]),
-            challenger=cls.assemble(resolved["challenger"]["body"]),
-            validator=cls.assemble(resolved["validator"]["body"]),
+            ranker=cls.assemble(body_for("ranker")),
+            hunter=cls.assemble(body_for("hunter")),
+            challenger=cls.assemble(body_for("challenger")),
+            validator=cls.assemble(body_for("validator")),
         )
 
     def get(self, agent_key: str) -> str:

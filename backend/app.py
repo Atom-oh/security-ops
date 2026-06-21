@@ -23,7 +23,16 @@ from typing import Callable, Dict, List, Optional
 from agents.bedrock import BedrockConverse
 from pipeline.config import ScanConfig
 from pipeline.orchestrator import FSIMythosPipeline
+from pipeline.prompts_store import (
+    PromptStoreUnavailable,
+    PromptValidationError,
+    prompt_hash,
+)
 from tools.staleness import DEFAULT_STALE_AFTER_SEC, annotate_stale
+
+# Cognito group that may edit/activate prompts (ADR-001 RBAC). Server-side authoritative.
+PROMPT_ADMIN_GROUP = os.environ.get("PROMPT_ADMIN_GROUP", "admin")
+_PROMPT_ACTIONS = ("prompt_list", "prompt_get", "prompt_create", "prompt_preview", "prompt_activate")
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("fsi.app")
@@ -95,6 +104,8 @@ class Deps:
     fp_store: object = None
     sandbox: object = None
     openai_provider: object = None
+    prompt_store: object = None  # ADR-001 versioned prompt store (None → code defaults)
+    benchmark_runner: object = None  # optional injected dry-run; when set, activation requires a pass
     account_id: str = "000000000000"
     region: str = field(default_factory=lambda: os.environ.get("AWS_REGION", "us-west-2"))
     allowed_origin: str = field(default_factory=lambda: os.environ.get("FRONTEND_ORIGIN", "*"))
@@ -186,7 +197,7 @@ def _materialize_upload(payload: Dict) -> Optional[str]:
     return root
 
 
-def _build_config(payload: Dict, region: str) -> ScanConfig:
+def _build_config(payload: Dict, region: str, pinned: Optional[Dict] = None) -> ScanConfig:
     cfg = ScanConfig(project_path=payload.get("project_path", "/app/sample-target"))
     cfg.region = region  # trust container region, ignore any payload region
     for key in ("max_files", "pass_at_k"):
@@ -200,7 +211,42 @@ def _build_config(payload: Dict, region: str) -> ScanConfig:
         cfg.sandbox_enabled = bool(payload["sandbox_enabled"])
     if "ensemble_enabled" in payload:
         cfg.ensemble_enabled = bool(payload["ensemble_enabled"])
+    if pinned:  # ADR-001: inline-pinned prompt set resolved at scan creation
+        from agents.prompts import PromptSet
+
+        cfg.prompts = PromptSet.from_resolved(
+            {a: {"body": b} for a, b in pinned["bodies"].items()}
+        )
+        cfg.pinned_prompt_versions = dict(pinned["versions"])
+        cfg.prompt_hashes = dict(pinned["hashes"])
     return cfg
+
+
+def _resolve_pinned(deps: "Deps") -> Optional[Dict]:
+    """Resolve + pin the active prompt set at scan creation (ADR-001). Returns the inline
+    bundle ``{versions, hashes, bodies}`` or ``None`` when no store is wired (legacy). Raises
+    ``PromptStoreUnavailable`` on an outage so the caller fails closed (never scans with
+    silent defaults during a store outage)."""
+    store = getattr(deps, "prompt_store", None)
+    if store is None:
+        return None
+    resolved = store.resolve_active_set()  # may raise PromptStoreUnavailable
+    return {
+        "versions": {a: str(r["version"]) for a, r in resolved.items()},
+        "hashes": {a: r["hash"] for a, r in resolved.items()},
+        "bodies": {a: r["body"] for a, r in resolved.items()},
+    }
+
+
+def _verify_inline_prompts(mp: Dict) -> Dict:
+    """Worker-side integrity check: every inline body must hash to its pinned hash, else abort
+    (possible tampering / corruption in transit). Returns the verified pinned bundle."""
+    bodies = mp.get("bodies", {}) or {}
+    hashes = mp.get("hashes", {}) or {}
+    for agent, body in bodies.items():
+        if prompt_hash(body) != hashes.get(agent):
+            raise ValueError(f"pinned prompt hash mismatch for {agent!r} — aborting scan (tamper/corruption)")
+    return {"versions": mp.get("versions", {}) or {}, "hashes": hashes, "bodies": bodies}
 
 
 def _make_openai_provider(cfg: ScanConfig, deps: "Deps"):
@@ -217,11 +263,12 @@ def _make_openai_provider(cfg: ScanConfig, deps: "Deps"):
     )
 
 
-def _run_scan(payload: Dict, user_id: str, deps: Deps, progress=None, heartbeat=None) -> Dict:
+def _run_scan(payload: Dict, user_id: str, deps: Deps, progress=None, heartbeat=None,
+              pinned: Optional[Dict] = None) -> Dict:
     import shutil
 
     upload_dir = _materialize_upload(payload)
-    cfg = _build_config(payload, deps.region)
+    cfg = _build_config(payload, deps.region, pinned=pinned)
     if upload_dir:
         cfg.project_path = upload_dir
     pipe = FSIMythosPipeline(
@@ -240,6 +287,92 @@ def _run_scan(payload: Dict, user_id: str, deps: Deps, progress=None, heartbeat=
     finally:
         if upload_dir:
             shutil.rmtree(upload_dir, ignore_errors=True)  # avoid /tmp leak
+
+
+def _groups_from_context(context) -> List[str]:
+    """Extract ``cognito:groups`` from the authorizer-verified bearer (same path as
+    ``_user_id``). The AgentCore JWT authorizer verifies signature/issuer/audience before the
+    request reaches us; we only decode the claims. Backend is authoritative for RBAC."""
+    headers = _headers_from_context(context)
+    auth = ""
+    for k, v in (headers or {}).items():
+        if str(k).lower() == "authorization":
+            auth = v or ""
+            break
+    groups = []
+    if auth.lower().startswith("bearer "):
+        groups = _decode_jwt_claims(auth[7:]).get("cognito:groups") or []
+    if not groups:  # tolerate context.claims / dict shape (tests, older runtime)
+        claims = getattr(context, "claims", None)
+        if claims is None and isinstance(context, dict):
+            claims = context.get("claims")
+        groups = (claims or {}).get("cognito:groups") or []
+    return groups if isinstance(groups, list) else [groups]
+
+
+def _is_admin(context) -> bool:
+    return PROMPT_ADMIN_GROUP in _groups_from_context(context)
+
+
+def _render_preview(agent_key: str, body: str) -> str:
+    """Render exactly what the model will see (no model call): the immutable safety preamble +
+    edited body as system, plus a sample user prompt with scanned code wrapped in the
+    nonce-fenced untrusted-data block — so the admin can confirm the injection scaffolding is
+    intact before activating."""
+    from agents.prompts import PromptSet, build_untrusted_block, _nonce
+
+    system = PromptSet.assemble(body)
+    nonce = _nonce()
+    fence = build_untrusted_block("def example(req):\n    return req.body['x']\n", nonce)
+    return f"=== SYSTEM ===\n{system}\n\n=== USER (scanned code is untrusted, nonce-fenced) ===\n{fence}"
+
+
+def _prompt_route(action: str, payload: Dict, user_id: str, deps: Deps) -> Dict:
+    """Admin-only prompt-store operations (ADR-001). Caller already passed ``_is_admin``.
+    ``author``/``updatedBy`` come from the verified ``user_id`` (sub), never the payload."""
+    store = getattr(deps, "prompt_store", None)
+    if store is None:
+        return {"status": "error", "error": "prompt store not configured"}
+    agent = payload.get("agentKey")
+    try:
+        if action == "prompt_list":
+            return {"status": "ok", "versions": store.list_versions(agent),
+                    "active": store.get_active(agent), "audit": store.list_audit(agent)}
+        if action == "prompt_get":
+            return {"status": "ok", "version": store.get_version(agent, int(payload["version"]))}
+        if action == "prompt_create":
+            v = store.create_version(agent, payload.get("body", ""), author=user_id,
+                                     note=payload.get("note", ""))
+            return {"status": "ok", "version": v["version"], "hash": v["hash"]}
+        if action == "prompt_preview":
+            ver = store.get_version(agent, int(payload["version"]))
+            if ver is None:
+                return {"status": "error", "error": "version not found"}
+            # re-validate (defense-in-depth) then stamp server-side validation state
+            from pipeline.prompts_store import validate_prompt_body
+
+            validate_prompt_body(agent, ver["body"], ver.get("note", ""))
+            store.stamp_validated(agent, ver["version"], ver["hash"])
+            return {"status": "ok", "validated": True, "rendered": _render_preview(agent, ver["body"])}
+        if action == "prompt_activate":
+            version = int(payload["version"])
+            ver = store.get_version(agent, version)
+            if ver is None:
+                return {"status": "error", "error": "version not found"}
+            if ver.get("validatedHash") != ver["hash"]:
+                return {"status": "error", "error": "version must be previewed/validated before activation"}
+            runner = getattr(deps, "benchmark_runner", None)
+            if runner is not None and not runner(agent, ver["body"]):
+                return {"status": "error", "error": "benchmark dry-run failed — activation blocked"}
+            won = store.activate(agent, version, updated_by=user_id, expected_prev=store.get_active(agent))
+            if not won:
+                return {"status": "error", "error": "active pointer changed concurrently — retry"}
+            return {"status": "ok", "active": version}
+    except PromptValidationError as exc:
+        return {"status": "error", "error": str(exc)}
+    except (KeyError, ValueError, TypeError) as exc:
+        return {"status": "error", "error": f"bad request: {exc}"}
+    return {"status": "error", "error": f"unknown prompt action: {action}"}
 
 
 def route(payload: Dict, context=None, deps: Optional[Deps] = None) -> Dict:
@@ -273,21 +406,47 @@ def route(payload: Dict, context=None, deps: Optional[Deps] = None) -> Dict:
             item = annotate_stale(item, _now_iso(), _stale_after_sec())
         return {"cors": _cors(origin), "action": action, "scan": item}
 
+    if action in _PROMPT_ACTIONS:
+        if not _is_admin(context):
+            log.warning("prompt admin denied action=%s user=%s", action, user_id)
+            return {"cors": _cors(origin), "action": action, "status": "error",
+                    "code": 403, "error": "admin role required"}
+        return {"cors": _cors(origin), "action": action, **_prompt_route(action, payload, user_id, deps)}
+
     if action == "scan":
         scan_id = _new_scan_id()
         try:
-            result = _run_scan(payload, user_id, deps)
+            pinned = _resolve_pinned(deps)  # may fail-closed below
+        except PromptStoreUnavailable as exc:
+            log.exception("prompt store unavailable at scan creation")
+            _persist(deps, user_id, scan_id, payload, status="error", result=None)
+            return {"cors": _cors(origin), "action": action, "scanId": scan_id, "status": "error",
+                    "error": f"prompt store unavailable: {exc}"}
+        try:
+            result = _run_scan(payload, user_id, deps, pinned=pinned)
         except Exception as exc:  # noqa: BLE001 — surface the error instead of a 500
             log.exception("sync scan failed")
             _persist(deps, user_id, scan_id, payload, status="error", result=None)
             return {"cors": _cors(origin), "action": action, "scanId": scan_id, "status": "error", "error": str(exc)}
         _persist(deps, user_id, scan_id, payload, status="done", result=result)
+        if pinned:  # record what was pinned for reproducibility/audit
+            _safe_update(deps, user_id, scan_id,
+                         promptVersions=pinned["versions"], promptHashes=pinned["hashes"])
         return {"cors": _cors(origin), "action": action, "scanId": scan_id, "status": "done", **result}
 
     if action == "scan_async":
         scan_id = _new_scan_id()
+        try:
+            pinned = _resolve_pinned(deps)
+        except PromptStoreUnavailable as exc:
+            log.exception("prompt store unavailable at async scan creation")
+            return {"cors": _cors(origin), "action": action, "scanId": scan_id, "status": "error",
+                    "error": f"prompt store unavailable: {exc}"}
         # write IN_PROGRESS up front so the poller sees it immediately
         _persist(deps, user_id, scan_id, payload, status="IN_PROGRESS", result=None)
+        if pinned:
+            _safe_update(deps, user_id, scan_id,
+                         promptVersions=pinned["versions"], promptHashes=pinned["hashes"])
 
         def _progress(phase: str, detail: str = "") -> None:
             _safe_update(deps, user_id, scan_id, currentPhase=phase, currentDetail=detail)
@@ -302,8 +461,11 @@ def route(payload: Dict, context=None, deps: Optional[Deps] = None) -> Dict:
             # the message (the worker must NOT re-derive identity). If enqueue fails, compensate
             # immediately so we never leave a bare IN_PROGRESS that can't be worked.
             try:
-                deps.dispatch({"action": "scan_worker", "scanId": scan_id,
-                               "userId": user_id, "payload": payload})
+                worker_msg = {"action": "scan_worker", "scanId": scan_id,
+                              "userId": user_id, "payload": payload}
+                if pinned:  # carry the resolved bodies inline so the worker never reads PROMPT#
+                    worker_msg["prompts"] = pinned
+                deps.dispatch(worker_msg)
             except Exception as exc:  # noqa: BLE001
                 log.exception("scan dispatch failed")
                 _safe_update(deps, user_id, scan_id, status="error", error=f"dispatch_failed: {exc}")
@@ -313,7 +475,8 @@ def route(payload: Dict, context=None, deps: Optional[Deps] = None) -> Dict:
             # Local/dev fallback: in-thread daemon (NOT durable on AgentCore — see _default_spawn).
             def _job() -> None:
                 try:
-                    result = _run_scan(payload, user_id, deps, progress=_progress, heartbeat=_heartbeat)
+                    result = _run_scan(payload, user_id, deps, progress=_progress,
+                                       heartbeat=_heartbeat, pinned=pinned)
                     _persist(deps, user_id, scan_id, payload, status="done", result=result, update=True)
                 except Exception as exc:  # noqa: BLE001 — record failure, never crash the worker
                     _safe_update(deps, user_id, scan_id, status="error", error=str(exc))
@@ -339,6 +502,18 @@ def scan_worker(message: Dict, deps: Deps) -> Dict:
         log.error("scan_worker rejecting malformed message: %s", {k: message.get(k) for k in ("scanId", "userId")})
         return {"status": "error", "error": "malformed worker message (missing scanId/userId)"}
 
+    # Rebuild + integrity-check the inline-pinned prompts (ADR-001 T8b): the worker uses the
+    # bodies pinned at scan creation, never the live active pointer, and aborts on a hash
+    # mismatch (tamper/corruption) rather than silently substituting defaults.
+    pinned = None
+    if message.get("prompts"):
+        try:
+            pinned = _verify_inline_prompts(message["prompts"])
+        except ValueError as exc:
+            log.error("scan_worker aborting on prompt integrity failure: %s", exc)
+            _safe_update(deps, user_id, scan_id, status="error", error=str(exc))
+            return {"scanId": scan_id, "status": "error", "error": str(exc)}
+
     existing = deps.history.get_scan(user_id, scan_id) if deps.history else None
     if existing and existing.get("status") in ("done", "error"):
         return {"scanId": scan_id, "status": existing["status"], "skipped": "already terminal"}
@@ -356,7 +531,7 @@ def scan_worker(message: Dict, deps: Deps) -> Dict:
         _safe_update(deps, user_id, scan_id)
 
     try:
-        result = _run_scan(payload, user_id, deps, progress=_progress, heartbeat=_heartbeat)
+        result = _run_scan(payload, user_id, deps, progress=_progress, heartbeat=_heartbeat, pinned=pinned)
         _persist(deps, user_id, scan_id, payload, status="done", result=result, update=True)
         return {"scanId": scan_id, "status": "done"}
     except Exception as exc:  # noqa: BLE001
