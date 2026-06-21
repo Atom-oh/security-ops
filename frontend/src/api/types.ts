@@ -100,3 +100,50 @@ export interface ScanRequest {
   ensemble_enabled?: boolean;
   upload?: { files: { path: string; content_b64: string }[] };
 }
+
+// --- ADR-001 prompt store -----------------------------------------------------------
+
+export interface PromptVersion {
+  version: number;
+  body: string;
+  hash: string;
+  author?: string;
+  note?: string;
+  createdAt?: string;
+  validatedHash?: string | null;
+}
+
+export interface PromptAuditEvent {
+  event: string;
+  actor: string;
+  version: number | string;
+  at: string;
+}
+
+export interface PromptListResponse {
+  status: string;
+  error?: string;
+  versions: PromptVersion[];
+  active: number | null;
+  audit?: PromptAuditEvent[];
+}
+
+export interface PromptCreateResponse {
+  status: string;
+  error?: string;
+  version?: number;
+  hash?: string;
+}
+
+export interface PromptPreviewResponse {
+  status: string;
+  error?: string;
+  validated?: boolean;
+  rendered?: string;
+}
+
+export interface PromptActivateResponse {
+  status: string;
+  error?: string;
+  active?: number;
+}

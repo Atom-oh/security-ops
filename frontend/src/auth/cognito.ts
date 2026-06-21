@@ -63,3 +63,16 @@ export function accessToken(session: CognitoUserSession): string {
 export function emailFrom(session: CognitoUserSession): string {
   return (session.getIdToken().payload.email as string) ?? "";
 }
+
+// RBAC (ADR-001): the prompt-admin Cognito group. UI gating only — the backend independently
+// re-checks cognito:groups on the verified bearer and is authoritative.
+const ADMIN_GROUP = "admin";
+
+export function groupsFrom(session: CognitoUserSession): string[] {
+  const g = session.getIdToken().payload["cognito:groups"];
+  return Array.isArray(g) ? (g as string[]) : g ? [String(g)] : [];
+}
+
+export function isAdmin(session: CognitoUserSession): boolean {
+  return groupsFrom(session).includes(ADMIN_GROUP);
+}

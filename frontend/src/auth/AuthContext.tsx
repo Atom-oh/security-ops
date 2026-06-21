@@ -1,8 +1,9 @@
 import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from "react";
-import { accessToken, currentSession, emailFrom, signIn, signOut } from "./cognito";
+import { accessToken, currentSession, emailFrom, isAdmin, signIn, signOut } from "./cognito";
 
 interface AuthState {
   isAuthenticated: boolean;
+  isAdmin: boolean;
   email: string;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
@@ -15,6 +16,7 @@ const Ctx = createContext<AuthState | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [email, setEmail] = useState("");
   const [authed, setAuthed] = useState(false);
+  const [admin, setAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -22,6 +24,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (s) {
         setAuthed(true);
         setEmail(emailFrom(s));
+        setAdmin(isAdmin(s));
       }
       setLoading(false);
     });
@@ -30,17 +33,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AuthState>(
     () => ({
       isAuthenticated: authed,
+      isAdmin: admin,
       email,
       loading,
       async login(e, p) {
         const s = await signIn(e, p);
         setAuthed(true);
         setEmail(emailFrom(s));
+        setAdmin(isAdmin(s));
       },
       logout() {
         signOut();
         setAuthed(false);
         setEmail("");
+        setAdmin(false);
       },
       async getToken() {
         const s = await currentSession();
@@ -48,7 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return accessToken(s);
       },
     }),
-    [authed, email, loading],
+    [authed, admin, email, loading],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
