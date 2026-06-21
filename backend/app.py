@@ -651,7 +651,9 @@ def _persist(deps: Deps, user_id, scan_id, payload, status, result, update=False
                 gate=gate,
             )
     except Exception:
-        pass
+        # Persistence is best-effort (must never crash a scan), but a swallowed failure here is
+        # how scans "vanish" — log it so the cause is observable.
+        log.exception("persist failed for scan %s", scan_id)
 
 
 def _safe_update(deps: Deps, user_id, scan_id, **fields) -> None:
@@ -660,7 +662,7 @@ def _safe_update(deps: Deps, user_id, scan_id, **fields) -> None:
     try:
         deps.history.update_status(user_id, scan_id, **fields)
     except Exception:
-        pass
+        log.exception("status update failed for scan %s", scan_id)
 
 
 # --- AgentCore SDK wiring (kept importable without the SDK installed) -----------------

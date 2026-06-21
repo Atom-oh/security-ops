@@ -40,6 +40,10 @@ data "aws_iam_policy_document" "exec" {
     ]
     resources = [var.dynamodb_table_arn]
   }
+  # The Memory store and Code Interpreter are created by the AgentCore runtime (CLI seam), so
+  # their ARNs aren't known at plan time and several of these actions don't support resource-level
+  # scoping. Bound the wildcard to THIS account so a leaked role can never touch another account's
+  # memory/interpreter resources.
   statement {
     sid = "MemoryAndInterpreter"
     actions = [
@@ -50,6 +54,11 @@ data "aws_iam_policy_document" "exec" {
       "bedrock-agentcore:StopCodeInterpreterSession",
     ]
     resources = ["*"]
+    condition {
+      test     = "StringEquals"
+      variable = "aws:ResourceAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
   }
   # Durable async dispatch: the runtime enqueues a scan job to the worker queue. Scoped to the
   # one queue ARN; only when wired (empty string → statement omitted so terraform validate passes).
