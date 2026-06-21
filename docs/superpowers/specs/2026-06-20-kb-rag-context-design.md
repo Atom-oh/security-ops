@@ -26,7 +26,7 @@ existing prompt-injection and fail-closed controls.
 | Injection points | **Ranker (phase 2), Hunter (phase 3), Validator (phase 4)**; Challenger excluded (keep adversarial step injection-free) |
 | Document management | **Admin UI upload** in the existing SPA admin area (alongside the prompt store) |
 | Retrieval strategy | **Hybrid (C)**: one shared "policy digest" retrieval per scan for Ranker + Hunter; per-finding targeted retrieval in Validator only |
-| KB role | **Advisory augmentation only** — never an input to the fail-closed gate |
+| KB role | **Advisory augmentation, escalate-only** — never weakens the fail-closed gate (never dismisses or downgrades a finding below its KB-free verdict/severity) |
 
 ## 3. Architecture & Components
 
@@ -44,6 +44,11 @@ existing prompt-injection and fail-closed controls.
     (vector collection) in `ap-northeast-2`. The Terraform module is written so the vector
     backend is a swappable submodule/variable; the backend code (the retriever) is unaffected
     because it only calls the `Retrieve` API. The fallback is the explicitly chosen candidate.
+    The OSS collection MUST ship with explicit **encryption, network, and data-access policies** —
+    the network policy restricts access (no public access; reachable only by the Bedrock KB
+    service role / the deployment's VPC endpoint), honoring the no-public-access mandate. (Note:
+    the network-policy/VPC-endpoint shape depends on the runtime's VPC posture, confirmed at
+    implementation — see §9.)
 
 ### 3.2 Retriever abstraction (backend) — new `backend/tools/kb_retriever.py`
 
@@ -75,23 +80,37 @@ existing prompt-injection and fail-closed controls.
   parallel hunters per file; they **share the cached digest** — no extra retrieval calls.
 - **Validator (phase 4)**: for each finding (capped at top-N, see §5), a targeted `retrieve()`
   keyed on `finding.title + cwe_id`, **cached by `cwe_id`** within the scan, injected into the
-  validator prompt to calibrate verdict and severity against policy.
+  validator prompt. **Gate-isolation (escalate-only)**: the verdict/severity that the fail-closed
+  gate consumes is computed **without letting KB weaken it** — KB may *raise* severity or
+  *strengthen* a verdict and may add an advisory `policy_note`, but it may **never** move a finding
+  to `DISMISSED` nor lower severity/verdict below the KB-free result. The gate reads the
+  KB-free-or-escalated value, so KB cannot suppress a blocking finding. This resolves the apparent
+  tension between "calibrate severity" and "never a gate input": calibration is **one-directional
+  (escalate)** for anything the gate consumes.
 
 ### 3.4 Admin UI (frontend) — extend the existing SPA admin
 
 A "정책 문서 (Policy Documents)" tab next to the prompt-store screens:
 - Document list: name, size, uploaded-by, ingestion status, last-synced timestamp.
-- Upload: request a presigned S3 PUT URL → upload → trigger ingestion.
+- Upload: request a presigned S3 PUT URL → PUT the object → **call `kb_ingest`** to start the
+  ingestion job. Ingestion is triggered **after** the object exists (never at URL-issue time),
+  avoiding the race where indexing starts before the upload completes.
 - Delete: remove from S3 and from the KB index.
 - Sync status: show ingestion-job state (queued / indexing / ready / failed).
 - Gated by the **same admin Cognito group** as the prompt store (ADR-001 RBAC).
+- **`uploaded_by` is derived server-side** from the verified JWT (`cognito:username`/`sub`) when
+  `kb_upload_url`/`kb_ingest` is called and recorded in a server-side manifest — never taken from
+  the payload or from client-set S3 object metadata (identity convention).
 
 ### 3.5 API routes (`backend/app.py`)
 
 All admin-gated by verified `cognito:groups` (never from payload):
-- `kb_list_docs` — list corpus documents + ingestion status.
-- `kb_upload_url` — return a scoped, short-lived presigned S3 PUT URL.
-- `kb_delete_doc` — delete object + de-index.
+- `kb_list_docs` — list corpus documents + ingestion status (from the server-side manifest).
+- `kb_upload_url` — return a scoped, short-lived presigned S3 PUT URL; record `uploaded_by` +
+  pending-manifest entry server-side from the verified JWT.
+- `kb_ingest` — start the Bedrock ingestion job for an uploaded object (called after the PUT
+  completes); idempotent per object.
+- `kb_delete_doc` — delete object + de-index + manifest removal.
 - `kb_sync_status` — ingestion-job status.
 
 The scan path uses the retriever internally; it adds **no new public route**.
@@ -111,6 +130,9 @@ The scan path uses the retriever internally; it adds **no new public route**.
 - **Advisory-only invariant**: KB unavailable / `Retrieve` failure / empty corpus → the pipeline
   proceeds **without** KB context. KB output is augmentation, **never** a fail-closed gate input.
   A KB outage must not change the gate outcome. This is a tested invariant (§7).
+- **Gate-isolation invariant**: even when KB *is* present, KB content can only escalate (§3.3) —
+  a KB fake that tries to dismiss or downgrade a blocking (Critical/High/chaining) finding must
+  leave the gate verdict `BLOCKED` unchanged. Tested in §7.
 - **Latency**: per-`Retrieve` timeout (default 3 s); on timeout, skip and continue.
 - **Token budget**: cap injected KB characters per prompt (default ~4000 chars); drop lowest-score
   chunks first. Reuse the existing `budget_guard` pattern.
@@ -134,10 +156,16 @@ real corpus size and latency during implementation.
 - **Encryption**: SSE-KMS on the S3 bucket and KB storage.
 - **RBAC**: ingestion/management is admin-only (Cognito group), same enforcement as the prompt
   store.
-- **IAM — deliberate difference from ADR-001**: ADR-001 denies the scan-worker role `PROMPT#*`
-  (prompts are resolved at scan-creation and pinned inline). KB retrieval is **code-dependent and
-  cannot be pre-resolved at scan creation**, so the scan-worker role is granted **`bedrock:Retrieve`
-  (read-only)** on the KB. It is *not* granted any KB write/ingestion or S3 write permission.
+- **IAM roles** (least-privilege):
+  - **Bedrock KB service role** (`Principal: bedrock.amazonaws.com`): `s3:ListBucket` + `s3:GetObject`
+    on `kb-docs`, `kms:Decrypt`/`kms:GenerateDataKey` on the bucket's KMS key (required because the
+    bucket is SSE-KMS — otherwise ingestion fails `AccessDenied`), and write access to the vector
+    backend (managed store, or the OpenSearch Serverless collection on the fallback path).
+  - **Admin ingestion role**: `s3:PutObject`/`s3:DeleteObject` on `kb-docs` + `bedrock:StartIngestionJob`.
+  - **Scan-worker role — deliberate difference from ADR-001**: ADR-001 denies the worker `PROMPT#*`
+    (prompts pinned inline at scan creation). KB retrieval is **code-dependent and cannot be
+    pre-resolved at scan creation**, so the worker is granted **`bedrock:Retrieve` (read-only)** on
+    the KB only — no KB write/ingestion and no S3 write.
 
 ## 7. Testing
 
