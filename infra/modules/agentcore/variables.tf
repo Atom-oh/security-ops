@@ -22,6 +22,12 @@ variable "dynamodb_table_arn" {
   type = string
 }
 
+variable "scan_worker_queue_arn" {
+  type        = string
+  default     = ""
+  description = "SQS scan-worker queue ARN the durable Fargate worker consumes (ADR-001 worker role)."
+}
+
 variable "ecr_repository_arn" {
   type        = string
   description = "ECR repo ARN the runtime pulls from (scopes the data-plane pull permission)."

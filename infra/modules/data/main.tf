@@ -22,6 +22,8 @@ resource "aws_dynamodb_table" "scan_history" {
     enabled = true
   }
 
+  # ADR-001: the versioned prompt store reuses this table (PK=PROMPT#<agentKey>). Those items
+  # are an immutable audit record and MUST NEVER be expired — do not add a TTL attribute here.
   tags = var.tags
 }
 

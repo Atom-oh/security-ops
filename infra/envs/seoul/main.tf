@@ -43,15 +43,16 @@ module "web" {
 }
 
 module "agentcore" {
-  source             = "../../modules/agentcore"
-  name_prefix        = var.runtime_name
-  region             = var.region
-  image_uri          = var.image_uri
-  image_digest       = var.image_digest
-  dynamodb_table_arn = module.data.table_arn
-  ecr_repository_arn = module.ecr.repository_arn
-  model_arns         = var.model_arns
-  cognito_issuer_url = module.auth.issuer_url
-  cognito_client_id  = module.auth.user_pool_client_id
-  tags               = var.tags
+  source                = "../../modules/agentcore"
+  name_prefix           = var.runtime_name
+  region                = var.region
+  image_uri             = var.image_uri
+  image_digest          = var.image_digest
+  dynamodb_table_arn    = module.data.table_arn
+  scan_worker_queue_arn = module.data.scan_worker_queue_arn
+  ecr_repository_arn    = module.ecr.repository_arn
+  model_arns            = var.model_arns
+  cognito_issuer_url    = module.auth.issuer_url
+  cognito_client_id     = module.auth.user_pool_client_id
+  tags                  = var.tags
 }

@@ -76,6 +76,83 @@ resource "aws_iam_role_policy" "exec" {
   policy = data.aws_iam_policy_document.exec.json
 }
 
+# --- Scan-worker role (ADR-001 IAM read/write split) --------------------------------
+# Forward-looking role for the durable Fargate scan worker. It reads/writes scan-history
+# items but is explicitly DENIED any access to PROMPT# items: the worker receives the
+# resolved prompts INLINE in the SQS message (hash-verified in code) and never needs to read
+# or write the prompt store. Until the Fargate worker is provisioned as this separate
+# principal, the read/write split is additionally enforced at the code level (scan/worker
+# code never calls PromptStore writes; the inline-body design removes any worker PROMPT# read).
+data "aws_iam_policy_document" "scan_worker_assume" {
+  statement {
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "Service"
+      identifiers = ["ecs-tasks.amazonaws.com"]
+    }
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceAccount"
+      values   = [data.aws_caller_identity.current.account_id]
+    }
+  }
+}
+
+resource "aws_iam_role" "scan_worker" {
+  name               = "${var.name_prefix}-scan-worker"
+  assume_role_policy = data.aws_iam_policy_document.scan_worker_assume.json
+  tags               = var.tags
+}
+
+data "aws_iam_policy_document" "scan_worker" {
+  statement {
+    sid       = "InvokeModels"
+    actions   = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream"]
+    resources = var.model_arns
+  }
+  statement {
+    sid       = "ScanHistoryRW"
+    actions   = ["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:UpdateItem", "dynamodb:Query"]
+    resources = [var.dynamodb_table_arn]
+  }
+  # Explicit Deny on prompt items — an exclusion MUST be a Deny because user partitions are
+  # unbounded sub UUIDs and cannot be expressed as a restrictive Allow. LeadingKeys matches the
+  # partition-key value (PROMPT#<agent>); StringLike supports the wildcard. Covers reads too.
+  statement {
+    sid    = "DenyPromptItems"
+    effect = "Deny"
+    actions = [
+      "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:DeleteItem", "dynamodb:BatchWriteItem",
+      "dynamodb:GetItem", "dynamodb:Query", "dynamodb:BatchGetItem",
+    ]
+    resources = [var.dynamodb_table_arn]
+    condition {
+      test     = "StringLike"
+      variable = "dynamodb:LeadingKeys"
+      values   = ["PROMPT#*"]
+    }
+  }
+  dynamic "statement" {
+    for_each = var.scan_worker_queue_arn == "" ? [] : [var.scan_worker_queue_arn]
+    content {
+      sid       = "WorkerSqs"
+      actions   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
+      resources = [statement.value]
+    }
+  }
+  statement {
+    sid       = "Logs"
+    actions   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
+    resources = ["arn:aws:logs:${var.region}:${data.aws_caller_identity.current.account_id}:*"]
+  }
+}
+
+resource "aws_iam_role_policy" "scan_worker" {
+  name   = "${var.name_prefix}-scan-worker"
+  role   = aws_iam_role.scan_worker.id
+  policy = data.aws_iam_policy_document.scan_worker.json
+}
+
 # --- Runtime provisioning seam ------------------------------------------------------
 # AgentCore Runtime has no first-class Terraform resource yet, so we drive the control-plane
 # CLI from a null_resource. It (re)applies whenever the image digest changes, which mints a
