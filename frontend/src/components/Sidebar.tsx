@@ -1,9 +1,18 @@
-export type Route = "scan" | "history";
+export type Route = "scan" | "history" | "prompts";
 
-export function Sidebar({ route, onNavigate }: { route: Route; onNavigate: (r: Route) => void }) {
+export function Sidebar({
+  route,
+  onNavigate,
+  isAdmin = false,
+}: {
+  route: Route;
+  onNavigate: (r: Route) => void;
+  isAdmin?: boolean;
+}) {
   const items: { key: Route; label: string }[] = [
     { key: "scan", label: "새 스캔" },
     { key: "history", label: "스캔 이력" },
+    ...(isAdmin ? [{ key: "prompts" as Route, label: "프롬프트 관리" }] : []),
   ];
   return (
     <nav
