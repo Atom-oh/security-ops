@@ -23,7 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, List, Optional
 
 from agents.bedrock import extract_json
-from agents.prompts import VALIDATOR_SYSTEM, validator_user_prompt
+from agents.prompts import VALIDATOR_SYSTEM, validator_user_prompt, system_for
 from pipeline.config import Finding, Verdict
 
 log = logging.getLogger("fsi.ensemble")
@@ -45,7 +45,7 @@ def cross_family_validate(findings: List[Finding], target: Dict, config, openai_
         try:
             out = openai_provider.invoke(
                 config.openai_model,
-                VALIDATOR_SYSTEM,
+                system_for(config, "validator", VALIDATOR_SYSTEM),
                 validator_user_prompt(  # already wraps code in the nonce untrusted-data block
                     findings_json=json.dumps([f.to_dict()], ensure_ascii=False),
                     language=language_name,

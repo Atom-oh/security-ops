@@ -110,6 +110,21 @@ DEFAULT_PROMPT_SET = PromptSet(
 )
 
 
+def system_for(config, agent_key: str, default: str) -> str:
+    """Resolve an agent's system prompt: the pinned ``PromptSet`` body when present, else the
+    code default. **Fail-closed**: if versions were pinned for this scan but no ``PromptSet``
+    was resolved, raise rather than silently downgrade to the (weaker) default."""
+    prompts = getattr(config, "prompts", None)
+    if prompts is not None:
+        return prompts.get(agent_key)
+    if getattr(config, "pinned_prompt_versions", None):
+        raise RuntimeError(
+            f"prompt versions pinned for {agent_key!r} but no PromptSet resolved — refusing to "
+            "run with a downgraded code-default prompt"
+        )
+    return default
+
+
 def ranker_user_prompt(file_analysis: str, max_files: int, nonce: str = "") -> str:
     nonce = nonce or _nonce()
     return (

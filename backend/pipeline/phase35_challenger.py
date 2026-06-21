@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Dict, List
 
 from agents.bedrock import extract_json
-from agents.prompts import CHALLENGER_SYSTEM, challenger_user_prompt
+from agents.prompts import CHALLENGER_SYSTEM, challenger_user_prompt, system_for
 from pipeline.config import Finding
 
 
@@ -32,7 +32,7 @@ def challenge(
         try:
             out = converse.invoke(
                 config.challenger_model,
-                CHALLENGER_SYSTEM,
+                system_for(config, "challenger", CHALLENGER_SYSTEM),
                 challenger_user_prompt(
                     finding_json=json.dumps(f.to_dict(), ensure_ascii=False),
                     language=language_name,

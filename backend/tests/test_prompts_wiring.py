@@ -72,3 +72,49 @@ def test_scanconfig_accepts_pinned_prompts():
     )
     assert cfg.prompts.hunter == HUNTER_SYSTEM
     assert cfg.pinned_prompt_versions["hunter"] == "3"
+
+
+# --- Task 7: phases read system prompt from config; fail-closed guard ----------------
+
+def test_system_for_uses_pinned_promptset():
+    from pipeline.config import ScanConfig
+
+    cfg = ScanConfig(project_path="/tmp/x", prompts=PromptSet(
+        ranker="R", hunter="custom hunter sys", challenger="C", validator="V"))
+    from agents.prompts import system_for
+    assert system_for(cfg, "hunter", HUNTER_SYSTEM) == "custom hunter sys"
+
+
+def test_system_for_defaults_when_no_prompts_and_no_pins():
+    from pipeline.config import ScanConfig
+    from agents.prompts import system_for
+
+    cfg = ScanConfig(project_path="/tmp/x")
+    assert system_for(cfg, "hunter", HUNTER_SYSTEM) == HUNTER_SYSTEM
+
+
+def test_system_for_fails_closed_when_pinned_but_no_promptset():
+    from pipeline.config import ScanConfig
+    from agents.prompts import system_for
+
+    cfg = ScanConfig(project_path="/tmp/x", pinned_prompt_versions={"hunter": "2"})
+    with pytest.raises(RuntimeError):
+        system_for(cfg, "hunter", HUNTER_SYSTEM)
+
+
+def test_hunter_phase_uses_custom_system_prompt(tmp_path):
+    # End-to-end through the hunt() phase: a custom PromptSet system reaches the model.
+    from pipeline.config import ScanConfig
+    from pipeline.phase3_hunter import hunt
+
+    seen = {}
+
+    class CaptureConverse:
+        def invoke(self, model, system, prompt, **k):
+            seen["system"] = system
+            return {"output": "[]"}
+
+    cfg = ScanConfig(project_path=str(tmp_path), prompts=PromptSet(
+        ranker="R", hunter="CUSTOM-HUNTER-MARKER", challenger="C", validator="V"))
+    hunt({"file": "x.py", "code": "1\n", "language": "python", "sink_summary": ""}, cfg, CaptureConverse())
+    assert seen["system"] == "CUSTOM-HUNTER-MARKER"

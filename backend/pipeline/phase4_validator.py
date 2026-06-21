@@ -11,7 +11,7 @@ import json
 from typing import Dict, List
 
 from agents.bedrock import extract_json
-from agents.prompts import VALIDATOR_SYSTEM, validator_user_prompt
+from agents.prompts import VALIDATOR_SYSTEM, validator_user_prompt, system_for
 from pipeline.config import Finding, Verdict
 
 
@@ -31,7 +31,7 @@ def validate(findings: List[Finding], target: Dict, config, converse) -> List[Fi
     findings_json = json.dumps([f.to_dict() for f in findings], ensure_ascii=False)
     out = converse.invoke(
         config.validator_model,
-        VALIDATOR_SYSTEM,
+        system_for(config, "validator", VALIDATOR_SYSTEM),
         validator_user_prompt(
             findings_json=findings_json,
             language=language_name,

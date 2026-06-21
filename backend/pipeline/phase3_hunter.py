@@ -10,7 +10,7 @@ import re
 from typing import Dict, List
 
 from agents.bedrock import extract_json
-from agents.prompts import HUNTER_SYSTEM, hunter_user_prompt
+from agents.prompts import HUNTER_SYSTEM, hunter_user_prompt, system_for
 from pipeline.config import Finding, ScanConfig, Severity
 
 
@@ -78,7 +78,7 @@ def hunt(target: Dict, config: ScanConfig, converse) -> List[Finding]:
     counts: Dict[tuple, int] = {}
 
     for _ in range(k):
-        out = converse.invoke(config.hunter_model, HUNTER_SYSTEM, prompt, effort="high")
+        out = converse.invoke(config.hunter_model, system_for(config, "hunter", HUNTER_SYSTEM), prompt, effort="high")
         parsed = extract_json(out.get("output", "")) or []
         if not isinstance(parsed, list):
             continue

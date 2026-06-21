@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Dict, List, Optional
 
 from agents.bedrock import extract_json
-from agents.prompts import RANKER_SYSTEM, ranker_user_prompt
+from agents.prompts import RANKER_SYSTEM, ranker_user_prompt, system_for
 from pipeline.config import ScanConfig
 
 
@@ -36,7 +36,7 @@ def rank_files(
     try:
         out = converse.invoke(
             config.ranker_model,
-            RANKER_SYSTEM,
+            system_for(config, "ranker", RANKER_SYSTEM),
             ranker_user_prompt(file_analysis=analysis, max_files=config.max_files),
             effort="medium",
         )
