@@ -14,6 +14,10 @@ the immutable `CODE_SAFETY_PREAMBLE` + `PromptSet.assemble`).
 > isolated from the indexed corpus, complete IAM on the real AgentCore execution + scan-worker
 > roles, S3 CORS + Public Access Block, per-scan validator cache via the orchestrator, KB safety
 > in the immutable `CODE_SAFETY_PREAMBLE`, frontend routing in `Shell.tsx`.
+> Round 3: **escalate-only made enforceable** via a baseline/policy Validator output schema
+> (`max(baseline, policy)` server-side — the keystone safety fix), **global** top-N severity
+> selection in the orchestrator, `kb_delete_doc` de-index lifecycle, and the KB **data-source id**
+> threaded to the runtime.
 
 **Invariants enforced across all tasks**
 - KB is **advisory + escalate-only** — a retriever failure/empty result, AND any KB content,
@@ -96,9 +100,10 @@ the immutable `CODE_SAFETY_PREAMBLE` + `PromptSet.assemble`).
 - Modify: `backend/pipeline/orchestrator.py`
 - Test: `backend/tests/test_phase4.py`
 
-- [ ] Write failing tests: per-finding retrieval keyed on `title + cwe_id`; a **scan-scoped** CWE cache + top-N budget (`kb_validator_top_n`) is created in the orchestrator and passed into each per-file `validate(...)` call, so the cache/cap is per-scan (not per-file); injected context obeys `kb_char_budget`.
-- [ ] **Write failing tests for escalate-only gate isolation: the verdict/severity the gate consumes is never weakened by KB — a KB fake telling the Validator to DISMISS or downgrade a Critical/High finding leaves that finding's gate-relevant severity/verdict at its KB-free value; KB may only raise severity / strengthen verdict and may add an advisory `policy_note`.**
-- [ ] Implement: thread a scan-scoped KB context object from the orchestrator into `validate`/`cross_family_validate`; compute dismiss/verdict/severity from the KB-free validation; attach KB as advisory `policy_note` + escalate-only bump.
+- [ ] **Global top-N selection** (round 3): write failing tests that the orchestrator sorts ALL Hunter findings by descending pre-validation severity and selects a global top-`kb_validator_top_n` allow-set (finding/CWE ids) BEFORE phase 4; only those findings get KB retrieval. Construct findings whose file/processing order differs from severity order and assert retrieval is attempted only for the global top-N (not the first-N-processed). A scan-scoped CWE cache (reused after selection) is created in the orchestrator and passed into each per-file `validate(...)` call; injected context obeys `kb_char_budget`.
+- [ ] **Escalate-only via output schema** (round 3 CRITICAL — the gate-free baseline must exist to be enforceable): write failing tests that the Validator LLM JSON returns BOTH a code-only baseline (`baseline_verdict`, `baseline_severity` — judged ignoring policy context) AND policy-adjusted fields (`policy_verdict`, `policy_severity`, `policy_note`). The backend computes the **gate-relevant** verdict/severity as the STRONGER of baseline vs policy (`max(baseline, policy)`; never weaker than baseline) and NEVER dismisses a finding the baseline did not dismiss. The gate consumes only these enforced fields.
+- [ ] **Write failing gate-isolation tests**: a KB fake / `policy_*` payload that tries to DISMISS or downgrade a Critical/High finding leaves the gate-relevant severity/verdict at the baseline → gate verdict unchanged; KB may only escalate + add `policy_note`.
+- [ ] Implement: thread the scan-scoped KB context + top-N allow-set from the orchestrator into `validate`/`cross_family_validate`; extend the validator prompt + parsing for baseline/policy fields; enforce `max()` server-side.
 - [ ] Refactor.
 
 ### Task 7: Advisory-only + gate-isolation invariants (cross-cutting gate test)
@@ -119,7 +124,8 @@ the immutable `CODE_SAFETY_PREAMBLE` + `PromptSet.assemble`).
 
 - [ ] Write failing tests: `kb_list_docs`, `kb_upload_url`, `kb_ingest`, `kb_delete_doc`, `kb_sync_status` are admin-gated (403 without the admin group) following `_PROMPT_ACTIONS`/`_is_admin`; all use injected fake S3/Bedrock/DynamoDB clients.
 - [ ] **Test the manifest + upload→ingest split: the manifest is stored in DynamoDB under a `KBDOC#` key prefix (NOT in the indexed `kb-docs` bucket); `kb_upload_url` returns a scoped, short-lived presigned PUT and writes a pending manifest entry with `uploaded_by` from the verified JWT (payload/client-metadata `uploaded_by` ignored); ingestion starts only via a later `kb_ingest` call (none at URL-issue time).**
-- [ ] Implement `kb_docs.py` (DynamoDB-backed manifest + S3 object ops + `StartIngestionJob`/`GetIngestionJob`, injected clients) and wire `_KB_ACTIONS` + `_kb_route` into `route()`; add `kb_docs` to `Deps`.
+- [ ] **Delete lifecycle de-index** (round 3): write failing tests that `kb_delete_doc` not only deletes the S3 object + manifest entry but **starts a KB sync/de-index ingestion job** so deleted documents stop being retrievable as ready policy context; the manifest records the ingestion job id and reflects the de-index status. A deleted doc must not remain visible as `ready`.
+- [ ] Implement `kb_docs.py` (DynamoDB-backed manifest storing ingestion **job ids**; S3 object ops; `StartIngestionJob`/`GetIngestionJob` using KB id + **data-source id**; injected clients) and wire `_KB_ACTIONS` + `_kb_route` into `route()`; add `kb_docs` to `Deps`.
 - [ ] Refactor: mirror the prompt-store handler shape; no new public (non-admin) route.
 
 ### Task 9: Terraform `knowledge` module + IAM on the real execution/worker roles
@@ -139,7 +145,7 @@ the immutable `CODE_SAFETY_PREAMBLE` + `PromptSet.assemble`).
 - [ ] Bedrock Knowledge Base over the bucket with a `vector_backend` variable: managed (default) vs OpenSearch Serverless fallback. **KB service role** (`Principal: bedrock.amazonaws.com`): `s3:ListBucket`+`s3:GetObject` on `kb-docs` (policy-doc prefix only), `kms:Decrypt`/`kms:GenerateDataKey` on the bucket key, write to the active vector backend.
 - [ ] **OSS fallback**: `aws_opensearchserverless_security_policy` (encryption + network — **no public access**) + data-access policy scoped to the KB service role; comment the VPC-endpoint dependency (spec §9).
 - [ ] **agentcore module** — grant the AgentCore execution role least-privilege: `s3:PutObject`/`DeleteObject` on `kb-docs`, `kms:GenerateDataKey`/`Decrypt` on the key, `bedrock:StartIngestionJob`/`GetIngestionJob`, DynamoDB access for the `KBDOC#` manifest; grant the scan-worker role **read-only `bedrock:Retrieve`** on the KB only (no KB write, no S3 write — the deliberate ADR-001 difference). Pass `knowledge_base_id` + bucket name into the runtime env.
-- [ ] Wire `knowledge` into `envs/seoul` (variables + outputs). Add a region/model availability **preflight note** (managed KB + embedding model in `ap-northeast-2`; else set `vector_backend` to OSS).
+- [ ] Wire `knowledge` into `envs/seoul` (variables + outputs). **Output `knowledge_base_data_source_id` and pass both KB id + data-source id into the AgentCore runtime env** (round 3 — ingestion/status APIs need the data-source id, not just the KB id). Add a region/model availability **preflight note** (managed KB + embedding model in `ap-northeast-2`; else set `vector_backend` to OSS).
 - [ ] `cd infra/envs/seoul && terraform init -backend=false && terraform validate` passes for both `vector_backend` values.
 
 ### Task 10: Frontend admin "Policy Documents" tab
