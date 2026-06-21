@@ -4,10 +4,16 @@ Implements ADR-001. Externalizes the four editable agent **system** prompts (ran
 challenger, validator) to a DynamoDB-backed immutable versioned store, with an admin editing UI,
 **resolved + pinned (bodies inline) at scan-creation time**. TDD; each task = one local commit.
 
-> **v2 revision** after the P2 multi-AI gate (codex gpt-5.5, agy Gemini-3.1-Pro, kiro opus/kimi/glm —
-> all FAIL, verified against code). Key change: **pin by embedding the resolved prompt bodies inline**
-> in the scan record + SQS worker message (not just version ids). The worker never reads `PROMPT#`
-> items, so: no silent fallback, hash-verified integrity, and the IAM read/write split is trivial.
+> **v2 revision** after P2 gate round 1 (codex gpt-5.5, agy Gemini-3.1-Pro, kiro opus/kimi/glm — all
+> FAIL, verified against code). Key change: **pin by embedding the resolved prompt bodies inline** in the
+> scan record + SQS worker message (not just version ids). The worker never reads `PROMPT#` items → no
+> silent fallback, hash-verified integrity, trivial IAM split.
+>
+> **v2.1** after gate round 2 (agy + kiro-opus PASS; kimi/glm confirmed all round-1 fixes, raised
+> refinements — folded in): `StringLike` operator + Deny PROMPT# **reads** too (Task 11); map store
+> exceptions vs empty (Task 4); benchmark **blocking when injected** + rollback only to validated versions
+> + write-once validatedHash (Task 10); `_is_admin` uses the authorizer-verified bearer (Task 9); abort
+> records reason (Task 8b); worker IAM **role-only**, code-level guarantee until Fargate exists (Task 11).
 
 ## Verified facts (drove the redesign)
 - System prompts are passed **verbatim** (`system=[{"text": system}]` in `agents/bedrock.py`) — never
@@ -132,11 +138,13 @@ challenger, validator) to a DynamoDB-backed immutable versioned store, with an a
 - Modify: `backend/pipeline/prompts_store.py`
 - Test: `backend/tests/test_prompts_store.py`
 
-- [ ] `resolve_active_set()` → `{agent: {version, body, hash}}`: empty store → code defaults
-      (`version="default"`, hash of the default body); **unreachable** → raise `PromptStoreUnavailable`
-      (caller fail-closes), not a silent default.
-- [ ] Failing tests: empty → defaults with default hashes; active set → that body+id+hash; unreachable
-      (store raises) → `PromptStoreUnavailable`.
+- [ ] `resolve_active_set()` → `{agent: {version, body, hash}}`. **Empty result set** (no ACTIVE/version
+      items) → code defaults (`version="default"`, hash of the default body) — legit first-run. **Store
+      error** (`ResourceNotFoundException`, throttling/`ProvisionedThroughputExceededException`, timeout,
+      any `ClientError`/`EndpointConnectionError`) → raise `PromptStoreUnavailable` (caller fail-closes),
+      never a silent default.
+- [ ] Failing tests: empty → defaults with default hashes; active set → that body+id+hash; store raises
+      `ClientError`/timeout → `PromptStoreUnavailable` (mapped, not swallowed).
 - [ ] Implement; pytest; commit.
 
 ### Task 5: PromptSet + code safety preamble + DEFAULT_PROMPT_SET
@@ -201,9 +209,9 @@ challenger, validator) to a DynamoDB-backed immutable versioned store, with an a
 - Test: `backend/tests/test_app_prompts.py`
 
 - [ ] `scan_worker` rebuilds `PromptSet` from the **inline** message bodies, verifies
-      `prompt_hash(body)==pinned hash` per agent, and **aborts** (status=error) on mismatch/missing —
-      never reads `PROMPT#` and never falls back. Changing the active pointer after enqueue does not
-      affect the running scan.
+      `prompt_hash(body)==pinned hash` per agent, and **aborts** (status=error, reason recorded for the
+      user to re-submit a fresh scan) on mismatch/missing — never reads `PROMPT#` and never falls back.
+      Changing the active pointer after enqueue does not affect the running scan.
 - [ ] Failing tests: worker uses inline bodies (not live active); tampered body (hash mismatch) → abort;
       post-enqueue activation does not change resolved prompts.
 - [ ] Implement; pytest; commit.
@@ -214,9 +222,12 @@ challenger, validator) to a DynamoDB-backed immutable versioned store, with an a
 - Modify: `backend/app.py`
 - Test: `backend/tests/test_app_prompts.py`
 
-- [ ] `_is_admin(context)` from verified `cognito:groups`; gate `prompt_list`/`prompt_get`/`prompt_preview`
-      /`prompt_create`/`prompt_activate` (read routes admin-only too — prompts are guard IP); non-admin →
-      403 + logged; `author` from verified `sub` (not payload); enforce agentKey allowlist.
+- [ ] `_is_admin(context)` reads `cognito:groups` from the **same authorizer-verified bearer** the
+      existing `_user_id` decodes (the AgentCore JWT authorizer already verified signature/issuer/audience
+      before the request reaches the container; backend does not re-trust an unverified raw token). Gate
+      `prompt_list`/`prompt_get`/`prompt_preview`/`prompt_create`/`prompt_activate` (read routes admin-only
+      too — prompts are guard IP); non-admin → 403 + logged; `author` from verified `sub` (not payload);
+      enforce agentKey allowlist.
 - [ ] Failing tests: non-admin blocked on every prompt route (incl. read/preview); admin allowed; author
       is JWT sub even when payload supplies a different author.
 - [ ] Implement; pytest; commit.
@@ -229,12 +240,16 @@ challenger, validator) to a DynamoDB-backed immutable versioned store, with an a
 - Test: `backend/tests/test_app_prompts.py`
 
 - [ ] `prompt_preview`: `validate_prompt_body` + render the fully nonce-scaffolded prompt (no model call);
-      on success **stamp `validatedHash` on the version item** (server-side state). `prompt_activate`
-      rejects unless `version.validatedHash == version.hash`. Record (don't require green) an injected
-      `benchmark_runner` hook.
-- [ ] Failing tests: activate without prior preview rejected; editing the body after preview invalidates
-      (hash changes) → activate rejected; preview blocks banned content; rendered preview contains the
-      nonce scaffolding.
+      on success **stamp `validatedHash` write-once on the version item** (server-side state; since version
+      bodies are immutable, `validatedHash` can only ever equal that version's `hash`). `prompt_activate`
+      (which is also rollback — repointing `ACTIVE` to any existing version) rejects unless
+      `version.validatedHash == version.hash`, so **rollback only to a previously-validated version** —
+      the gate invariant holds for new activations and rollbacks alike. If a `benchmark_runner` is
+      **configured/injected**, activation additionally requires it to pass (blocking); when absent, the
+      deterministic validate+render gate is the sole precondition. Benchmark outcome recorded in audit.
+- [ ] Failing tests: activate without prior preview rejected; editing the body (→ new version, new hash)
+      requires its own preview; preview blocks banned content; rendered preview contains the nonce
+      scaffolding; with an injected failing `benchmark_runner`, activate is rejected.
 - [ ] Implement; pytest; commit.
 
 ### Task 11: IAM — worker role write-Deny on PROMPT#*, table note
@@ -245,11 +260,16 @@ challenger, validator) to a DynamoDB-backed immutable versioned store, with an a
 - Modify: `infra/envs/seoul/main.tf`
 - Modify: `infra/modules/data/main.tf`
 
-- [ ] Add a Fargate **scan-worker IAM role** (or a `var.worker_role` seam) with table read + an explicit
-      **Deny** on `PutItem/UpdateItem/DeleteItem/BatchWriteItem` where `dynamodb:LeadingKeys=["PROMPT#*"]`
-      (worker needs no PROMPT# access given inline bodies; the Deny is belt-and-suspenders). PROMPT# write
-      stays on the admin/exec role. Document in `data/main.tf` that PROMPT# items reuse the table and must
-      never get a TTL.
+- [ ] Add a dedicated **scan-worker IAM role resource only** (no ECS/Fargate compute — that belongs to the
+      durable-worker track) with table read + an explicit **Deny**, using the **`StringLike`** operator, on
+      both **writes and reads** of prompt items: `PutItem/UpdateItem/DeleteItem/BatchWriteItem` **and**
+      `GetItem/Query/BatchGetItem` where `dynamodb:LeadingKeys` `StringLike` `"PROMPT#*"` (worker needs no
+      PROMPT# access at all given inline bodies; the Deny is belt-and-suspenders). PROMPT# RW stays only on
+      the admin/exec role. Expose the role ARN as a module output for the future Fargate task to assume.
+- [ ] Document in `data/main.tf` that PROMPT# items reuse the table and must never get a TTL; document in
+      the plan/ADR that **until the Fargate worker is provisioned as this separate principal, the
+      read/write split is enforced at the code level** (scan/worker code never calls `PromptStore` writes;
+      the inline-body design removes any worker PROMPT# read).
 - [ ] `cd infra/envs/seoul && terraform init -backend=false && terraform validate`; commit.
 
 ### Task 12: Frontend admin detection + API client
