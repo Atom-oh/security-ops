@@ -23,9 +23,9 @@ existing prompt-injection and fail-closed controls.
 | Decision | Choice |
 |----------|--------|
 | Tenancy | **Single internal corpus** — one Knowledge Base, no multi-tenant isolation |
-| Injection points | **Ranker (phase 2), Hunter (phase 3), Validator (phase 4)**; Challenger excluded (keep adversarial step injection-free) |
+| Injection points | **Hunter (phase 3), Validator (phase 4)**. Ranker (phase 2) excluded — its LLM stage (`phase2_ranker.rank_files`) is dormant; the live orchestrator ranks deterministically via `rank_by_risk`, so a prompt injection there would be dead code. Challenger excluded (keep the adversarial step injection-free). |
 | Document management | **Admin UI upload** in the existing SPA admin area (alongside the prompt store) |
-| Retrieval strategy | **Hybrid (C)**: one shared "policy digest" retrieval per scan for Ranker + Hunter; per-finding targeted retrieval in Validator only |
+| Retrieval strategy | **Hybrid (C)**: one shared "policy digest" retrieval per scan for Hunter; per-finding targeted retrieval in Validator only |
 | KB role | **Advisory augmentation, escalate-only** — never weakens the fail-closed gate (never dismisses or downgrades a finding below its KB-free verdict/severity) |
 
 ## 3. Architecture & Components
@@ -74,10 +74,9 @@ existing prompt-injection and fail-closed controls.
 - **Shared policy-digest retrieval (once per scan)**: the orchestrator builds a query from
   `detected_languages + sink_types + repo_name`, calls `retrieve()` once, and caches the top-K
   chunks on the run object as the "policy digest".
-- **Ranker (phase 2)**: policy digest injected into the ranker user prompt so file prioritization
-  reflects the org's critical assets/systems.
 - **Hunter (phase 3)**: policy digest injected into the hunter user prompt. Hunter runs ×K
   parallel hunters per file; they **share the cached digest** — no extra retrieval calls.
+  (Ranker/phase 2 is not injected — see §2: the LLM ranker is dormant.)
 - **Validator (phase 4)**: for each finding (capped at top-N, see §5), a targeted `retrieve()`
   keyed on `finding.title + cwe_id`, **cached by `cwe_id`** within the scan, injected into the
   validator prompt. **Gate-isolation (escalate-only)**: the verdict/severity that the fail-closed
@@ -121,7 +120,7 @@ The scan path uses the retriever internally; it adds **no new public route**.
    + embedded into the managed vector store.
 2. Scan starts (Fargate worker) → orchestrator builds the policy-digest query → `retrieve()` →
    top-K trusted chunks cached on the run.
-3. Ranker + Hunter prompts receive the shared digest block (labeled trusted; see §6).
+3. Hunter prompts receive the shared digest block (labeled trusted; see §6).
 4. Validator, per finding (top-N capped, CWE-cached) → targeted `retrieve()` → severity/verdict
    calibrated against policy.
 
@@ -148,12 +147,20 @@ real corpus size and latency during implementation.
 - **Trusted-but-bounded injection**: KB chunks are trusted internal data, so they are **not**
   wrapped in the `<<<UNTRUSTED_CODE>>>` nonce block. They are injected in a separate, clearly
   labeled block — `## 사내 정책 컨텍스트 (신뢰 가능)` — kept distinct from the untrusted-code
-  block. The editable system prompts (ADR-001 store) state that policy context is **reference
-  only** and must not override analysis instructions or the injection guard. KB content can never
-  re-define the system prompt or the nonce scaffolding.
+  block. The **reference-only** rule (policy context must not override analysis instructions or the
+  injection guard) and the **Validator escalate-only** rule live in the immutable
+  `CODE_SAFETY_PREAMBLE` assembled by `PromptSet.assemble` — so they apply to *every* prompt,
+  including already-stored ADR-001 prompt versions, not just the code-default `*_SYSTEM` constants.
+  KB content can never re-define the system prompt or the nonce scaffolding.
+- **Manifest isolation**: the document manifest (`uploaded_by`, ingestion status, object metadata)
+  lives in **DynamoDB** (reusing the ADR-001 table pattern with a `KBDOC#` key prefix), **never in
+  the indexed `kb-docs` corpus** — otherwise manifest text could be retrieved and injected as
+  "trusted policy". The KB data source is limited to the policy-document keys only.
 - **Data residency**: KB, vector store, and `kb-docs` S3 bucket all in `ap-northeast-2`. Customer
   code and retrieval queries (derived from code) never leave the region.
-- **Encryption**: SSE-KMS on the S3 bucket and KB storage.
+- **Encryption + browser upload**: SSE-KMS on the S3 bucket and KB storage; **S3 Public Access
+  Block** on; an **S3 CORS rule** scoped to the SPA origin so the browser presigned `PUT` (with
+  required headers) succeeds.
 - **RBAC**: ingestion/management is admin-only (Cognito group), same enforcement as the prompt
   store.
 - **IAM roles** (least-privilege):
