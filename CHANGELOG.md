@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Versioned prompt store + admin editing UI (ADR-001): the four editable agent **system** prompts live in DynamoDB as immutable, CAS-activated versions, **resolved + pinned inline at scan-creation time** (worker hash-verifies and never reads the store); admin-only routes gated by the verified `cognito:groups`, server-side preview/validate before activate, append-only audit, and an IAM read/write split (a scan-worker role explicitly denied `PROMPT#*`). The nonce-wrapping injection scaffolding and an immutable safety preamble stay in code.
 - Cross-family ensemble (Phase 4.5): independent OpenAI GPT-5.5 re-judge via Bedrock `bedrock-mantle` (SigV4/IAM, in-AWS); both-confirm→CONFIRMED, disagree→ESCALATE.
 - Deterministic risk triage (Phase 2) and secret pre-filter (Phase 2.5, CWE-798); repo-wide coverage report.
 - Per-role and ensemble model selection in the scan form; live per-phase progress detail (language detect → file triage → per-file hunt).
@@ -53,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- 버전드 프롬프트 스토어 + 어드민 편집 UI(ADR-001): 편집 가능한 4개 에이전트 **system** 프롬프트를 DynamoDB에 불변·CAS 활성 버전으로 저장하고, **스캔 생성 시점에 본문을 인라인으로 고정(pin)**(워커는 해시 검증만 하고 스토어를 읽지 않음). 어드민 라우트는 검증된 `cognito:groups`로 서버측 강제, 활성화 전 서버측 미리보기/검증, append-only 감사 로그, IAM 읽기/쓰기 분리(scan-worker 역할은 `PROMPT#*` 명시적 Deny). nonce 인젝션 골격과 고정 안전 preamble은 코드에 유지.
 - 교차패밀리 앙상블(Phase 4.5): Bedrock `bedrock-mantle`(SigV4/IAM, AWS 내부) 경유 OpenAI GPT-5.5 독립 재판정; 양 패밀리 확인→CONFIRMED, 불일치→ESCALATE.
 - 결정적 위험 트리아지(Phase 2)와 시크릿 사전필터(Phase 2.5, CWE-798); 레포 전체 커버리지 리포트.
 - 스캔 폼의 역할별·앙상블 모델 선택; 단계별 라이브 진행 상세(언어 감지 → 파일 선정 → 파일별 헌트).

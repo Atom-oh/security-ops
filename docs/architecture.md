@@ -69,6 +69,7 @@ GPT-5.5 ensemble vote) → ASFF + fail-closed CI/CD gate → persist to DynamoDB
 - **In-AWS only for OpenAI** — GPT-5.5 via `bedrock-mantle` (SigV4/IAM, no public egress, no stored key) keeps data-residency consistent with the `global.*` Claude profiles.
 - **Fail-closed gate** — Critical/High/chaining/incomplete-coverage block; never report a partial scan as clean.
 - **Scanned code is untrusted** — random-nonce wrapping defeats indirect prompt injection.
+- **Editable prompts, pinned inline (ADR-001)** — the 4 agent *system* prompts are versioned in DynamoDB (immutable versions + CAS active pointer + audit) and **resolved into the scan record/SQS message at creation time**, so a running scan is reproducible and the worker hash-verifies the bodies without reading the store. The nonce scaffolding and an immutable safety preamble stay in code; admin edit/activate is gated by verified `cognito:groups` and a server-side preview/validate gate; the scan-worker IAM role is explicitly denied `PROMPT#*`.
 
 ## Operations
 
@@ -144,6 +145,7 @@ GPT-5.5 앙상블 투표) → ASFF + fail-closed CI/CD 게이트 → DynamoDB(�
 - **OpenAI도 AWS 내부 경유** — `bedrock-mantle`(SigV4/IAM, 공개 송신·저장 키 없음)로 `global.*` Claude와 데이터 거주성 일관성 유지.
 - **Fail-closed 게이트** — Critical/High/체이닝/커버리지 부족은 차단; 부분 스캔을 clean으로 보고하지 않음.
 - **스캔 코드는 신뢰 불가** — 랜덤 nonce 래핑으로 간접 프롬프트 인젝션 방어.
+- **편집 가능 프롬프트, 인라인 고정(ADR-001)** — 4개 에이전트 *system* 프롬프트를 DynamoDB에 버전 관리(불변 버전 + CAS 활성 포인터 + 감사)하고 **스캔 생성 시점에 본문을 스캔레코드/SQS 메시지에 인라인 고정**하여, 진행 중 스캔의 재현성을 보장하고 워커는 스토어를 읽지 않고 해시만 검증. nonce 골격과 고정 안전 preamble은 코드에 유지; 어드민 편집/활성화는 검증된 `cognito:groups`와 서버측 미리보기/검증 게이트로 보호; scan-worker IAM 역할은 `PROMPT#*` 명시적 Deny.
 
 ## 운영
 

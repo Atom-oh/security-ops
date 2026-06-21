@@ -294,3 +294,30 @@ SK = ACTIVE                    # 포인터 항목: activeVersion, updatedBy, upd
 - `infra/modules/data/main.tf` — 기존 DynamoDB 테이블 + SQS 스캔 워커 패턴
 - `infra/modules/auth/` — Cognito 사용자 풀(RBAC용 관리자 그룹)
 - co-agent 패널 세션(Kiro + Codex) — 이 결정에 반영된 멀티 AI 2차 의견
+
+---
+
+## Implementation note (v2 — after the consensus plan gate)
+
+Implemented per `docs/superpowers/plans/adr-001-prompt-store.md` (gate: agy + kiro-opus PASS;
+kimi/glm refinements folded in). Decisions amended/clarified during implementation:
+
+- **Editable surface = the four *system* prompt bodies only.** The user-prompt builders and the
+  nonce-wrapping scaffolding stay in code. Additionally, every resolved system prompt is assembled
+  in code as `CODE_SAFETY_PREAMBLE + stored_body` (string concat, never `.format`), so an edit can
+  never strip the non-negotiable safety framing.
+- **Pinned *inline*, not by id.** At scan creation the API resolves the active set and embeds each
+  agent's `{version, hash, body}` in the scan record + SQS worker message. The worker rebuilds the
+  prompt set from the inline bodies, verifies `sha256(body)==hash`, and **aborts on mismatch — it
+  never reads `PROMPT#` and never falls back**. This dissolves the staleness/race, the silent-
+  fallback, and (since the worker needs no store access) most of the IAM-split surface.
+- **Validation state is server-side**, stamped on the immutable version item by `prompt_preview`
+  (`validatedHash`); `prompt_activate`/rollback require `validatedHash == version.hash` (no
+  client-passed token → no forgery/replay). An injected `benchmark_runner`, when configured, is a
+  blocking precondition to activate.
+- **RBAC** reads `cognito:groups` from the same authorizer-verified bearer as identity; **all**
+  prompt routes (incl. reads) are admin-only; `author` is the verified `sub`.
+- **IAM**: a dedicated scan-worker role is created with an explicit **Deny** (StringLike
+  `dynamodb:LeadingKeys` = `PROMPT#*`) on prompt reads *and* writes; `PROMPT#` RW stays only on the
+  admin/runtime role. Until the Fargate worker is provisioned as that separate principal, the split
+  is also enforced at the code level. Prompt items reuse `SCAN_HISTORY` and must never get a TTL.

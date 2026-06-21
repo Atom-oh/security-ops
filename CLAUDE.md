@@ -61,6 +61,7 @@ AWS_REGION=ap-northeast-2 ./scripts/deploy.sh
 - Scanned code is **untrusted data**: wrap in a per-call random-nonce block; never let it instruct an agent.
 - Every external dependency (Bedrock, DynamoDB, sandbox, OpenAI) is **injected** into the pipeline → unit-testable with fakes.
 - Gate is **fail-closed**: Critical/High/chaining/incomplete-coverage block.
+- **Editable prompts (ADR-001)**: the 4 agent *system* prompts are versioned in DynamoDB and pinned inline at scan-creation; the nonce scaffolding + an immutable safety preamble stay in code, admin routes are gated by verified `cognito:groups`, and the scan-worker IAM role is denied `PROMPT#*`.
 
 ## Deploy facts (Seoul, account 180294183052)
 
