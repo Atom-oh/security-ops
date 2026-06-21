@@ -24,100 +24,183 @@ resolved+pinned at scan-creation time. TDD; each task is one local commit.
   (activeVersion, updatedBy, updatedAt). Coexists with scan-history items.
 - DI mirrors `ScanHistory`/`InMemoryFPStore`: `PromptStore(table, resource=)` + `InMemoryPromptStore`
   fake for unit tests.
-- Full live-benchmark dry-run is an **injected** seam (`benchmark_runner`) so tests use a fake; the
-  deterministic validate+scaffolding-render preview is the always-on hard gate before activate.
+- Full live-benchmark dry-run is an **injected** seam so tests use a fake; the deterministic
+  validate+scaffolding-render preview is the always-on hard gate before activate.
 
-## Files (scope)
-- backend/pipeline/prompts_store.py
-- backend/agents/prompts.py
-- backend/pipeline/config.py
-- backend/pipeline/phase2_ranker.py
-- backend/pipeline/phase3_hunter.py
-- backend/pipeline/phase35_challenger.py
-- backend/pipeline/phase4_validator.py
-- backend/pipeline/ensemble.py
-- backend/app.py
-- backend/tests/test_prompts_store.py
-- backend/tests/test_prompts_wiring.py
-- backend/tests/test_app_prompts.py
-- infra/modules/data/main.tf
-- infra/modules/agentcore/main.tf
-- frontend/src/auth/cognito.ts
-- frontend/src/api/agentcore.ts
-- frontend/src/api/types.ts
-- frontend/src/pages/PromptAdminPage.tsx
-- frontend/src/components/Sidebar.tsx
-- frontend/src/App.tsx
-- CLAUDE.md
-- backend/CLAUDE.md
-- docs/architecture.md
-- CHANGELOG.md
-- docs/decisions/ADR-001-prompt-store-and-editing-ui.md
+---
 
-## Tasks
+### Task 1: Prompt-body validation + agentKey allowlist
 
-### Backend — store core
-- [ ] T1: `validate_prompt_body(body)` + `AGENT_KEYS` allowlist in `backend/pipeline/prompts_store.py`.
-  Tests (`test_prompts_store.py`): valid body passes; >20 KB rejected; banned patterns rejected
-  (`ignore previous`, `disregard (all )?(previous|above)`, `system:`/role-override markers, an attempt
-  to emit/close an untrusted-nonce delimiter); unknown agentKey rejected. Commit.
-- [ ] T2: `PromptStore` + `InMemoryPromptStore` create/get/list versions — immutable items, SK
-  `V#` zero-padded 6, fields body/author/createdAt/note/hash; no TTL attribute written. Tests:
-  create returns v1 then v2 (append-only, never mutates v1); list ordered; unknown key raises. Commit.
-- [ ] T3: `activate(agent_key, version, updated_by, expected_prev)` CAS conditional write + `get_active`.
-  Tests: first activate ok; stale `expected_prev` rejected (lost-update prevented); activate a
-  nonexistent version rejected. Commit.
-- [ ] T4: `resolve_active_set()` → `{agent: {version, body, hash}}` with **code-default fallback** when
-  the store is empty/unreachable. Tests: empty store → all defaults with `version="default"`; with an
-  active version → that body+id+hash; store error → defaults (never raises). Commit.
+**Files:**
+- Create: `backend/pipeline/prompts_store.py`
+- Test: `backend/tests/test_prompts_store.py`
 
-### Backend — wiring
-- [ ] T5: `PromptSet` dataclass (4 system strings) + `DEFAULT_PROMPT_SET` built from existing constants in
-  `backend/agents/prompts.py` (scaffolding/user-builders untouched). Test: `DEFAULT_PROMPT_SET` fields
-  equal the current `*_SYSTEM` constants. Commit.
-- [ ] T6: `ScanConfig` gains `prompts: Optional[PromptSet]=None`, `pinned_prompt_versions: Dict[str,str]`,
-  `prompt_hashes: Dict[str,str]` in `backend/pipeline/config.py`. Test: defaults preserve current behavior.
-  Commit.
-- [ ] T7: phases use `config.prompts.<agent>` system when present else the code constant —
-  `phase2_ranker.py`, `phase3_hunter.py`, `phase35_challenger.py`, `phase4_validator.py`, `ensemble.py`.
-  Tests (`test_prompts_wiring.py`, capture-converse pattern): a custom `PromptSet` system string reaches
-  the model; with `prompts=None` the default constant is used unchanged. Commit.
+- [ ] Add `AGENT_KEYS = ("ranker", "hunter", "challenger", "validator")` and `validate_prompt_body(body)`.
+- [ ] Write failing tests: valid body passes; >20 KB rejected; banned patterns rejected (`ignore previous`,
+      `disregard (all )?(previous|above)`, role-override `system:` markers, an attempt to emit/close an
+      untrusted-nonce delimiter); unknown agentKey rejected.
+- [ ] Implement minimally; run `cd backend && pytest tests/test_prompts_store.py`; commit.
 
-### Backend — app routes + pinning
-- [ ] T8: Pin at scan creation in `backend/app.py` — `Deps.prompt_store`; on `scan`/`scan_async` resolve
-  `resolve_active_set()`, record `promptVersions`+`promptHashes` on the scan record and worker message;
-  `_build_config` accepts the resolved `PromptSet`; `scan_worker` rebuilds the `PromptSet` from the
-  **pinned** version ids (fallback default), never the live active pointer. Tests (`test_app_prompts.py`):
-  scan record carries pinned versions; changing the active pointer after enqueue does not change the
-  worker's resolved prompts. Commit.
-- [ ] T9: `_is_admin(context)` from verified `cognito:groups`; routes `prompt_list`/`prompt_get`/
-  `prompt_create`/`prompt_activate`; non-admin → 403; `author` taken from verified `sub`, not payload;
-  agentKey allowlist enforced. Tests: non-admin blocked on every write route; admin allowed; author is
-  the JWT sub even if payload lies. Commit.
-- [ ] T10: `prompt_preview` (deterministic: `validate_prompt_body` + render the fully nonce-scaffolded
-  prompt, **no model call**) returns a preview/validation token; `prompt_activate` rejects a version that
-  has not passed validation; optional injected `benchmark_runner` seam recorded but not required green in
-  unit tests. Tests: activate-without-validation rejected; preview blocks banned content; scaffolding is
-  present in the rendered preview. Commit.
+### Task 2: Immutable versioned PromptStore + in-memory fake
 
-### Infra
-- [ ] T11: IAM read/write split — in `infra/modules/agentcore/main.tf` scope the scan/worker role's
-  DynamoDB write actions (`PutItem`/`UpdateItem`/`DeleteItem`) with a `dynamodb:LeadingKeys` condition that
-  **excludes** `PROMPT#*` (worker may read prompts, not write them); admin write path keeps write on
-  `PROMPT#*`. Add a comment in `infra/modules/data/main.tf` documenting prompt items reuse the table and
-  must not get a TTL. `cd infra/envs/seoul && terraform init -backend=false && terraform validate`. Commit.
+**Files:**
+- Modify: `backend/pipeline/prompts_store.py`
+- Test: `backend/tests/test_prompts_store.py`
 
-### Frontend
-- [ ] T12: `groupsFrom(session)`/`isAdmin(session)` from the id-token `cognito:groups` in
-  `frontend/src/auth/cognito.ts`; prompt admin calls in `frontend/src/api/agentcore.ts` + types in
-  `frontend/src/api/types.ts` (listPrompts, getPromptVersions, createPromptVersion, previewPrompt,
-  activatePromptVersion). `npm run build`. Commit.
-- [ ] T13: `frontend/src/pages/PromptAdminPage.tsx` (per-agent version list, view/diff, edit→create new
-  version, preview, activate/rollback) using the existing CSS-variable design system; admin-only nav item
-  in `frontend/src/components/Sidebar.tsx`; route guard in `frontend/src/App.tsx` (render only when
-  `isAdmin`). `npm run build`. Commit.
+- [ ] Add `PromptStore(table_name, region=None, resource=None)` and `InMemoryPromptStore`: `create_version`,
+      `get_version`, `list_versions`. Items immutable, `SK=V#<zero-pad-6>`, fields body/author/createdAt/
+      note/hash; never write a TTL attribute.
+- [ ] Failing tests: create returns v1 then v2 (append-only, v1 never mutated); `list_versions` ordered;
+      unknown agentKey raises; `create_version` calls `validate_prompt_body`.
+- [ ] Implement; pytest; commit.
 
-### Docs
-- [ ] T14: Sync `CLAUDE.md` (root) + `backend/CLAUDE.md` + `docs/architecture.md` + `CHANGELOG.md` with the
-  prompt store; add an "Implementation" note to `docs/decisions/ADR-001-prompt-store-and-editing-ui.md`.
-  Commit.
+### Task 3: CAS activation + active pointer
+
+**Files:**
+- Modify: `backend/pipeline/prompts_store.py`
+- Test: `backend/tests/test_prompts_store.py`
+
+- [ ] Add `activate(agent_key, version, updated_by, expected_prev=None)` (conditional/compare-and-swap write)
+      and `get_active(agent_key)`.
+- [ ] Failing tests: first activate ok; stale `expected_prev` rejected (lost-update prevented); activating a
+      nonexistent version rejected.
+- [ ] Implement; pytest; commit.
+
+### Task 4: resolve_active_set with code-default fallback
+
+**Files:**
+- Modify: `backend/pipeline/prompts_store.py`
+- Test: `backend/tests/test_prompts_store.py`
+
+- [ ] Add `resolve_active_set()` → `{agent: {version, body, hash}}`; fall back to code defaults when the
+      store is empty/unreachable (never raises).
+- [ ] Failing tests: empty store → all defaults with `version="default"`; active set → that body+id+hash;
+      store error → defaults.
+- [ ] Implement; pytest; commit.
+
+### Task 5: PromptSet dataclass + DEFAULT_PROMPT_SET
+
+**Files:**
+- Modify: `backend/agents/prompts.py`
+- Test: `backend/tests/test_prompts_wiring.py`
+
+- [ ] Add a `PromptSet` dataclass (4 system strings) and `DEFAULT_PROMPT_SET` built from the existing
+      `*_SYSTEM` constants. Leave scaffolding/user-prompt builders untouched.
+- [ ] Failing test: `DEFAULT_PROMPT_SET` fields equal the current `RANKER_SYSTEM`/`HUNTER_SYSTEM`/
+      `CHALLENGER_SYSTEM`/`VALIDATOR_SYSTEM`.
+- [ ] Implement; pytest; commit.
+
+### Task 6: ScanConfig carries the resolved+pinned prompt set
+
+**Files:**
+- Modify: `backend/pipeline/config.py`
+- Test: `backend/tests/test_prompts_wiring.py`
+
+- [ ] Add `prompts: Optional[PromptSet]=None`, `pinned_prompt_versions: Dict[str,str]`,
+      `prompt_hashes: Dict[str,str]` to `ScanConfig`.
+- [ ] Failing test: defaults are empty/None and current behavior is unchanged.
+- [ ] Implement; pytest; commit.
+
+### Task 7: Phases read system prompt from config when present
+
+**Files:**
+- Modify: `backend/pipeline/phase2_ranker.py`
+- Modify: `backend/pipeline/phase3_hunter.py`
+- Modify: `backend/pipeline/phase35_challenger.py`
+- Modify: `backend/pipeline/phase4_validator.py`
+- Modify: `backend/pipeline/ensemble.py`
+- Test: `backend/tests/test_prompts_wiring.py`
+
+- [ ] Each phase uses `config.prompts.<agent>` system string when present, else the code constant.
+- [ ] Failing tests (capture-converse pattern): a custom `PromptSet` system reaches the model; with
+      `prompts=None` the default constant is used unchanged.
+- [ ] Implement; pytest; commit.
+
+### Task 8: Pin active versions at scan creation; worker uses pinned
+
+**Files:**
+- Modify: `backend/app.py`
+- Test: `backend/tests/test_app_prompts.py`
+
+- [ ] Add `Deps.prompt_store`. On `scan`/`scan_async` resolve `resolve_active_set()`, record
+      `promptVersions`+`promptHashes` on the scan record and the worker message; `_build_config` accepts the
+      resolved `PromptSet`; `scan_worker` rebuilds the `PromptSet` from the **pinned** version ids (fallback
+      default), never the live active pointer.
+- [ ] Failing tests: scan record carries pinned versions; changing the active pointer after enqueue does not
+      change the worker's resolved prompts.
+- [ ] Implement; pytest; commit.
+
+### Task 9: Admin RBAC + prompt admin routes
+
+**Files:**
+- Modify: `backend/app.py`
+- Test: `backend/tests/test_app_prompts.py`
+
+- [ ] Add `_is_admin(context)` reading verified `cognito:groups`; routes `prompt_list`/`prompt_get`/
+      `prompt_create`/`prompt_activate`; non-admin → 403; `author` from verified `sub` (not payload);
+      enforce the agentKey allowlist.
+- [ ] Failing tests: non-admin blocked on every write route; admin allowed; author is the JWT sub even when
+      the payload supplies a different author.
+- [ ] Implement; pytest; commit.
+
+### Task 10: Preview/validate gate before activate
+
+**Files:**
+- Modify: `backend/app.py`
+- Test: `backend/tests/test_app_prompts.py`
+
+- [ ] Add `prompt_preview` (deterministic: `validate_prompt_body` + render the fully nonce-scaffolded prompt,
+      **no model call**) returning a validation token; `prompt_activate` rejects a version that has not passed
+      validation. Wire an injected `benchmark_runner` seam (recorded, not required green in unit tests).
+- [ ] Failing tests: activate-without-validation rejected; preview blocks banned content; the rendered preview
+      contains the nonce scaffolding.
+- [ ] Implement; pytest; commit.
+
+### Task 11: IAM read/write split + table note
+
+**Files:**
+- Modify: `infra/modules/agentcore/main.tf`
+- Modify: `infra/modules/data/main.tf`
+
+- [ ] Scope the scan/worker role's DynamoDB write actions (`PutItem`/`UpdateItem`/`DeleteItem`) with a
+      `dynamodb:LeadingKeys` condition that excludes `PROMPT#*` (worker may read, not write prompts); the
+      admin write path keeps write on `PROMPT#*`. Document in `data/main.tf` that prompt items reuse the
+      table and must not receive a TTL.
+- [ ] Run `cd infra/envs/seoul && terraform init -backend=false && terraform validate`; commit.
+
+### Task 12: Frontend admin detection + API client
+
+**Files:**
+- Modify: `frontend/src/auth/cognito.ts`
+- Modify: `frontend/src/api/agentcore.ts`
+- Modify: `frontend/src/api/types.ts`
+
+- [ ] Add `groupsFrom(session)`/`isAdmin(session)` from the id-token `cognito:groups`; add prompt admin API
+      calls (listPrompts, getPromptVersions, createPromptVersion, previewPrompt, activatePromptVersion) and
+      their types.
+- [ ] Run `cd frontend && npm run build`; commit.
+
+### Task 13: Prompt admin page + nav + route guard
+
+**Files:**
+- Create: `frontend/src/pages/PromptAdminPage.tsx`
+- Modify: `frontend/src/components/Sidebar.tsx`
+- Modify: `frontend/src/App.tsx`
+
+- [ ] Build `PromptAdminPage` (per-agent version list, view/diff, edit→create version, preview,
+      activate/rollback) on the existing CSS-variable design system; admin-only nav item in `Sidebar`;
+      `App.tsx` renders the page only when `isAdmin`.
+- [ ] Run `cd frontend && npm run build`; commit.
+
+### Task 14: Docs sync
+
+**Files:**
+- Modify: `CLAUDE.md`
+- Modify: `backend/CLAUDE.md`
+- Modify: `docs/architecture.md`
+- Modify: `CHANGELOG.md`
+- Modify: `docs/decisions/ADR-001-prompt-store-and-editing-ui.md`
+
+- [ ] Sync CLAUDE.md (root + backend), architecture, and CHANGELOG with the prompt store; add an
+      "Implementation" note to ADR-001.
+- [ ] Commit.
