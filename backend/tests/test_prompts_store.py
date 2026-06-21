@@ -15,6 +15,7 @@ from pipeline.prompts_store import (
     PromptStore,
     PromptStoreUnavailable,
     PromptValidationError,
+    _pk,
     prompt_hash,
     validate_prompt_body,
 )
@@ -229,3 +230,12 @@ def test_resolve_store_unreachable_raises():
     s = PromptStore("SCAN_HISTORY", resource=BrokenResource())
     with pytest.raises(PromptStoreUnavailable):
         s.resolve_active_set()
+
+
+def test_resolve_fails_closed_on_corrupt_active_pointer(store):
+    # ACTIVE points at a version that doesn't exist → corruption, must fail closed (no downgrade).
+    store.create_version("hunter", "real hunter body", author="a@x")
+    store.activate("hunter", 1, updated_by="a@x")
+    store._cas_active(_pk("hunter"), 99, expected_prev=1, updated_by="a@x")  # corrupt the pointer
+    with pytest.raises(PromptStoreUnavailable):
+        store.resolve_active_set()

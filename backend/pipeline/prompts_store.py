@@ -241,11 +241,21 @@ class _StoreBase:
                 ver = self.get_version(agent, active) if active is not None else None
             except (ClientError, BotoCoreError) as exc:
                 raise PromptStoreUnavailable(f"prompt store unreachable: {exc}") from exc
-            if ver is None:
+            if active is None:
+                # legitimately empty (no active version) → trusted code default
                 body = defaults[agent]
                 out[agent] = {"version": "default", "body": body, "hash": prompt_hash(body)}
-            else:
-                out[agent] = {"version": ver["version"], "body": ver["body"], "hash": ver["hash"]}
+                continue
+            if ver is None:
+                # ACTIVE points at a version that doesn't exist → corruption, NOT a reason to
+                # silently downgrade. Fail closed (immutable versions should never disappear).
+                raise PromptStoreUnavailable(
+                    f"active pointer for {agent!r} references missing version {active}"
+                )
+            # defense-in-depth: the stored body must still hash to its stored hash
+            if prompt_hash(ver["body"]) != ver["hash"]:
+                raise PromptStoreUnavailable(f"stored prompt hash mismatch for {agent!r} v{active}")
+            out[agent] = {"version": ver["version"], "body": ver["body"], "hash": ver["hash"]}
         return out
 
     def _audit(self, agent_key: str, event: str, actor: str, version) -> None:

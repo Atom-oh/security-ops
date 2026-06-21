@@ -239,12 +239,18 @@ def _resolve_pinned(deps: "Deps") -> Optional[Dict]:
 
 
 def _verify_inline_prompts(mp: Dict) -> Dict:
-    """Worker-side integrity check: every inline body must hash to its pinned hash, else abort
-    (possible tampering / corruption in transit). Returns the verified pinned bundle."""
+    """Worker-side integrity check on the inline-pinned prompt bundle. Requires the COMPLETE set
+    of agents (no partial bundle that would silently fall back to defaults) and that every body
+    hashes to its pinned hash; otherwise abort (tamper / corruption in transit)."""
+    from pipeline.prompts_store import AGENT_KEYS
+
     bodies = mp.get("bodies", {}) or {}
     hashes = mp.get("hashes", {}) or {}
-    for agent, body in bodies.items():
-        if prompt_hash(body) != hashes.get(agent):
+    missing = [a for a in AGENT_KEYS if a not in bodies or a not in hashes]
+    if missing:
+        raise ValueError(f"incomplete pinned prompt bundle — missing {missing} (aborting scan)")
+    for agent in AGENT_KEYS:
+        if prompt_hash(bodies[agent]) != hashes.get(agent):
             raise ValueError(f"pinned prompt hash mismatch for {agent!r} — aborting scan (tamper/corruption)")
     return {"versions": mp.get("versions", {}) or {}, "hashes": hashes, "bodies": bodies}
 
@@ -465,6 +471,7 @@ def route(payload: Dict, context=None, deps: Optional[Deps] = None) -> Dict:
                               "userId": user_id, "payload": payload}
                 if pinned:  # carry the resolved bodies inline so the worker never reads PROMPT#
                     worker_msg["prompts"] = pinned
+                    worker_msg["promptsPinned"] = True  # detect a stripped bundle at the worker
                 deps.dispatch(worker_msg)
             except Exception as exc:  # noqa: BLE001
                 log.exception("scan dispatch failed")
@@ -513,6 +520,13 @@ def scan_worker(message: Dict, deps: Deps) -> Dict:
             log.error("scan_worker aborting on prompt integrity failure: %s", exc)
             _safe_update(deps, user_id, scan_id, status="error", error=str(exc))
             return {"scanId": scan_id, "status": "error", "error": str(exc)}
+    elif message.get("promptsPinned"):
+        # The producer pinned prompts but the bundle is absent → stripped/tampered. Fail closed
+        # rather than silently running on code defaults.
+        err = "pinned prompt bundle missing from worker message — aborting scan (tamper/corruption)"
+        log.error("scan_worker %s: %s", scan_id, err)
+        _safe_update(deps, user_id, scan_id, status="error", error=err)
+        return {"scanId": scan_id, "status": "error", "error": err}
 
     existing = deps.history.get_scan(user_id, scan_id) if deps.history else None
     if existing and existing.get("status") in ("done", "error"):

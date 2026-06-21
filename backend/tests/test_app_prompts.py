@@ -106,13 +106,15 @@ def test_worker_uses_inline_bodies_not_live_active(tmp_path):
     pinned_body = _seed_active(store)
     hist = FakeHistory()
     deps = Deps(converse=StubConverse(), history=hist, prompt_store=store, region="ap-northeast-2")
+    def _full(bodies):
+        return {"versions": {a: "1" for a in bodies}, "hashes": {a: prompt_hash(b) for a, b in bodies.items()},
+                "bodies": dict(bodies)}
+
     msg = {
         "action": "scan_worker", "scanId": "s1", "userId": "u1",
         "payload": {"project_path": str(tmp_path)},
-        "prompts": {
-            "versions": {"hunter": "1"}, "hashes": {"hunter": prompt_hash(pinned_body)},
-            "bodies": {"hunter": pinned_body},
-        },
+        "prompts": _full({"hunter": pinned_body, "ranker": "r body", "challenger": "c body",
+                          "validator": "v body"}),
     }
     # change the live active pointer AFTER enqueue — must not affect this scan
     store.create_version("hunter", "a different newer body entirely", author="admin@x")
@@ -128,14 +130,42 @@ def test_worker_aborts_on_hash_mismatch(tmp_path):
     msg = {
         "action": "scan_worker", "scanId": "s2", "userId": "u1",
         "payload": {"project_path": str(tmp_path)},
-        "prompts": {  # body tampered so hash no longer matches
-            "versions": {"hunter": "1"}, "hashes": {"hunter": prompt_hash("original")},
-            "bodies": {"hunter": "TAMPERED body"},
+        "prompts": {  # complete bundle, but hunter body tampered so its hash no longer matches
+            "versions": {a: "1" for a in ("ranker", "hunter", "challenger", "validator")},
+            "hashes": {"hunter": prompt_hash("original"), "ranker": prompt_hash("r"),
+                       "challenger": prompt_hash("c"), "validator": prompt_hash("v")},
+            "bodies": {"hunter": "TAMPERED body", "ranker": "r", "challenger": "c", "validator": "v"},
         },
     }
     out = scan_worker(msg, deps)
     assert out["status"] == "error"
     assert "hash" in (out.get("error") or "").lower()
+
+
+def test_worker_aborts_on_incomplete_prompt_bundle(tmp_path):
+    (tmp_path / "a.py").write_text("x = 1\n")
+    deps = Deps(converse=StubConverse(), history=FakeHistory(), region="ap-northeast-2")
+    msg = {  # only hunter present — missing ranker/challenger/validator
+        "action": "scan_worker", "scanId": "s3", "userId": "u1",
+        "payload": {"project_path": str(tmp_path)},
+        "prompts": {"versions": {"hunter": "1"}, "hashes": {"hunter": prompt_hash("b")},
+                    "bodies": {"hunter": "b"}},
+    }
+    out = scan_worker(msg, deps)
+    assert out["status"] == "error"
+    assert "incomplete" in (out.get("error") or "").lower()
+
+
+def test_worker_aborts_when_pinned_bundle_stripped(tmp_path):
+    (tmp_path / "a.py").write_text("x = 1\n")
+    deps = Deps(converse=StubConverse(), history=FakeHistory(), region="ap-northeast-2")
+    msg = {  # producer marked promptsPinned but the bundle was stripped in transit
+        "action": "scan_worker", "scanId": "s4", "userId": "u1",
+        "payload": {"project_path": str(tmp_path)}, "promptsPinned": True,
+    }
+    out = scan_worker(msg, deps)
+    assert out["status"] == "error"
+    assert "missing" in (out.get("error") or "").lower()
 
 
 # --- T9: admin RBAC ------------------------------------------------------------------
