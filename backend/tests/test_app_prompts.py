@@ -168,6 +168,18 @@ def test_worker_aborts_when_pinned_bundle_stripped(tmp_path):
     assert "missing" in (out.get("error") or "").lower()
 
 
+def test_worker_fails_closed_when_pinned_required_but_absent(tmp_path):
+    # Deployment requires pinned prompts; a message with NO bundle and NO flag must still abort
+    # (a fully-stripped message can't be allowed to run on defaults).
+    (tmp_path / "a.py").write_text("x = 1\n")
+    deps = Deps(converse=StubConverse(), history=FakeHistory(), region="ap-northeast-2",
+                require_pinned_prompts=True)
+    msg = {"action": "scan_worker", "scanId": "s5", "userId": "u1",
+           "payload": {"project_path": str(tmp_path)}}
+    out = scan_worker(msg, deps)
+    assert out["status"] == "error"
+
+
 # --- T9: admin RBAC ------------------------------------------------------------------
 
 @pytest.mark.parametrize("action", ["prompt_list", "prompt_get", "prompt_preview",

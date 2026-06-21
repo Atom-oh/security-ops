@@ -106,6 +106,9 @@ class Deps:
     openai_provider: object = None
     prompt_store: object = None  # ADR-001 versioned prompt store (None → code defaults)
     benchmark_runner: object = None  # optional injected dry-run; when set, activation requires a pass
+    # When the deployment uses the prompt store, the (storeless) worker must REFUSE a scan whose
+    # inline pinned bundle is absent — otherwise a fully-stripped message would run on defaults.
+    require_pinned_prompts: bool = False
     account_id: str = "000000000000"
     region: str = field(default_factory=lambda: os.environ.get("AWS_REGION", "us-west-2"))
     allowed_origin: str = field(default_factory=lambda: os.environ.get("FRONTEND_ORIGIN", "*"))
@@ -520,8 +523,9 @@ def scan_worker(message: Dict, deps: Deps) -> Dict:
             log.error("scan_worker aborting on prompt integrity failure: %s", exc)
             _safe_update(deps, user_id, scan_id, status="error", error=str(exc))
             return {"scanId": scan_id, "status": "error", "error": str(exc)}
-    elif message.get("promptsPinned"):
-        # The producer pinned prompts but the bundle is absent → stripped/tampered. Fail closed
+    elif message.get("promptsPinned") or getattr(deps, "require_pinned_prompts", False):
+        # Either the producer flagged a pinned bundle that is now absent (stripped/tampered), or
+        # this deployment requires pinned prompts and the bundle is missing entirely. Fail closed
         # rather than silently running on code defaults.
         err = "pinned prompt bundle missing from worker message — aborting scan (tamper/corruption)"
         log.error("scan_worker %s: %s", scan_id, err)
@@ -618,6 +622,8 @@ try:  # pragma: no cover - exercised only inside the container
         deps = Deps(
             converse=BedrockConverse(region=region),
             history=_default_history(region),
+            prompt_store=_default_prompt_store(region),
+            require_pinned_prompts=os.environ.get("PROMPT_STORE_REQUIRED") == "1",
             account_id=_account_id(),
             region=region,
             dispatch=dispatch,
@@ -628,6 +634,11 @@ try:  # pragma: no cover - exercised only inside the container
         from tools.history import ScanHistory
 
         return ScanHistory(os.environ.get("HISTORY_TABLE", "SCAN_HISTORY"), region=region)
+
+    def _default_prompt_store(region):
+        from pipeline.prompts_store import PromptStore
+
+        return PromptStore(os.environ.get("HISTORY_TABLE", "SCAN_HISTORY"), region=region)
 
     def _account_id():
         try:

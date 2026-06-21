@@ -232,6 +232,37 @@ def test_resolve_store_unreachable_raises():
         s.resolve_active_set()
 
 
+def test_query_prefix_paginates(monkeypatch):
+    # A single DynamoDB Query truncates at 1 MB; _query_prefix must follow LastEvaluatedKey so
+    # version/audit listing and the next-version calc don't silently drop the newest items.
+    pages = [
+        {"Items": [{"userId": "PROMPT#hunter", "scanId": "V#000001", "version": 1, "body": "a",
+                    "hash": prompt_hash("a")}], "LastEvaluatedKey": {"k": 1}},
+        {"Items": [{"userId": "PROMPT#hunter", "scanId": "V#000002", "version": 2, "body": "b",
+                    "hash": prompt_hash("b")}]},
+    ]
+
+    class PagedTable:
+        def __init__(self):
+            self.calls = 0
+
+        def query(self, **kw):
+            assert (self.calls == 0) == ("ExclusiveStartKey" not in kw)
+            page = pages[self.calls]
+            self.calls += 1
+            return page
+
+    shared = PagedTable()
+
+    class Res:
+        def Table(self, name):
+            return shared
+
+    s = PromptStore("SCAN_HISTORY", resource=Res())
+    versions = s.list_versions("hunter")
+    assert [v["version"] for v in versions] == [1, 2]
+
+
 def test_resolve_fails_closed_on_corrupt_active_pointer(store):
     # ACTIVE points at a version that doesn't exist → corruption, must fail closed (no downgrade).
     store.create_version("hunter", "real hunter body", author="a@x")

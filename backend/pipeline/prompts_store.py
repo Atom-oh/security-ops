@@ -296,11 +296,22 @@ class PromptStore(_StoreBase):
         return self.table.get_item(Key={"userId": pk, "scanId": sk}).get("Item")
 
     def _query_prefix(self, pk: str, prefix: str) -> list:
+        # Paginate: a single Query truncates at 1 MB (~50 × 20 KB bodies). Without this,
+        # create_version's max-version calc and list_versions/list_audit would silently drop
+        # the newest items past the first page.
         from boto3.dynamodb.conditions import Key
-        resp = self.table.query(
-            KeyConditionExpression=Key("userId").eq(pk) & Key("scanId").begins_with(prefix)
-        )
-        return resp.get("Items", [])
+
+        cond = Key("userId").eq(pk) & Key("scanId").begins_with(prefix)
+        items, start = [], None
+        while True:
+            kw = {"KeyConditionExpression": cond}
+            if start:
+                kw["ExclusiveStartKey"] = start
+            resp = self.table.query(**kw)
+            items.extend(resp.get("Items", []))
+            start = resp.get("LastEvaluatedKey")
+            if not start:
+                return items
 
     def _patch(self, pk: str, sk: str, fields: dict) -> None:
         sets, names, values = [], {}, {}
