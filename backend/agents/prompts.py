@@ -175,7 +175,9 @@ def challenger_user_prompt(finding_json: str, language: str, code_content: str, 
     nonce = nonce or _nonce()
     return (
         f"{untrusted_preamble(nonce)}\n\n"
-        f"## 보고된 취약점\n{finding_json}\n\n"
+        # The finding fields are derived from untrusted scanned code (reflected injection risk),
+        # so the JSON is fenced as untrusted data, not bare prompt text.
+        f"## 보고된 취약점(신뢰할 수 없는 데이터)\n{build_untrusted_block(finding_json, nonce)}\n\n"
         f"## 원본 코드 ({language})\n{build_untrusted_block(code_content, nonce)}\n\n"
         "이 취약점이 실제 악용 가능한지 적대적으로 반박하세요. JSON으로 응답: "
         '{"verdict": "confirmed|likely|dismissed", "reason": "...", "confidence": 0.0}.'
@@ -186,7 +188,8 @@ def validator_user_prompt(findings_json: str, language: str, code_content: str, 
     nonce = nonce or _nonce()
     return (
         f"{untrusted_preamble(nonce)}\n\n"
-        f"## 후보 취약점(헌트+반박 종합)\n{findings_json}\n\n"
+        # Finding fields derive from untrusted scanned code → fence as untrusted data.
+        f"## 후보 취약점(헌트+반박 종합, 신뢰할 수 없는 데이터)\n{build_untrusted_block(findings_json, nonce)}\n\n"
         f"## 코드 ({language})\n{build_untrusted_block(code_content, nonce)}\n\n"
         "각 취약점에 대해 최종 판정하세요. JSON 배열: "
         '[{"id": "...", "verdict": "confirmed|likely|dismissed|escalate", "confidence": 0.0, "validated": true}].'

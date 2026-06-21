@@ -10,6 +10,7 @@ The HTTP/SDK glue is thin: ``route(payload, context, deps)`` is pure and unit-te
 from __future__ import annotations
 
 import base64
+import re
 import json
 import logging
 import os
@@ -221,20 +222,61 @@ def _materialize_upload(payload: Dict) -> Optional[str]:
     return root
 
 
+# Server-side validation of client-controlled scan inputs (the frontend bounds these too, but a
+# direct caller must not bypass region/cost/path controls).
+MAX_FILES_CAP = 60
+MAX_PASS_AT_K = 5
+# Model ids are pinned to region-agnostic profiles only — reject ``us.*``/``eu.*`` region prefixes
+# that would route a Korean-FSI scan's source outside the container region.
+_ALLOWED_CLAUDE_MODEL = re.compile(r"^(global\.)?anthropic\.claude-[\w.\-]+$")
+_ALLOWED_OPENAI_MODEL = re.compile(r"^openai\.[\w.\-:]+$")
+_ALLOWED_API_KIND = ("chat", "responses")
+
+
+def _clamp(value, lo: int, hi: int) -> int:
+    return max(lo, min(hi, int(value)))
+
+
+def _safe_project_path(payload: Dict) -> str:
+    """Honor a client ``project_path`` only when it resolves under an allowed root (the OS temp
+    dir — where uploads/tests live — or the bundled sample-target). Any other path falls back to
+    the sample-target, so a caller can never point the scanner at arbitrary container files (LFI)."""
+    default = os.environ.get("SAMPLE_TARGET_DIR", "/app/sample-target")
+    raw = payload.get("project_path")
+    if not raw:
+        return default
+    p = os.path.abspath(str(raw))
+    roots = [os.path.abspath(tempfile.gettempdir()), os.path.abspath(default)]
+    if any(p == r or p.startswith(r + os.sep) for r in roots):
+        return p
+    log.warning("rejecting out-of-allowlist project_path; using sample-target")
+    return default
+
+
 def _build_config(payload: Dict, region: str, pinned: Optional[Dict] = None) -> ScanConfig:
-    cfg = ScanConfig(project_path=payload.get("project_path", "/app/sample-target"))
+    cfg = ScanConfig(project_path=_safe_project_path(payload))
     cfg.region = region  # trust container region, ignore any payload region
-    for key in ("max_files", "pass_at_k"):
-        if key in payload:
-            setattr(cfg, key, int(payload[key]))
-    for key in ("hunter_model", "challenger_model", "validator_model", "ranker_model",
-                "openai_model", "openai_api_kind"):
-        if payload.get(key):
-            setattr(cfg, key, payload[key])
+    if "max_files" in payload:
+        cfg.max_files = _clamp(payload["max_files"], 1, MAX_FILES_CAP)
+    if "pass_at_k" in payload:
+        cfg.pass_at_k = _clamp(payload["pass_at_k"], 1, MAX_PASS_AT_K)
+    # Model ids: accept only allowlisted region-agnostic profiles; anything else keeps the default.
+    for key in ("hunter_model", "challenger_model", "validator_model", "ranker_model"):
+        v = payload.get(key)
+        if v and _ALLOWED_CLAUDE_MODEL.match(v):
+            setattr(cfg, key, v)
+    if payload.get("openai_model") and _ALLOWED_OPENAI_MODEL.match(payload["openai_model"]):
+        cfg.openai_model = payload["openai_model"]
+    if payload.get("openai_api_kind") in _ALLOWED_API_KIND:
+        cfg.openai_api_kind = payload["openai_api_kind"]
     if "sandbox_enabled" in payload:
         cfg.sandbox_enabled = bool(payload["sandbox_enabled"])
     if "ensemble_enabled" in payload:
-        cfg.ensemble_enabled = bool(payload["ensemble_enabled"])
+        # The cross-family ensemble re-judges via Bedrock mantle (us-east-2) — enabling it sends
+        # scan source cross-region. Ops can hard-disable it for strict data-residency by setting
+        # ENSEMBLE_ALLOWED=0; otherwise it remains an opt-in per the deployment's residency policy.
+        ensemble_allowed = os.environ.get("ENSEMBLE_ALLOWED", "1") == "1"
+        cfg.ensemble_enabled = bool(payload["ensemble_enabled"]) and ensemble_allowed
     if pinned:  # ADR-001: inline-pinned prompt set resolved at scan creation
         from agents.prompts import PromptSet
 

@@ -185,6 +185,32 @@ def test_materialize_upload_caps_file_count():
         appmod._materialize_upload({"upload": {"files": files}})
 
 
+def test_build_config_rejects_arbitrary_project_path():
+    # LFI guard: an arbitrary container path falls back to the sample-target.
+    cfg = appmod._build_config({"project_path": "/etc"}, "ap-northeast-2")
+    assert cfg.project_path != "/etc"
+
+
+def test_build_config_allows_tempdir_path(tmp_path):
+    cfg = appmod._build_config({"project_path": str(tmp_path)}, "ap-northeast-2")
+    assert cfg.project_path == str(tmp_path)
+
+
+def test_build_config_rejects_region_prefixed_model():
+    # A us.* model id would route the scan out of region → rejected, default kept.
+    cfg = appmod._build_config({"hunter_model": "us.anthropic.claude-opus-4-8-v1"}, "ap-northeast-2")
+    assert not cfg.hunter_model.startswith("us.")
+    # a valid global profile is accepted
+    cfg2 = appmod._build_config({"hunter_model": "global.anthropic.claude-opus-4-6-v1"}, "ap-northeast-2")
+    assert cfg2.hunter_model == "global.anthropic.claude-opus-4-6-v1"
+
+
+def test_build_config_clamps_cost_params():
+    cfg = appmod._build_config({"pass_at_k": 999, "max_files": 9999}, "ap-northeast-2")
+    assert cfg.pass_at_k <= appmod.MAX_PASS_AT_K
+    assert cfg.max_files <= appmod.MAX_FILES_CAP
+
+
 def test_worker_fails_closed_when_pinned_required_but_absent(tmp_path):
     # Deployment requires pinned prompts; a message with NO bundle and NO flag must still abort
     # (a fully-stripped message can't be allowed to run on defaults).
