@@ -8,7 +8,10 @@ from __future__ import annotations
 import hashlib
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+
+if TYPE_CHECKING:  # keep this module import-pure (no agents/Bedrock import at runtime)
+    from agents.prompts import PromptSet
 
 
 def enforce_budget(files, max_files: int, max_bytes: int):
@@ -118,6 +121,13 @@ class ScanConfig:
     # Cost-DoS guards: hard ceilings on how much a single scan will process.
     max_total_files: int = 200
     max_total_bytes: int = 5 * 1024 * 1024  # 5 MiB
+
+    # ADR-001 prompt store: the resolved+pinned system prompts for this scan (None → use the
+    # code-default constants, i.e. legacy behavior). ``pinned_prompt_versions``/``prompt_hashes``
+    # record what was pinned at scan creation for reproducibility + worker hash verification.
+    prompts: Optional["PromptSet"] = None
+    pinned_prompt_versions: Dict[str, str] = field(default_factory=dict)
+    prompt_hashes: Dict[str, str] = field(default_factory=dict)
 
     # Cross-family ensemble (v2.2): an independent OpenAI model (on Bedrock via mantle)
     # re-judges findings for epistemic diversity. Opt-in escalation, OFF by default.

@@ -48,3 +48,27 @@ def test_preamble_is_defensive_and_immutable_marker():
     # The preamble must carry the non-negotiable safety framing so an edited body cannot
     # remove it (defensive-only, no exploit code, untrusted-code-is-data).
     assert "방어" in CODE_SAFETY_PREAMBLE or "defensive" in CODE_SAFETY_PREAMBLE.lower()
+
+
+# --- Task 6: ScanConfig carries the pinned prompt set --------------------------------
+
+def test_scanconfig_prompt_defaults_preserve_legacy_behavior():
+    from pipeline.config import ScanConfig
+
+    cfg = ScanConfig(project_path="/tmp/x")
+    assert cfg.prompts is None
+    assert cfg.pinned_prompt_versions == {}
+    assert cfg.prompt_hashes == {}
+
+
+def test_scanconfig_accepts_pinned_prompts():
+    from pipeline.config import ScanConfig
+
+    cfg = ScanConfig(
+        project_path="/tmp/x",
+        prompts=DEFAULT_PROMPT_SET,
+        pinned_prompt_versions={"hunter": "3"},
+        prompt_hashes={"hunter": "abc"},
+    )
+    assert cfg.prompts.hunter == HUNTER_SYSTEM
+    assert cfg.pinned_prompt_versions["hunter"] == "3"
