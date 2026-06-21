@@ -168,6 +168,23 @@ def test_worker_aborts_when_pinned_bundle_stripped(tmp_path):
     assert "missing" in (out.get("error") or "").lower()
 
 
+def test_materialize_upload_caps_total_bytes():
+    # Server-side DoS guard: a direct caller exceeding the total-byte cap is rejected before
+    # anything is written (the frontend cap is not trusted).
+    import base64 as _b64
+
+    big = _b64.b64encode(b"x" * (appmod.MAX_UPLOAD_FILE_BYTES // 2)).decode()
+    files = [{"path": f"f{i}.py", "content_b64": big} for i in range(40)]  # >8 MiB total
+    with pytest.raises(ValueError):
+        appmod._materialize_upload({"upload": {"files": files}})
+
+
+def test_materialize_upload_caps_file_count():
+    files = [{"path": f"f{i}.py", "content": "x"} for i in range(appmod.MAX_UPLOAD_FILES + 1)]
+    with pytest.raises(ValueError):
+        appmod._materialize_upload({"upload": {"files": files}})
+
+
 def test_worker_fails_closed_when_pinned_required_but_absent(tmp_path):
     # Deployment requires pinned prompts; a message with NO bundle and NO flag must still abort
     # (a fully-stripped message can't be allowed to run on defaults).

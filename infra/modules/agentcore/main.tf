@@ -51,6 +51,16 @@ data "aws_iam_policy_document" "exec" {
     ]
     resources = ["*"]
   }
+  # Durable async dispatch: the runtime enqueues a scan job to the worker queue. Scoped to the
+  # one queue ARN; only when wired (empty string → statement omitted so terraform validate passes).
+  dynamic "statement" {
+    for_each = var.scan_worker_queue_arn == "" ? [] : [var.scan_worker_queue_arn]
+    content {
+      sid       = "ScanWorkerDispatch"
+      actions   = ["sqs:SendMessage"]
+      resources = [statement.value]
+    }
+  }
   # GetAuthorizationToken is account-wide by API design; the data-plane pulls are scoped to
   # the one repository.
   statement {

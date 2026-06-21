@@ -157,7 +157,10 @@ def _user_id(payload: Dict, context) -> str:
             break
     if auth.lower().startswith("bearer "):
         claims = _decode_jwt_claims(auth[7:])
-        identity = claims.get("sub") or claims.get("username") or claims.get("client_id")
+        # Require a per-user identity. Drop the ``client_id`` fallback: a machine/client-credentials
+        # token has no ``sub`` and would collapse every such caller into one DynamoDB partition
+        # (cross-tenant exposure). ``sub`` is always present on a Cognito user access token.
+        identity = claims.get("sub") or claims.get("username")
         if identity:
             return identity
 
@@ -175,28 +178,46 @@ def _user_id(payload: Dict, context) -> str:
     return "anonymous"
 
 
+# Server-side upload caps (the frontend also bounds these, but a direct caller must not be able
+# to exhaust disk/memory before the pipeline's budget guard runs). Decoded bytes, not wire bytes.
+MAX_UPLOAD_FILES = 200
+MAX_UPLOAD_TOTAL_BYTES = 8 * 1024 * 1024  # 8 MiB total
+MAX_UPLOAD_FILE_BYTES = 1 * 1024 * 1024   # 1 MiB per file
+
+
 def _materialize_upload(payload: Dict) -> Optional[str]:
     """If the payload carries uploaded files, write them to a temp dir and return it.
 
     Hardened against path traversal ("zip slip"): each resolved destination must stay inside
-    the temp root, else the entry is skipped.
+    the temp root, else the entry is skipped. Also bounds file count and decoded bytes
+    server-side (a direct caller could otherwise exhaust disk before the budget guard runs).
     """
     upload = payload.get("upload")
     if not upload or not upload.get("files"):
         return None
+    files = upload["files"]
+    if len(files) > MAX_UPLOAD_FILES:
+        raise ValueError(f"upload exceeds {MAX_UPLOAD_FILES} files")
     root = tempfile.mkdtemp(prefix="fsi-upload-")
     root_abs = os.path.abspath(root)
-    for f in upload["files"]:
+    total = 0
+    for f in files:
         rel = f.get("path", "").lstrip("/")
         if not rel:
             continue
         dest = os.path.abspath(os.path.join(root, rel))
         if dest != root_abs and not dest.startswith(root_abs + os.sep):
             continue  # path traversal attempt — skip
-        os.makedirs(os.path.dirname(dest) or root, exist_ok=True)
         data = f.get("content_b64")
+        raw = base64.b64decode(data) if data else (f.get("content", "").encode())
+        if len(raw) > MAX_UPLOAD_FILE_BYTES:
+            raise ValueError(f"upload file {rel!r} exceeds {MAX_UPLOAD_FILE_BYTES} bytes")
+        total += len(raw)
+        if total > MAX_UPLOAD_TOTAL_BYTES:
+            raise ValueError(f"upload exceeds {MAX_UPLOAD_TOTAL_BYTES} total bytes")
+        os.makedirs(os.path.dirname(dest) or root, exist_ok=True)
         with open(dest, "wb") as fh:
-            fh.write(base64.b64decode(data) if data else (f.get("content", "").encode()))
+            fh.write(raw)
     return root
 
 
