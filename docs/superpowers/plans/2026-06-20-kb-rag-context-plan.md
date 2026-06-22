@@ -18,6 +18,10 @@ the immutable `CODE_SAFETY_PREAMBLE` + `PromptSet.assemble`).
 > (`max(baseline, policy)` server-side — the keystone safety fix), **global** top-N severity
 > selection in the orchestrator, `kb_delete_doc` de-index lifecycle, and the KB **data-source id**
 > threaded to the runtime.
+> Round 4 (Codex clean; Antigravity 2 MAJOR, localized): manifest is a state machine
+> (`DELETING` keeps the de-index job id; entry removed only after the sync succeeds) and
+> `StartIngestionJob` `ConflictException` is handled via an `INDEXING_QUEUED` state (Bedrock allows
+> one active ingestion job per data source). No structural findings remained.
 
 **Invariants enforced across all tasks**
 - KB is **advisory + escalate-only** — a retriever failure/empty result, AND any KB content,
@@ -124,8 +128,9 @@ the immutable `CODE_SAFETY_PREAMBLE` + `PromptSet.assemble`).
 
 - [ ] Write failing tests: `kb_list_docs`, `kb_upload_url`, `kb_ingest`, `kb_delete_doc`, `kb_sync_status` are admin-gated (403 without the admin group) following `_PROMPT_ACTIONS`/`_is_admin`; all use injected fake S3/Bedrock/DynamoDB clients.
 - [ ] **Test the manifest + upload→ingest split: the manifest is stored in DynamoDB under a `KBDOC#` key prefix (NOT in the indexed `kb-docs` bucket); `kb_upload_url` returns a scoped, short-lived presigned PUT and writes a pending manifest entry with `uploaded_by` from the verified JWT (payload/client-metadata `uploaded_by` ignored); ingestion starts only via a later `kb_ingest` call (none at URL-issue time).**
-- [ ] **Delete lifecycle de-index** (round 3): write failing tests that `kb_delete_doc` not only deletes the S3 object + manifest entry but **starts a KB sync/de-index ingestion job** so deleted documents stop being retrievable as ready policy context; the manifest records the ingestion job id and reflects the de-index status. A deleted doc must not remain visible as `ready`.
-- [ ] Implement `kb_docs.py` (DynamoDB-backed manifest storing ingestion **job ids**; S3 object ops; `StartIngestionJob`/`GetIngestionJob` using KB id + **data-source id**; injected clients) and wire `_KB_ACTIONS` + `_kb_route` into `route()`; add `kb_docs` to `Deps`.
+- [ ] **Delete lifecycle de-index** (round 3/4): write failing tests that `kb_delete_doc` deletes the S3 object, **sets the manifest entry to `DELETING`** (NOT immediate removal — it must still carry the de-index job id + status), and **starts a KB sync/de-index ingestion job** so deleted docs stop being retrievable; the manifest entry is removed only once a status check confirms the de-index job succeeded. A deleted doc must never remain visible as `ready`.
+- [ ] **Ingestion-job serialization** (round 4): write failing tests that `kb_ingest`/`kb_delete_doc` handle Bedrock's one-active-job-per-data-source limit — on `ConflictException` from `StartIngestionJob`, set the manifest status to `INDEXING_QUEUED` (not error) and let the next `kb_sync_status`/retry start it once the data source is free; never lose or silently drop the pending change.
+- [ ] Implement `kb_docs.py` (DynamoDB-backed manifest = a small state machine `PENDING→INDEXING(_QUEUED)→READY` / `DELETING→removed`, storing ingestion **job ids**; S3 object ops; `StartIngestionJob`/`GetIngestionJob` using KB id + **data-source id**; `ConflictException` handling; injected clients) and wire `_KB_ACTIONS` + `_kb_route` into `route()`; add `kb_docs` to `Deps`.
 - [ ] Refactor: mirror the prompt-store handler shape; no new public (non-admin) route.
 
 ### Task 9: Terraform `knowledge` module + IAM on the real execution/worker roles
