@@ -1,0 +1,154 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="760" viewBox="0 0 1280 760" font-family="Segoe UI, Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#5A6470"/>
+    </marker>
+    <marker id="arrowA" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#C026A6"/>
+    </marker>
+    <style>
+      .svc  { fill:#fff; stroke-width:2; rx:8; }
+      .name { font-size:13px; font-weight:700; fill:#16191F; }
+      .cost { font-size:10.5px; fill:#5A6470; }
+      .grp  { font-size:12px; font-weight:700; letter-spacing:.5px; }
+      .flow { font-size:10px; fill:#3b4350; }
+      .lbl  { font-size:11px; fill:#5A6470; }
+    </style>
+  </defs>
+
+  <rect width="1280" height="760" fill="#F7F8FA"/>
+  <text x="32" y="40" font-size="22" font-weight="800" fill="#16191F">FSI-Mythos — 리소스 견적용 아키텍처</text>
+  <text x="32" y="62" font-size="13" fill="#5A6470">Region: ap-northeast-2 (Seoul) · Account 180294183052 · AgentCore Runtime fsi_mythos-iiXImM3PzS · 과금 단위 = 각 박스 하단 표기</text>
+
+  <!-- AWS Cloud / Region container -->
+  <rect x="300" y="92" width="948" height="600" fill="none" stroke="#147EBA" stroke-width="2" rx="10"/>
+  <text x="318" y="116" class="grp" fill="#147EBA">AWS Region — ap-northeast-2 (Seoul)</text>
+
+  <!-- External: user -->
+  <rect x="36" y="330" width="180" height="92" class="svc" fill="#fff" stroke="#5A6470"/>
+  <text x="126" y="362" text-anchor="middle" class="name">보안 엔지니어</text>
+  <text x="126" y="382" text-anchor="middle" class="cost">React SPA (Browser)</text>
+  <text x="126" y="400" text-anchor="middle" class="cost">— 과금 없음 —</text>
+
+  <!-- ================= EDGE column ================= -->
+  <text x="318" y="150" class="grp" fill="#8C4FFF">Edge / Origin</text>
+
+  <!-- WAF (us-east-1) -->
+  <rect x="318" y="162" width="200" height="96" class="svc" fill="#FDECEC" stroke="#C7131F"/>
+  <text x="418" y="190" text-anchor="middle" class="name">AWS WAF (WebACL)</text>
+  <text x="418" y="208" text-anchor="middle" class="cost">us-east-1 · CLOUDFRONT</text>
+  <text x="418" y="224" text-anchor="middle" class="cost">$5/ACL + $1/rule(×3)</text>
+  <text x="418" y="240" text-anchor="middle" class="cost">+ $0.60 / 1M req</text>
+
+  <!-- CloudFront + OAC -->
+  <rect x="318" y="282" width="200" height="96" class="svc" fill="#F1E9FF" stroke="#8C4FFF"/>
+  <text x="418" y="310" text-anchor="middle" class="name">CloudFront + OAC</text>
+  <text x="418" y="328" text-anchor="middle" class="cost">SPA 배포 (CDN)</text>
+  <text x="418" y="344" text-anchor="middle" class="cost">데이터전송 $0.114/GB</text>
+  <text x="418" y="360" text-anchor="middle" class="cost">+ 요청 $0.012/10K</text>
+
+  <!-- S3 private SPA -->
+  <rect x="318" y="402" width="200" height="92" class="svc" fill="#E8F3EC" stroke="#1B9E4B"/>
+  <text x="418" y="430" text-anchor="middle" class="name">S3 (Private SPA)</text>
+  <text x="418" y="448" text-anchor="middle" class="cost">정적 호스팅 · OAC</text>
+  <text x="418" y="466" text-anchor="middle" class="cost">$0.025/GB + 요청 (수 MB)</text>
+
+  <!-- Cognito -->
+  <rect x="318" y="518" width="200" height="92" class="svc" fill="#FDECEC" stroke="#C7131F"/>
+  <text x="418" y="546" text-anchor="middle" class="name">Cognito User Pool</text>
+  <text x="418" y="564" text-anchor="middle" class="cost">SRP 로그인 (admin only)</text>
+  <text x="418" y="582" text-anchor="middle" class="cost">MAU 50K 무료 → $0.0055</text>
+
+  <!-- ================= AGENT RUNTIME column ================= -->
+  <text x="568" y="150" class="grp" fill="#ED7100">Agent Runtime</text>
+  <rect x="568" y="300" width="210" height="120" class="svc" fill="#FCEEDD" stroke="#ED7100"/>
+  <text x="673" y="330" text-anchor="middle" class="name">AgentCore Runtime</text>
+  <text x="673" y="350" text-anchor="middle" class="cost">8-phase 파이프라인 호스팅</text>
+  <text x="673" y="368" text-anchor="middle" class="cost">CPU $0.0895 / vCPU-hr</text>
+  <text x="673" y="384" text-anchor="middle" class="cost">Mem $0.00945 / GB-hr</text>
+  <text x="673" y="404" text-anchor="middle" class="cost">(세션 활성시간 과금)</text>
+
+  <!-- ================= AI & SANDBOX column ================= -->
+  <text x="828" y="150" class="grp" fill="#01A88D">AI &amp; Sandbox</text>
+
+  <!-- Bedrock - EXCLUDED -->
+  <rect x="828" y="162" width="220" height="120" class="svc" fill="#E5F5F1" stroke="#01A88D" stroke-dasharray="6 4"/>
+  <text x="938" y="190" text-anchor="middle" class="name">Bedrock — Claude Opus</text>
+  <text x="938" y="208" text-anchor="middle" class="cost">4.6 / 4.7 / 4.8 (global.*)</text>
+  <text x="938" y="232" text-anchor="middle" font-size="11" font-weight="700" fill="#C7131F">⚠ scan 토큰 견적 제외</text>
+  <text x="938" y="250" text-anchor="middle" class="cost">(요청대로 비용 산정 X)</text>
+  <text x="938" y="268" text-anchor="middle" class="cost">참고: ~$0.5–3 / scan</text>
+
+  <!-- AgentCore Memory -->
+  <rect x="828" y="306" width="220" height="92" class="svc" fill="#FCEEDD" stroke="#ED7100"/>
+  <text x="938" y="334" text-anchor="middle" class="name">AgentCore Memory</text>
+  <text x="938" y="352" text-anchor="middle" class="cost">False-Positive 메모리</text>
+  <text x="938" y="370" text-anchor="middle" class="cost">이벤트 저장/검색 단위 과금</text>
+
+  <!-- Code Interpreter -->
+  <rect x="828" y="418" width="220" height="92" class="svc" fill="#FCEEDD" stroke="#ED7100"/>
+  <text x="938" y="446" text-anchor="middle" class="name">AgentCore Code Interp.</text>
+  <text x="938" y="464" text-anchor="middle" class="cost">PoC 샌드박스 (격리 실행)</text>
+  <text x="938" y="482" text-anchor="middle" class="cost">세션 활성시간 과금</text>
+
+  <!-- ================= DATA & REGISTRY column ================= -->
+  <text x="1088" y="150" class="grp" fill="#3334B9">Data &amp; Registry</text>
+
+  <!-- DynamoDB -->
+  <rect x="1078" y="300" width="150" height="92" class="svc" fill="#EAEDFC" stroke="#3334B9"/>
+  <text x="1153" y="328" text-anchor="middle" class="name">DynamoDB</text>
+  <text x="1153" y="346" text-anchor="middle" class="cost">SCAN_HISTORY</text>
+  <text x="1153" y="362" text-anchor="middle" class="cost">On-Demand</text>
+  <text x="1153" y="378" text-anchor="middle" class="cost">$1.25/1M WReq</text>
+
+  <!-- ECR -->
+  <rect x="1078" y="418" width="150" height="92" class="svc" fill="#EAEDFC" stroke="#3334B9"/>
+  <text x="1153" y="446" text-anchor="middle" class="name">ECR</text>
+  <text x="1153" y="464" text-anchor="middle" class="cost">컨테이너 이미지</text>
+  <text x="1153" y="482" text-anchor="middle" class="cost">$0.10/GB-월</text>
+
+  <!-- ================= FLOWS ================= -->
+  <!-- user -> cloudfront -->
+  <path d="M216,360 L318,330" fill="none" stroke="#5A6470" stroke-width="1.8" marker-end="url(#arrow)"/>
+  <text x="232" y="332" class="flow">HTTPS (SPA)</text>
+  <!-- cloudfront -> s3 -->
+  <path d="M418,378 L418,402" fill="none" stroke="#5A6470" stroke-width="1.8" marker-end="url(#arrow)"/>
+  <text x="426" y="396" class="flow">OAC static</text>
+  <!-- cloudfront -> waf -->
+  <path d="M500,282 L500,258" fill="none" stroke="#C7131F" stroke-width="1.5" stroke-dasharray="5 3" marker-end="url(#arrow)"/>
+  <text x="508" y="276" class="flow">inspect</text>
+  <!-- user -> cognito -->
+  <path d="M150,422 C150,560 220,564 318,564" fill="none" stroke="#C7131F" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#arrow)"/>
+  <text x="160" y="540" class="flow">SRP login</text>
+  <!-- user -> runtime (Bearer) -->
+  <path d="M216,392 C420,470 470,360 568,360" fill="none" stroke="#16191F" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="300" y="470" class="flow" font-weight="700">Bearer JWT /invocations</text>
+  <!-- runtime -> bedrock -->
+  <path d="M778,330 C800,300 806,250 828,232" fill="none" stroke="#01A88D" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="784" y="280" class="flow" fill="#01A88D">8-phase 추론</text>
+  <!-- runtime -> memory -->
+  <path d="M778,352 L828,352" fill="none" stroke="#C026A6" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#arrowA)"/>
+  <text x="784" y="345" class="flow">FP 조회/기록</text>
+  <!-- runtime -> codeint -->
+  <path d="M778,386 C800,440 806,460 828,462" fill="none" stroke="#C026A6" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#arrowA)"/>
+  <text x="784" y="430" class="flow">PoC 샌드박스</text>
+  <!-- runtime -> dynamodb -->
+  <path d="M778,346 C1010,346 1040,346 1078,346" fill="none" stroke="#3334B9" stroke-width="1.8" marker-end="url(#arrow)"/>
+  <text x="900" y="338" class="flow" fill="#3334B9">scan history</text>
+  <!-- ecr -> runtime -->
+  <path d="M1078,464 C900,520 700,470 690,420" fill="none" stroke="#3334B9" stroke-width="1.4" stroke-dasharray="5 3" marker-end="url(#arrow)"/>
+  <text x="820" y="530" class="flow">image pull</text>
+
+  <!-- ================= LEGEND ================= -->
+  <rect x="36" y="600" width="244" height="132" fill="#fff" stroke="#D5D9DF" rx="8"/>
+  <text x="48" y="622" class="grp" fill="#16191F">범례 (flow)</text>
+  <line x1="48" y1="640" x2="78" y2="640" stroke="#16191F" stroke-width="2"/>
+  <text x="86" y="644" class="lbl">동기 API (Bearer)</text>
+  <line x1="48" y1="660" x2="78" y2="660" stroke="#01A88D" stroke-width="2"/>
+  <text x="86" y="664" class="lbl">AI 추론 (Bedrock)</text>
+  <line x1="48" y1="680" x2="78" y2="680" stroke="#C026A6" stroke-width="1.6" stroke-dasharray="5 3"/>
+  <text x="86" y="684" class="lbl">비동기 (Memory/Sandbox)</text>
+  <line x1="48" y1="700" x2="78" y2="700" stroke="#C7131F" stroke-width="1.6" stroke-dasharray="5 3"/>
+  <text x="86" y="704" class="lbl">인증 / 보안</text>
+  <text x="48" y="724" class="lbl" fill="#C7131F">⚠ Bedrock scan 토큰 = 견적 제외</text>
+</svg>

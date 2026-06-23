@@ -1,0 +1,82 @@
+/* Design-system entry: import tokens, then global resets.
+   Paper + ink + Claude-orange. No Tailwind — CSS custom properties only. */
+@import "./colors.css";
+@import "./typography.css";
+@import "./spacing.css";
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-feature-settings: var(--font-feature);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  color: var(--text-primary);
+  background: var(--surface-page);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--brand-text);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+}
+
+input,
+select {
+  font-family: inherit;
+  font-size: var(--text-base);
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Reusable surfaces */
+.card {
+  background: var(--surface-card);
+  border: var(--border-width) solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.btn-primary {
+  background: var(--brand);
+  color: var(--on-brand);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-5);
+  font-weight: var(--weight-medium);
+  transition: background var(--dur-fast) var(--ease-std);
+}
+.btn-primary:hover {
+  background: var(--brand-hover);
+}
+.btn-primary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus);
+  border-radius: var(--radius-sm);
+}

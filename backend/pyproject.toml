@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fsi-mythos-backend"
+version = "0.1.0"
+description = "FSI-Mythos on AgentCore — 8-phase autonomous security scanning pipeline"
+requires-python = ">=3.9"
+
+[tool.setuptools]
+packages = ["pipeline", "agents", "tools"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]

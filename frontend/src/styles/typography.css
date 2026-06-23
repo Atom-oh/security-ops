@@ -1,0 +1,60 @@
+/* ============================================================
+   TYPOGRAPHY — Claude Code Enterprise Analytics
+   System sans for UI, system mono for code/IDs. Numbers are
+   tabular everywhere they're compared. OpenType cv11/ss01/ss02
+   tune the system font's letterforms (single-storey a, etc.).
+   ============================================================ */
+
+:root {
+  /* Families */
+  --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'Pretendard',
+               'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, 'Menlo', 'Consolas',
+               'Liberation Mono', monospace;
+  --font-feature: 'cv11', 'ss01', 'ss02';
+
+  /* Type scale (px). The product is compact and data-dense — the
+     workhorse body size is 14px; metrics jump to 26px. */
+  --text-2xs: 10px;  /* badges, tiny labels */
+  --text-xs:  11px;  /* eyebrow labels, table headers, hints */
+  --text-sm:  12px;  /* secondary copy, chart subtitles */
+  --text-base:14px;  /* body, nav, table cells */
+  --text-md:  15px;  /* product name, emphasised body */
+  --text-lg:  18px;  /* card headings */
+  --text-xl:  24px;  /* page titles */
+  --text-2xl: 26px;  /* KPI metric values */
+  --text-3xl: 32px;  /* hero / single big number */
+
+  /* Line heights */
+  --leading-none:  1;
+  --leading-tight: 1.2;
+  --leading-snug:  1.35;
+  --leading-normal:1.55;
+
+  /* Weights — 400/500/600 only; the system never goes heavier. */
+  --weight-regular:  400;
+  --weight-medium:   500;
+  --weight-semibold: 600;
+
+  /* Letter-spacing */
+  --tracking-tight:   -0.01em;  /* page + KPI numbers */
+  --tracking-normal:  0;
+  --tracking-wide:    0.04em;   /* uppercase table headers */
+  --tracking-widest:  0.12em;   /* eyebrow / product tag */
+}
+
+/* Document defaults */
+html {
+  font-family: var(--font-sans);
+  font-feature-settings: var(--font-feature);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  color: var(--text-primary);
+}
+
+/* Tabular numerals — apply to any compared/animated number. */
+.tabular,
+.ds-tabular {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}

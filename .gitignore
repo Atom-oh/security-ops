@@ -21,3 +21,9 @@ frontend/.env
 .claude/co-agent-consensus/
 .playwright-mcp/
 .headroom/
+.claude/co-agent.local.json
+.claude/settings.local.json
+.serena/
+
+# local screenshots / scratch
+image.png

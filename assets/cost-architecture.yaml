@@ -1,0 +1,36 @@
+title: "FSI-Mythos — 리소스 견적용 아키텍처 (ap-northeast-2 / Seoul)"
+external:
+  - {id: user, icon: users, label: "보안 엔지니어 (Browser SPA)"}
+edge:
+  - {id: waf, icon: waf, label: "WAF WebACL (us-east-1)"}
+  - {id: cf, icon: cloudfront, label: "CloudFront + OAC"}
+region:
+  label: "AWS Region — ap-northeast-2 (Seoul)"
+  stages:
+    - name: "Edge Origin & Auth"
+      services:
+        - {id: s3, icon: s3, label: "S3 (Private SPA)"}
+        - {id: cognito, icon: cognito, label: "Cognito User Pool"}
+    - name: "Agent Runtime"
+      services:
+        - {id: runtime, icon: agentcore, label: "AgentCore Runtime (세션/컴퓨트 과금)"}
+    - name: "AI & Sandbox"
+      services:
+        - {id: bedrock, icon: "arch:Amazon-Bedrock", label: "Bedrock Opus 4.6/4.7/4.8 (scan 토큰 견적 제외)"}
+        - {id: memory, icon: agentcore, label: "AgentCore Memory (FP)"}
+        - {id: codeint, icon: agentcore, label: "AgentCore Code Interpreter"}
+    - name: "Data & Registry"
+      services:
+        - {id: ddb, icon: dynamodb, label: "DynamoDB (On-Demand)"}
+        - {id: ecr, icon: ecr, label: "ECR (이미지)"}
+flows:
+  - {from: user, to: cf, label: "HTTPS (SPA)"}
+  - {from: cf, to: waf, label: "inspect"}
+  - {from: cf, to: s3, label: "OAC static"}
+  - {from: user, to: cognito, label: "SRP login", kind: auth}
+  - {from: user, to: runtime, label: "Bearer JWT /invocations"}
+  - {from: runtime, to: bedrock, label: "8-phase 추론"}
+  - {from: runtime, to: ddb, label: "scan history"}
+  - {from: runtime, to: memory, label: "FP 조회/기록", kind: async}
+  - {from: runtime, to: codeint, label: "PoC 샌드박스", kind: async}
+  - {from: ecr, to: runtime, label: "image pull", kind: async}
