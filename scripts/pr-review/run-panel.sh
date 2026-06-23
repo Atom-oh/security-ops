@@ -27,17 +27,12 @@ else echo "[skip] codex (binary absent)" >&2; : > "$SLOT/codex.md"; fi
 for entry in "${KIRO_MODELS[@]}"; do
   m="${entry%%:*}"; tag="${entry##*:}"
   if command -v kiro-cli >/dev/null 2>&1; then
-    ( timeout "$T" kiro-cli chat "$PROMPT" --model "$m" \
+    ( timeout "$T" kiro-cli --v3 chat "$PROMPT" --model "$m" \
         --no-interactive --trust-tools=read,grep --wrap never \
         > "$SLOT/$tag.md" 2>"$SLOT/$tag.err" < "$DIFF" || true ) &
   else echo "[skip] $tag (binary absent)" >&2; : > "$SLOT/$tag.md"; fi
 done
 
-# Antigravity (agy). best-effort: ANTIGRAVITY_API_KEY 는 free tier(rate-limited) 라
-# 429/쿼터 초과 시 graceful skip.
-if command -v agy >/dev/null 2>&1; then
-  ( timeout "$T" agy -p "$PROMPT" > "$SLOT/antigravity.md" 2>"$SLOT/antigravity.err" < "$DIFF" || true ) &
-else echo "[skip] antigravity (binary absent)" >&2; : > "$SLOT/antigravity.md"; fi
 wait
 
 # 결과 집계 (KIRO_MODELS 와 동일 소스에서 tag 파생 → 하드코딩 불일치 방지)
@@ -45,5 +40,4 @@ record_result "$SLOT/codex.md" "codex" "$RESP"
 for entry in "${KIRO_MODELS[@]}"; do
   tag="${entry##*:}"; record_result "$SLOT/$tag.md" "$tag" "$RESP"
 done
-record_result "$SLOT/antigravity.md" "antigravity" "$RESP"
 echo "Panel responded: $(tr '\n' ' ' < "$RESP")"
