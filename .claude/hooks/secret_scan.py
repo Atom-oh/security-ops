@@ -14,7 +14,9 @@ except Exception:
 ti = data.get("tool_input", {}) or {}
 path = ti.get("file_path", "") or ""
 
-ALLOW_PATHS = ("/tests/", "test_", "/sample-target/", ".env.example", "secret-samples", "false-positives")
+# Path-boundary allowlist. Use directory boundaries (`/tests/`) not a bare `test_` substring —
+# the latter let non-test paths (e.g. `test_prod_keys.py`) bypass the scan (PR#1 review MINOR).
+ALLOW_PATHS = ("/tests/", "/sample-target/", ".env.example", "secret-samples", "false-positives")
 if path.endswith(".md") or any(a in path for a in ALLOW_PATHS):
     sys.exit(0)
 
