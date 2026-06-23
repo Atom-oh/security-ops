@@ -27,3 +27,6 @@ frontend/.env
 
 # local screenshots / scratch
 image.png
+# macOS screen captures committed by accident — keep live-console media out of git (PR#1 review M2)
+Screen Recording*
+Screenshot *.png
