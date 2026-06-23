@@ -37,20 +37,12 @@ else echo "[skip] codex (binary absent)" >&2; : > "$SLOT/codex.md"; fi
 for entry in "${KIRO_MODELS[@]}"; do
   m="${entry%%:*}"; tag="${entry##*:}"
   if command -v kiro-cli >/dev/null 2>&1; then
-    # diff 는 KIRO_INPUT 에 inline. --trust-tools= 로 모든 툴 불신(untrusted diff 에
-    # 대한 execute_bash/fs 접근 차단 + agentic 헤매기 방지). 유효 툴명은 fs_read/fs_write/
-    # execute_bash 이며, read/grep 은 무효 이름이라 과거 무음 실패의 원인이었다.
-    ( timeout "$T" kiro-cli chat "$KIRO_INPUT" --model "$m" \
-        --no-interactive --trust-tools= --wrap never \
-        > "$SLOT/$tag.md" 2>"$SLOT/$tag.err" || true ) &
+    ( timeout "$T" kiro-cli --v3 chat "$PROMPT" --model "$m" \
+        --no-interactive --trust-tools=read,grep --wrap never \
+        > "$SLOT/$tag.md" 2>"$SLOT/$tag.err" < "$DIFF" || true ) &
   else echo "[skip] $tag (binary absent)" >&2; : > "$SLOT/$tag.md"; fi
 done
 
-# Antigravity (agy). best-effort: ANTIGRAVITY_API_KEY 는 free tier(rate-limited) 라
-# 429/쿼터 초과 시 graceful skip.
-if command -v agy >/dev/null 2>&1; then
-  ( timeout "$T" agy -p "$PROMPT" > "$SLOT/antigravity.md" 2>"$SLOT/antigravity.err" < "$DIFF" || true ) &
-else echo "[skip] antigravity (binary absent)" >&2; : > "$SLOT/antigravity.md"; fi
 wait
 
 # kiro-cli 출력엔 ANSI 이스케이프/스피너가 섞여 의장 입력을 오염시킨다 → 제거.
@@ -63,5 +55,4 @@ record_result "$SLOT/codex.md" "codex" "$RESP"
 for entry in "${KIRO_MODELS[@]}"; do
   tag="${entry##*:}"; record_result "$SLOT/$tag.md" "$tag" "$RESP"
 done
-record_result "$SLOT/antigravity.md" "antigravity" "$RESP"
 echo "Panel responded: $(tr '\n' ' ' < "$RESP")"
