@@ -272,11 +272,21 @@ def _build_config(payload: Dict, region: str, pinned: Optional[Dict] = None) -> 
     if "sandbox_enabled" in payload:
         cfg.sandbox_enabled = bool(payload["sandbox_enabled"])
     if "ensemble_enabled" in payload:
-        # The cross-family ensemble re-judges via Bedrock mantle (us-east-2) — enabling it sends
-        # scan source cross-region. Ops can hard-disable it for strict data-residency by setting
-        # ENSEMBLE_ALLOWED=0; otherwise it remains an opt-in per the deployment's residency policy.
-        ensemble_allowed = os.environ.get("ENSEMBLE_ALLOWED", "1") == "1"
+        # The cross-family ensemble re-judges via Bedrock mantle, whose default endpoint
+        # (`openai_region`, us-east-2) is OUTSIDE the in-region boundary (ap-northeast-2).
+        # Per the v2 design VETO (data sovereignty / 전자금융감독규정), cross-region egress of FSI
+        # source is DEFAULT OFF and gated by deploy-time policy (env var, not a UI flag): ops must
+        # explicitly set ENSEMBLE_ALLOWED=1 to permit it. This also keeps policy consistent with the
+        # Claude path, which already rejects out-of-region (`us.*`/`eu.*`) model routing.
+        ensemble_allowed = os.environ.get("ENSEMBLE_ALLOWED", "0") == "1"
         cfg.ensemble_enabled = bool(payload["ensemble_enabled"]) and ensemble_allowed
+        if cfg.ensemble_enabled and cfg.openai_region != cfg.region:
+            # Audit the boundary crossing — "log what left the boundary" (design spec).
+            log.warning(
+                "DATA-RESIDENCY: cross-family ensemble ENABLED — scan source egresses "
+                "out-of-region to %s (container region %s) via ENSEMBLE_ALLOWED=1",
+                cfg.openai_region, cfg.region,
+            )
     if pinned:  # ADR-001: inline-pinned prompt set resolved at scan creation
         from agents.prompts import PromptSet
 
