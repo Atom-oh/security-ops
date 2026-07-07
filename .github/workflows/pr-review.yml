@@ -25,10 +25,11 @@ jobs:
       # us-east-1 고정: codex(bedrock-mantle, openai.gpt-5.5)가 ap-northeast-2에서 401로
       # 실패해 이미 us-east-1 In-Region 전용으로 구워져 있다(config.toml). Claude 의장도
       # 같은 리전으로 맞춰 러너 전체를 단일 리전으로 유지한다.
-      # Cross-region inference profile (global) — us-east-1 안에서도 리전 가용성 변동을 흡수.
+      # us. geo(on-demand) inference profile — us-east-1 안에서도 리전 가용성 변동을 흡수.
       # 셀프호스티드 러너의 IAM Instance Profile 은 bedrock:InvokeModel 을 Resource "*" 로
       # 가지고 있어(ci_runner_bedrock 정책) 리전별 ARN 화이트리스트 걱정은 없음.
-      ANTHROPIC_MODEL: global.anthropic.claude-opus-4-8
+      # 의장은 fleet 표준(fable-5)으로 정렬 — 다른 pr-review 리포 전부 동일.
+      ANTHROPIC_MODEL: us.anthropic.claude-fable-5
       # Sonnet 별칭 해석 시 계정에 미승인된 최신 후보(sonnet-4-5 등)를 순차 probing하다가
       # 구형 claude-sonnet-4-20250514(2026-06-15 retire)로 조용히 폴백하는 문제 — us-east-1엔
       # us.anthropic.claude-sonnet-5 inference profile이 있으므로 명시해서 probing을 건너뛴다.
