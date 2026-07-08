@@ -35,10 +35,15 @@ record_result() {
 # 잔여 위험은 그 tool grant 자체를 제거해 구조적으로 닫혔다(이 수정을 다룬 원본 ADR은
 # oh-my-cloud-skills 저장소의 ADR-013 — 이 repo 자신의 ADR 번호와는 무관) — 이 스크럽은
 # 이제 일반적인 defense-in-depth(다른 경로로 우연히 크리덴셜성 값이 셀 출력에 섞여 나오는
-# 경우)이며, 셀 출력을 체어에 넘기기 전에 흔한 크리덴셜 포맷을 정규식으로 치환한다. 패턴은 co-agent 의
-# `consensus_hooks.py::_SECRET_RE`(AWS/GitHub/Slack/OpenAI·Anthropic/Google + generic
-# key=value)를 재사용하고, EKS Pod Identity 토큰(고정 경로 파일의 값 자체가 JWT 포맷)
-# 탐지를 추가했다. Kiro 의 절대경로 read 경로 자체는 위 tool-grant 제거로 이미 구조적으로
+# 경우)이며, 셀 출력을 체어에 넘기기 전에 흔한 크리덴셜 포맷을 정규식으로 치환한다. **패턴은
+# co-agent 의 `consensus_hooks.py::_SECRET_RE`(AWS/GitHub/Slack/OpenAI·Anthropic/Google +
+# generic key=value)를 재사용한다 — 이 "generic key=value" 는 아래 `scrub_secrets()`
+# (셀 출력 스크럽) 에만 적용되고, diff *입력* 스크럽용 `scrub_known_credential_formats()`
+# 는 그 generic 룰을 의도적으로 뺀 부분집합이다(round 11 리뷰 MINOR — 이 문단이
+# `scrub_known_credential_formats()` 정의 바로 위에 있어 "이 함수도 generic 룰을
+# 포함한다"고 오독될 수 있었던 것을 명확화).** EKS Pod Identity 토큰(고정 경로 파일의
+# 값 자체가 JWT 포맷) 탐지를 추가했다. Kiro 의 절대경로 read 경로 자체는 위 tool-grant
+# 제거로 이미 구조적으로
 # 닫혔으므로(더 이상 residual 위험이 아님) — 이 스크럽이 실제로 잡는 잔여 케이스는 그와
 # 무관한 다른 경로들뿐이다: 실수로 diff 에 커밋된 시크릿이 셀 출력에 그대로 인용되는
 # 경우, codex/claude-self 등 다른 패널원의 stderr/출력에 크리덴셜성 값이 우연히 섞이는
@@ -60,7 +65,14 @@ record_result() {
 # 30자 이상으로 게이트해, 일반 test fixture(보통 짧고 변수명도 다름)를 계속 피하면서
 # 그 두 실제 AWS 크리덴셜 종류는 잡는다 — 완전한 해결은 아니다(다른 이름의 변수에
 # 담긴 시크릿은 여전히 통과), 남은 residual 은 이 스크럽이 last-line-of-defense 이지
-# 예방이 아니라는 파일 상단 원칙을 그대로 따른다.
+# 예방이 아니라는 파일 상단 원칙을 그대로 따른다. **명시적 전제(round 11 리뷰 L3
+# MAJOR 요청 — single-tenant 러너 전제를 코드에 문서화)**: 이 스크립트가 이 diff를
+# argv 로 embed 하는 것(Kiro 셀)과 stdin 파일로 넘기는 것(codex 셀)은 둘 다 이 CI
+# 잡을 실행하는 self-hosted 러너가 **single-tenant**(동시에 다른 사용자/잡의 프로세스가
+# `ps`/`/proc/<pid>/cmdline` 을 관찰할 수 없음)라는 전제 위에 있다 — 이는 fs_read
+# CRITICAL(diff-injection → 임의 파일 read)을 닫기 위해 채택한 의도된 트레이드오프이며,
+# 이 스크립트만으로 강제할 수 없는 배포 환경의 속성이다. 러너가 multi-tenant 로
+# 바뀌면 이 전제가 깨지고 재검토가 필요하다.
 scrub_known_credential_formats() {
   # PEM 은 여러 줄에 걸치므로 line-oriented sed 로는 본문을 못 지운다(헤더 줄만 매칭)
   # — awk 상태기계로 BEGIN..END 블록 전체를 마커 한 줄로 치환(첫 스테이지, 구조적 스크럽).

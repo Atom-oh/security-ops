@@ -55,7 +55,10 @@ fi
 # 호출. 마지막 시도의 exit code 를 "$slot.rc" 에 남겨 lib.sh 의 record_result() 가 "슬롯에
 # 뭔가 있지만 실제로는 실패한 실행" (non-zero exit + non-empty stdout) 을 응답으로 잘못
 # 집계하지 않도록 한다. stdin_file 은 호출자가 명시(codex 는 nonce-fence+scrub 된
-# CODEX_DIFF_FILE, Kiro 는 $DIFF — Kiro 는 어차피 stdin 을 무시하므로 무해).
+# CODEX_DIFF_FILE, Kiro 는 `/dev/null` — kiro-cli 가 stdin 을 무시하므로 무해하되,
+# raw 미스크럽 `$DIFF` 를 굳이 열어줄 이유가 없어 defense-in-depth 로 /dev/null 사용
+# — round 10 리뷰로 변경, round 11 리뷰가 이 주석의 "Kiro 는 $DIFF" 부분이 stale해진
+# 것을 지적해 수정).
 #   try_panel <slot> <err> <stdin_file> <cmd...>   (stdout=slot, stderr=err)
 try_panel() {
   local slot="$1" err="$2" stdin_file="$3"; shift 3
@@ -104,7 +107,16 @@ kiro_env() {
 # credentials` 등)이 워크플로 안에 전혀 없다. IAM Instance Profile 자격증명은 AWS
 # SDK 가 EC2 IMDS(http://169.254.169.254)에서 직접 가져오므로 **env 변수 의존이
 # 전혀 없다** — `env -i` 로 안전하게 격리 가능함이 가정이 아니라 이 repo 자신의
-# 워크플로 파일로 확인됨. `~/.codex/config.toml` 조회를 위한 `$HOME`은 아래
+# 워크플로 파일로 확인됨. **한계(round 11 리뷰 L4 MAJOR, PLAUSIBLE 판정)**: `env -i`
+# 는 env-var 로 이미 주입된 크리덴셜의 상속만 막을 뿐, codex 프로세스 자신이(diff-borne
+# 인젝션에 넘어가) IMDS 엔드포인트에 직접 네트워크 호출을 해 같은 인스턴스 프로파일
+# 크리덴셜을 스스로 받아오는 경로는 못 막는다 — 이건 이 bash 스크립트가 아니라
+# EC2/IMDS 설정(IMDSv2 강제 + hop-limit=1, 또는 egress 방화벽으로 169.254.169.254
+# 차단) 레벨의 인프라 하드닝이 필요한 별개 관심사다. `env -i` 를 크리덴셜 경계의
+# 전부로 신뢰하지 말 것 — 이 스크립트가 닫은 건 "상속된 시크릿이 그대로 새는" 경로뿐,
+# "프로세스가 스스로 크리덴셜을 다시 받아오는" 경로는 이 PR 이전부터 존재했고 이
+# 스크립트 레벨에서는 닫을 수 없는 pre-existing residual 이다. `~/.codex/config.toml`
+# 조회를 위한 `$HOME`은 아래
 # CODEX_HOME_BASE 로 격리(round 10 리뷰 L3 MAJOR — codex 의 read-only 샌드박스가
 # 파일 read 자체는 여전히 가능해, diff-borne 인젝션이 실 `$HOME` 아래의 다른
 # 파일(예: `~/.aws/credentials`, `~/.ssh/*` — 이 러너에 존재한다면)을 읽게 유도할
@@ -117,11 +129,13 @@ rm -rf "$CODEX_HOME_BASE"; mkdir -p "$CODEX_HOME_BASE/.codex"
 if [ -f "$HOME/.codex/config.toml" ]; then
   cp "$HOME/.codex/config.toml" "$CODEX_HOME_BASE/.codex/config.toml"
 else
-  # baked config 가 예상 경로에 없으면(빌드 변경 등) 격리된 HOME 이 codex 자체를
-  # 못 쓰게 만들 수 있으니 실 HOME 으로 폴백 — residual-risk 완화가 codex 를 전멸
-  # 시키면 안 된다.
-  echo "::warning::codex config.toml not found at \$HOME/.codex/config.toml -- falling back to real HOME for codex (CODEX_HOME_BASE isolation skipped)" >&2
-  CODEX_HOME_BASE="$HOME"
+  # baked config 가 예상 경로에 없으면 격리를 **풀지 않는다** — round 10 리뷰가 지적한
+  # 대로, 실 $HOME 으로 폴백하는 건 이 isolation 이 존재하는 이유 자체를 무력화하는
+  # fail-open(5개 리뷰 셀 독립 수렴, MAJOR). config 없이 codex 를 실행하면 그냥 인증
+  # 실패로 그 실행의 codex 셀이 죽을 뿐이고, 이미 있는 exit-status-aware coverage/
+  # vendor-axis 게이트(CODEX_DEAD 등)가 그 상황을 안전하게 흡수한다 — 실 $HOME 노출보다
+  # codex 셀 하나가 죽는 쪽이 명백히 안전한 실패 방향이다.
+  echo "::warning::codex config.toml not found at \$HOME/.codex/config.toml -- codex will run in an isolated, config-less HOME and likely fail auth this run (safe failure; NOT falling back to the real \$HOME)" >&2
 fi
 codex_env() {
   env -i PATH="$PATH" HOME="$CODEX_HOME_BASE" \
@@ -193,6 +207,12 @@ fi
 # 10자 `[REDACTED]`) cap 을 먼저 재는 게 애초에 부정확했다 — scrub 후 실제 바이트
 # 길이 기준으로 cap 해야 조립된 argv 가 진짜로 `KIRO_DIFF_CAP` 이하임을 보장한다.
 KIRO_DIFF_SCRUBBED="$(scrub_known_credential_formats < "$DIFF")"
+# fail-fast — 스크립트는 set -uo pipefail 이지 set -e 는 아니므로, scrub 파이프라인
+# (awk|sed)이 예기치 않게 빈/부분 출력을 내도 조용히 진행돼 codex/Kiro 셀이 빈 fenced
+# diff 를 "리뷰"하고 false coverage 로 집계될 수 있다(round 11 리뷰 MAJOR). $DIFF 는
+# 이미 non-empty 임이 사실상 보장되므로(realpath 실패 시 스크립트 상단에서 이미
+# exit), scrub 후 완전히 비면 스크럽 단계 자체의 결함으로 보고 fail-closed.
+[ -n "$KIRO_DIFF_SCRUBBED" ] || { echo "run-panel.sh: scrub_known_credential_formats produced empty output for a non-empty diff -- failing closed" >&2; exit 1; }
 KIRO_DIFF_SCRUBBED_LEN="$(printf '%s' "$KIRO_DIFF_SCRUBBED" | wc -c)"
 KIRO_DIFF_TEXT="$(printf '%s' "$KIRO_DIFF_SCRUBBED" | head -c "$KIRO_DIFF_CAP")"
 if [ "$KIRO_DIFF_SCRUBBED_LEN" -gt "$KIRO_DIFF_CAP" ]; then
