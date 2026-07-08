@@ -38,8 +38,13 @@ record_result() {
 # 경우)이며, 셀 출력을 체어에 넘기기 전에 흔한 크리덴셜 포맷을 정규식으로 치환한다. 패턴은 co-agent 의
 # `consensus_hooks.py::_SECRET_RE`(AWS/GitHub/Slack/OpenAI·Anthropic/Google + generic
 # key=value)를 재사용하고, EKS Pod Identity 토큰(고정 경로 파일의 값 자체가 JWT 포맷)
-# 탐지를 추가했다. 절대경로 read 자체를 막지는 못하므로(스크럽은 값이 셀 출력에 실제로
-# 나타난 *뒤*에만 작동) 잔여 위험은 그대로 남는다 — ADR-002 명시.
+# 탐지를 추가했다. Kiro 의 절대경로 read 경로 자체는 위 tool-grant 제거로 이미 구조적으로
+# 닫혔으므로(더 이상 residual 위험이 아님) — 이 스크럽이 실제로 잡는 잔여 케이스는 그와
+# 무관한 다른 경로들뿐이다: 실수로 diff 에 커밋된 시크릿이 셀 출력에 그대로 인용되는
+# 경우, codex/claude-self 등 다른 패널원의 stderr/출력에 크리덴셜성 값이 우연히 섞이는
+# 경우 등(security-ops PR #7 리뷰 MAJOR — 이 문단의 이전 버전이 "절대경로 read 잔여
+# 위험은 그대로 남는다"고 서술해 위 문장과 자기모순이었고, 이 repo에 없는 ADR-002 를
+# 인용했던 것을 수정).
 scrub_secrets() {
   # PEM 은 여러 줄에 걸치므로 line-oriented sed 로는 본문을 못 지운다(헤더 줄만 매칭)
   # — awk 상태기계로 BEGIN..END 블록 전체를 마커 한 줄로 치환(첫 스테이지, 구조적 스크럽).

@@ -20,7 +20,7 @@ while IFS= read -r f; do
   [ -s "$f" ] || continue
   # 크리덴셜 스크럽(마지막 방어선) — Kiro fs_read 잔여 위험은 그 tool grant 자체를 제거해
   # 구조적으로 닫혔다(이 수정을 다룬 원본 ADR은 oh-my-cloud-skills 저장소의 ADR-013 —
-  # 이 repo 자신의 ADR-013(있다면)과는 무관). 이 스크럽은 이제 일반적인 defense-in-depth다.
+  # 이 repo 자신의 ADR 번호와는 무관). 이 스크럽은 이제 일반적인 defense-in-depth다.
   scrub_secrets < "$f" > "$SCRUB_TMP"
   CELL="$(head -c "$PANEL_CELL_CAP" "$SCRUB_TMP")"
   SCRUBBED_LEN="$(wc -c < "$SCRUB_TMP")"
