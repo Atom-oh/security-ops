@@ -71,7 +71,16 @@ Reasoning, in the order it was actually weighed:
    (`CODEX_DEAD || KIRO_ALL_DEAD`) and (b) a single lens losing an entire vendor family's
    response (`lens-coverage-gap.txt`). Both are genuine "no cross-check happened" cases.
    Truncation is not — it is "one vendor's cross-check saw less of the diff," a strictly
-   weaker condition.
+   weaker condition. This is a deliberate distinction, not an oversight the two gates should
+   reconcile into one rule (review rounds have repeatedly asked why lens-coverage-gap fails
+   closed on "single vendor for this lens" while truncation doesn't, given a truncated Kiro
+   cell also leaves the diff tail on a single vendor): lens-coverage-gap fires when a vendor
+   is **entirely absent** from a lens — zero signal, zero judgment applied to any of it.
+   Truncation leaves Kiro **partially present** — it still applies its own model judgment to
+   the prefix it did see, which is a real (if incomplete) cross-check for that portion, not
+   the "no cross-check happened" condition the other two triggers require. The two gates
+   measure different things on purpose: presence/absence of a vendor's judgment, not depth of
+   coverage within a diff.
 
 This was confirmed as the intended design via an explicit user decision (2026-07-08, in
 response to the exact same question raised while fixing the sibling repos sharing this CI
@@ -161,6 +170,14 @@ ttobak·claude-code-usage-dashboard·AWS-Demo-Platform 모든 sibling repo에서
    (b) lens 하나가 벤더 패밀리 하나의 응답을 통째로 잃음(`lens-coverage-gap.txt`)에서
    독립적으로 세워진다. 둘 다 "교차확인이 전혀 없었다"는 진짜 사례다. truncation 은
    그게 아니라 "한 벤더의 교차확인이 diff 를 더 적게 봤다"는, 엄밀히 더 약한 조건이다.
+   이는 의도적 구분이며 두 게이트를 하나로 통합해야 할 누락이 아니다(여러 리뷰
+   라운드가 반복적으로 물었다: truncated Kiro 셀도 diff tail 을 결국 단일 벤더에게만
+   남기는데, 왜 lens-coverage-gap 은 "이 lens 는 단일 벤더"에 fail-closed 하면서
+   truncation 은 안 하는가): lens-coverage-gap 은 벤더가 그 lens 에서 **완전히
+   부재**할 때 발동한다 — 신호도, 판단도 전혀 없음. truncation 은 Kiro 를 **부분적으로
+   존재**하게 둔다 — 자신이 실제로 본 prefix 에는 여전히 자기 모델의 판단을 적용한다,
+   불완전하지만 그 부분에 대한 진짜 교차확인이다. 두 게이트는 "diff 안에서의 커버리지
+   깊이"가 아니라 "벤더의 판단이 있었는가/없었는가"를 의도적으로 서로 다르게 측정한다.
 
 이는 명시적 사용자 결정(2026-07-08, 이 CI 설계를 공유하는 sibling repo들을 고치던 중
 동일한 질문에 대해 받은 응답)으로 확인된 의도된 설계다 — "게이트를 더 엄격하게" 대신

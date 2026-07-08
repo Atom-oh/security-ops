@@ -78,9 +78,15 @@ PROMPT_EOF
 
 # stdin 페이로드: diff + 패널 리뷰. 여기는 heredoc 이 아니라 순수 파일 결합이라
 # 패널 출력 안의 임의 텍스트(예: 'PROMPT_EOF' 단독 라인)가 조기 종료를 유발할 걱정이 없다.
+# diff 는 scrub_known_credential_formats() 를 거친다 — run-panel.sh 가 codex/Kiro 패널
+# 입력에는 이미 적용하면서 체어(Claude, 이 종합의 "다섯 번째 벤더")의 stdin 은 raw
+# `$DIFF` 그대로였던 비대칭(round 12 리뷰 L3 MAJOR, diff 대조 confirmed): diff 에 실수로
+# 커밋된 알려진-포맷 크리덴셜이 있으면 체어가 이를 raw 로 읽고 종합 리뷰 본문($OUT, 곧
+# 공개 PR 코멘트가 됨)에 그대로 인용할 수 있었다. run-panel.sh 와 동일한 스크럽을 여기도
+# 적용해 대칭을 맞춘다.
 {
   echo "=== DIFF UNDER REVIEW ==="
-  cat "$DIFF"
+  scrub_known_credential_formats < "$DIFF"
   echo ""
   echo "=== PANEL REVIEWS ==="
   printf '%s\n' "$PANEL"

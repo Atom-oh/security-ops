@@ -76,10 +76,16 @@ record_result() {
 scrub_known_credential_formats() {
   # PEM 은 여러 줄에 걸치므로 line-oriented sed 로는 본문을 못 지운다(헤더 줄만 매칭)
   # — awk 상태기계로 BEGIN..END 블록 전체를 마커 한 줄로 치환(첫 스테이지, 구조적 스크럽).
+  # `^[ +-]?` — 이 함수는 이제 diff 입력(각 줄이 `+`/`-`/space 로 시작)에도 적용되는데,
+  # 원래 앵커(`^-----BEGIN`)는 unified diff 의 커밋된 PEM 키를 못 잡는다: 추가된 줄은
+  # `+-----BEGIN...`, 삭제된 줄은 `------BEGIN...`(diff 의 `-` + PEM 자체 5개 대시),
+  # context 줄은 ` -----BEGIN...`(공백 접두)로 렌더돼 어느 것도 `^-----`에 매치 안 됨
+  # (round 12 리뷰 L2 MAJOR — diff 대조로 CONFIRMED, sed 규칙들은 앵커가 없어 이 결함이
+  # 없었다). optional 문자 클래스 하나로 네 가지 경우(무접두/공백/plus/minus) 모두 커버.
   awk '
     BEGIN { skip = 0 }
-    /^-----BEGIN [A-Z ]*PRIVATE KEY-----/ { print "[REDACTED-PRIVATE-KEY]"; skip = 1; next }
-    skip && /^-----END [A-Z ]*PRIVATE KEY-----/ { skip = 0; next }
+    /^[ +-]?-----BEGIN [A-Z ]*PRIVATE KEY-----/ { print "[REDACTED-PRIVATE-KEY]"; skip = 1; next }
+    skip && /^[ +-]?-----END [A-Z ]*PRIVATE KEY-----/ { skip = 0; next }
     skip { next }
     { print }
     END { if (skip) print "[REDACTED-UNTERMINATED-PEM-BLOCK]" }
