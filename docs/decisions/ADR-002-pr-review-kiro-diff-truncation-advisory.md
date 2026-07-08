@@ -13,7 +13,7 @@
 
 Accepted (2026-07-08)
 
-> This decision was raised as a MAJOR finding by PR #7's own review panel across two review
+> This decision was raised as a MAJOR finding by PR #7's own review panel across multiple review
 > rounds (multiple models, independently, converged on "truncation should force FAIL or chunk
 > the diff"). The panel's own suggestion — that keeping this advisory rather than fail-closed
 > "cannot be overridden by a code comment alone" without a real decision record — is why this
@@ -31,9 +31,12 @@ injection read arbitrary files — see the fix commit history on
 `run-panel.sh` sets `$WORK/kiro-diff-truncated.flag`.
 
 Codex, by contrast, receives the diff via stdin with no cap — it always sees the full
-`$DIFF` this script was invoked with. So a truncated Kiro cell does not mean the PR goes
-fully unreviewed past the cap: it means the *Kiro vendor family* only cross-checks the diff
-prefix for that PR, while codex still covers the tail.
+`$DIFF` this script was invoked with (scrubbed of known credential formats and wrapped in
+its own nonce fence, not the raw file — see the diff-delivery fix commit history; the
+*content* is complete either way, only known-credential-pattern substrings are redacted).
+So a truncated Kiro cell does not mean the PR goes fully unreviewed past the cap: it means
+the *Kiro vendor family* only cross-checks the diff prefix for that PR, while codex still
+covers the tail.
 
 The question raised repeatedly by review panels (this repo's own PR #7, and independently by
 every sibling repo running the same ported lens×model matrix design — oh-my-cloud-skills,
@@ -52,10 +55,11 @@ Reasoning, in the order it was actually weighed:
 1. **Not a full coverage collapse.** Truncation degrades one vendor family's (Kiro's)
    coverage of the diff tail to zero; it does not remove all cross-vendor checking the way
    `coverage-severe.flag`'s other trigger (codex dead, or all of Kiro dead) does. Codex still
-   reviews the full `$DIFF` this script was invoked with every time, for every lens,
-   regardless of the Kiro cap — that input may itself be a workflow-level truncation of the
-   raw PR diff (a separate, already-signaled concern upstream of this script), but within
-   what this script receives, codex has no cap of its own.
+   reviews the full (scrubbed, nonce-fenced) diff for the `$DIFF` this script was invoked
+   with every time, for every lens, regardless of the Kiro cap — that input may itself be a
+   workflow-level truncation of the raw PR diff (a separate, already-signaled concern
+   upstream of this script), but within what this script receives, codex has no cap of its
+   own.
 2. **Blast radius of the alternative.** Forcing `FAIL` on truncation would silently widen
    what "review-blocking" means: any sufficiently large PR (a refactor, a vendored dependency
    bump, a generated-code commit) would now fail-closed on the *Kiro leg* even when nothing
@@ -104,7 +108,7 @@ decision applies across this whole fleet of repos, not just this one.
 
 승인됨 (2026-07-08)
 
-> 이 결정은 PR #7 자신의 리뷰 패널이 두 라운드에 걸쳐 MAJOR로 제기했다(여러 모델이
+> 이 결정은 PR #7 자신의 리뷰 패널이 여러 라운드에 걸쳐 MAJOR로 제기했다(여러 모델이
 > 독립적으로 "truncation 시 강제 FAIL 하거나 diff 를 chunking 해야 한다"에 도달). 패널
 > 자신의 제안 — advisory 유지가 fail-closed 계약과 tension 이 있다면 "코드 주석만으로
 > override 할 수 없고" 실제 결정 문서가 필요하다는 지적 — 이 이 ADR이 존재하는 이유다:
@@ -121,9 +125,11 @@ decision applies across this whole fleet of repos, not just this one.
 잘리고, `run-panel.sh`가 `$WORK/kiro-diff-truncated.flag`를 세운다.
 
 반대로 codex 는 diff 를 stdin 으로 받아 캡이 없다 — 이 스크립트가 호출된 `$DIFF` 전체를
-항상 본다. 즉 Kiro 셀이 truncated 됐다고 해서 그 PR 이 캡을 넘긴 뒤로 아예 리뷰가 안
-되는 게 아니다: 그 PR 에 한해 *Kiro 벤더 패밀리*만 diff prefix 까지만 교차확인하고,
-codex 는 여전히 tail 을 커버한다.
+항상 본다(알려진 크리덴셜 포맷은 스크럽되고 자체 nonce fence 로 감싸진 사본이며 원본
+파일 그대로는 아님 — diff-delivery 수정 커밋 히스토리 참조; 어느 쪽이든 *내용*은
+완전하고, 알려진 크리덴셜 패턴 부분 문자열만 치환됨). 즉 Kiro 셀이 truncated 됐다고
+해서 그 PR 이 캡을 넘긴 뒤로 아예 리뷰가 안 되는 게 아니다: 그 PR 에 한해 *Kiro 벤더
+패밀리*만 diff prefix 까지만 교차확인하고, codex 는 여전히 tail 을 커버한다.
 
 같은 포팅된 lens×model 매트릭스 설계를 쓰는 리뷰 패널들이 반복적으로 제기한 질문(이
 repo 자신의 PR #7뿐 아니라, oh-my-cloud-skills·multi-region-architecture·aws-fsi-demo·
@@ -141,10 +147,10 @@ ttobak·claude-code-usage-dashboard·AWS-Demo-Platform 모든 sibling repo에서
 1. **완전한 커버리지 붕괴가 아님.** Truncation 은 한 벤더 패밀리(Kiro)의 diff tail
    커버리지만 0으로 낮춘다 — `coverage-severe.flag`의 다른 트리거(codex 전멸, 또는
    kiro 전멸)처럼 모든 교차확인을 없애는 게 아니다. codex 는 Kiro 캡과 무관하게 매번
-   모든 lens 에서 이 스크립트가 호출된 `$DIFF` 입력 전체를 리뷰한다 — 그 입력 자체가
-   워크플로 단계에서 이미 원본 PR diff 를 선절단한 결과일 수 있으나(이 스크립트 상류의
-   별도 관심사, 이미 신호화됨), 이 스크립트가 받는 범위 안에서는 codex 자신의 캡이
-   없다.
+   모든 lens 에서 이 스크립트가 호출된 `$DIFF` 입력에 대한 전체(스크럽·fence 적용본)
+   diff 를 리뷰한다 — 그 입력 자체가 워크플로 단계에서 이미 원본 PR diff 를 선절단한
+   결과일 수 있으나(이 스크립트 상류의 별도 관심사, 이미 신호화됨), 이 스크립트가
+   받는 범위 안에서는 codex 자신의 캡이 없다.
 2. **대안의 blast radius.** truncation 에 강제 FAIL 을 걸면 "review-blocking"의 의미가
    조용히 넓어진다: 리팩터, 벤더링된 의존성 업데이트, 생성 코드 커밋처럼 충분히 큰 PR은
    변경 자체에 위험이 전혀 없어도 *Kiro leg* 만으로 fail-closed 된다. 이는 결함 수정이

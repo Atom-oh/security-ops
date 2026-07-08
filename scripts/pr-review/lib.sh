@@ -46,7 +46,15 @@ record_result() {
 # 위험은 그대로 남는다"고 서술해 위 문장과 자기모순이었고, 당시 이 repo에 존재하지 않던
 # ADR 번호를 잘못 인용했던 것을 수정. 이 repo의 실제 ADR-002는 완전히 다른 주제
 # — Kiro diff truncation 을 advisory 로 둔 정책 결정 — 이므로 혼동하지 말 것).
-scrub_secrets() {
+# 알려진 크리덴셜 포맷(AWS/GitHub/Slack/OpenAI·Anthropic/Google 키, JWT, PEM)만 치환 —
+# `key=value` 제네릭 룰은 **의도적으로 뺀다**. 리뷰 *입력*(diff)에 적용할 목적으로 분리:
+# 그 제네릭 룰은 8자 이상 아무 값이나 `api_key=`/`token=`/`secret=` 류 변수명과 함께
+# 있으면 매치하므로, 정상 코드의 테스트 fixture·mock 인증값·config 기본값까지
+# `[REDACTED]`로 치환해 리뷰 대상 코드 자체를 훼손한다(security-ops PR #7 리뷰 round 9
+# MAJOR — codex·kiro-gpt 2벤더 독립 수렴: scrub_secrets()를 diff 입력에 그대로 썼다가
+# 벤더 둘 다 redacted 코드를 리뷰하게 됨). 알려진 실제 크리덴셜 포맷은 여전히 잡되,
+# 일반 변수 대입은 건드리지 않는다.
+scrub_known_credential_formats() {
   # PEM 은 여러 줄에 걸치므로 line-oriented sed 로는 본문을 못 지운다(헤더 줄만 매칭)
   # — awk 상태기계로 BEGIN..END 블록 전체를 마커 한 줄로 치환(첫 스테이지, 구조적 스크럽).
   awk '
@@ -63,7 +71,16 @@ scrub_secrets() {
     -e 's/xox[abprs]-[A-Za-z0-9-]{10,}/[REDACTED-SLACK-TOKEN]/g' \
     -e 's/(^|[^A-Za-z0-9_])sk-(proj-|ant-)?[A-Za-z0-9_-]{20,}/\1[REDACTED-API-KEY]/g' \
     -e 's/AIza[0-9A-Za-z_-]{30,}/[REDACTED-GOOGLE-KEY]/g' \
-    -e 's/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/[REDACTED-JWT]/g' \
+    -e 's/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/[REDACTED-JWT]/g'
+}
+
+# 마지막 방어선(last line of defense) — 위 특정-포맷 룰에 더해 `key=value` 제네릭 룰까지
+# 적용한다. 이건 셀 *출력*(체어에게 넘기는 리뷰 텍스트)에만 쓴다 — 출력은 리뷰 대상
+# 코드가 아니라 모델이 생성한 자연어이므로, 일반 변수 대입을 오탐으로 지워도 리뷰
+# 품질 훼손이 없고, 오히려 패턴 미매칭 크리덴셜이 우연히 인용된 경우까지 넓게 잡는 게
+# 낫다.
+scrub_secrets() {
+  scrub_known_credential_formats | sed -E \
     -e 's/((api[_-]?key|aws_secret_access_key|aws_access_key_id|access[_-]?token|client[_-]?secret|secret|passwd|password|token)['"'"'"]?[[:space:]]*[:=][[:space:]]*['"'"'"])[^'"'"'"]{8,}(['"'"'"])/\1[REDACTED]\3/gI' \
     -e 's/((^|[^A-Za-z0-9_])(api[_-]?key|aws_secret_access_key|aws_access_key_id|access[_-]?token|client[_-]?secret|secret|passwd|password|token)[[:space:]]*[:=][[:space:]]*)[A-Za-z0-9/+_-]{16,}/\1[REDACTED]/gI'
 }
