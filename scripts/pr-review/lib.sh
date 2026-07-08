@@ -43,8 +43,9 @@ record_result() {
 # 무관한 다른 경로들뿐이다: 실수로 diff 에 커밋된 시크릿이 셀 출력에 그대로 인용되는
 # 경우, codex/claude-self 등 다른 패널원의 stderr/출력에 크리덴셜성 값이 우연히 섞이는
 # 경우 등(security-ops PR #7 리뷰 MAJOR — 이 문단의 이전 버전이 "절대경로 read 잔여
-# 위험은 그대로 남는다"고 서술해 위 문장과 자기모순이었고, 이 repo에 없는 ADR-002 를
-# 인용했던 것을 수정).
+# 위험은 그대로 남는다"고 서술해 위 문장과 자기모순이었고, 당시 이 repo에 존재하지 않던
+# ADR 번호를 잘못 인용했던 것을 수정. 이 repo의 실제 ADR-002는 완전히 다른 주제
+# — Kiro diff truncation 을 advisory 로 둔 정책 결정 — 이므로 혼동하지 말 것).
 scrub_secrets() {
   # PEM 은 여러 줄에 걸치므로 line-oriented sed 로는 본문을 못 지운다(헤더 줄만 매칭)
   # — awk 상태기계로 BEGIN..END 블록 전체를 마커 한 줄로 치환(첫 스테이지, 구조적 스크럽).

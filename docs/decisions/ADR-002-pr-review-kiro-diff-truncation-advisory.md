@@ -27,7 +27,7 @@ argument (ADR context: this replaced an `fs_read` tool grant that let a diff-bor
 injection read arbitrary files — see the fix commit history on
 `fix/pr-review-kiro-fsread-severity-exit`). Process argv has a kernel limit
 (`MAX_ARG_STRLEN`, ~128KiB), so large diffs are capped via `KIRO_DIFF_CAP` (default
-100000B) — anything beyond that is truncated with a `[...TRUNCATED...]` marker, and
+100000B) — anything beyond that is truncated with a `[...TRUNCATED at ${KIRO_DIFF_CAP}B -- full diff not sent to Kiro...]` marker, and
 `run-panel.sh` sets `$WORK/kiro-diff-truncated.flag`.
 
 Codex, by contrast, receives the diff via stdin with no cap — it always sees the full
@@ -52,7 +52,10 @@ Reasoning, in the order it was actually weighed:
 1. **Not a full coverage collapse.** Truncation degrades one vendor family's (Kiro's)
    coverage of the diff tail to zero; it does not remove all cross-vendor checking the way
    `coverage-severe.flag`'s other trigger (codex dead, or all of Kiro dead) does. Codex still
-   reviews the entire diff every time, for every lens, regardless of the Kiro cap.
+   reviews the full `$DIFF` this script was invoked with every time, for every lens,
+   regardless of the Kiro cap — that input may itself be a workflow-level truncation of the
+   raw PR diff (a separate, already-signaled concern upstream of this script), but within
+   what this script receives, codex has no cap of its own.
 2. **Blast radius of the alternative.** Forcing `FAIL` on truncation would silently widen
    what "review-blocking" means: any sufficiently large PR (a refactor, a vendored dependency
    bump, a generated-code commit) would now fail-closed on the *Kiro leg* even when nothing
@@ -114,7 +117,7 @@ decision applies across this whole fleet of repos, not just this one.
 한다(맥락: 이는 diff-borne 프롬프트 인젝션이 임의 파일을 읽게 하던 `fs_read` 툴 그랜트를
 대체한 것이다 — `fix/pr-review-kiro-fsread-severity-exit` 브랜치의 수정 커밋 히스토리
 참조). 프로세스 argv 에는 커널 한도(`MAX_ARG_STRLEN`, ~128KiB)가 있어 대형 diff 는
-`KIRO_DIFF_CAP`(기본 100000B)으로 캡핑된다 — 그 이상은 `[...TRUNCATED...]` 마커로
+`KIRO_DIFF_CAP`(기본 100000B)으로 캡핑된다 — 그 이상은 `[...TRUNCATED at ${KIRO_DIFF_CAP}B -- full diff not sent to Kiro...]` 마커로
 잘리고, `run-panel.sh`가 `$WORK/kiro-diff-truncated.flag`를 세운다.
 
 반대로 codex 는 diff 를 stdin 으로 받아 캡이 없다 — 이 스크립트가 호출된 `$DIFF` 전체를
@@ -138,7 +141,10 @@ ttobak·claude-code-usage-dashboard·AWS-Demo-Platform 모든 sibling repo에서
 1. **완전한 커버리지 붕괴가 아님.** Truncation 은 한 벤더 패밀리(Kiro)의 diff tail
    커버리지만 0으로 낮춘다 — `coverage-severe.flag`의 다른 트리거(codex 전멸, 또는
    kiro 전멸)처럼 모든 교차확인을 없애는 게 아니다. codex 는 Kiro 캡과 무관하게 매번
-   모든 lens 에서 diff 전체를 리뷰한다.
+   모든 lens 에서 이 스크립트가 호출된 `$DIFF` 입력 전체를 리뷰한다 — 그 입력 자체가
+   워크플로 단계에서 이미 원본 PR diff 를 선절단한 결과일 수 있으나(이 스크립트 상류의
+   별도 관심사, 이미 신호화됨), 이 스크립트가 받는 범위 안에서는 codex 자신의 캡이
+   없다.
 2. **대안의 blast radius.** truncation 에 강제 FAIL 을 걸면 "review-blocking"의 의미가
    조용히 넓어진다: 리팩터, 벤더링된 의존성 업데이트, 생성 코드 커밋처럼 충분히 큰 PR은
    변경 자체에 위험이 전혀 없어도 *Kiro leg* 만으로 fail-closed 된다. 이는 결함 수정이
