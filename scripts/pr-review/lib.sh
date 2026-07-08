@@ -53,7 +53,14 @@ record_result() {
 # `[REDACTED]`로 치환해 리뷰 대상 코드 자체를 훼손한다(security-ops PR #7 리뷰 round 9
 # MAJOR — codex·kiro-gpt 2벤더 독립 수렴: scrub_secrets()를 diff 입력에 그대로 썼다가
 # 벤더 둘 다 redacted 코드를 리뷰하게 됨). 알려진 실제 크리덴셜 포맷은 여전히 잡되,
-# 일반 변수 대입은 건드리지 않는다.
+# 일반 변수 대입은 건드리지 않는다. 단, AWS secret access key/session token 은
+# 자체 인식 가능한 접두사가 없어(access key ID 만 `AKIA`/`ASIA` 접두 — 위 첫 룰)
+# 순수 포맷 기반으로는 못 잡는 진짜 gap 이었다(round 10 리뷰 L3 MAJOR). 변수명을
+# `aws_secret_access_key`/`aws_session_token` **정확히 그 둘로만** 좁히고 값 길이도
+# 30자 이상으로 게이트해, 일반 test fixture(보통 짧고 변수명도 다름)를 계속 피하면서
+# 그 두 실제 AWS 크리덴셜 종류는 잡는다 — 완전한 해결은 아니다(다른 이름의 변수에
+# 담긴 시크릿은 여전히 통과), 남은 residual 은 이 스크럽이 last-line-of-defense 이지
+# 예방이 아니라는 파일 상단 원칙을 그대로 따른다.
 scrub_known_credential_formats() {
   # PEM 은 여러 줄에 걸치므로 line-oriented sed 로는 본문을 못 지운다(헤더 줄만 매칭)
   # — awk 상태기계로 BEGIN..END 블록 전체를 마커 한 줄로 치환(첫 스테이지, 구조적 스크럽).
@@ -71,7 +78,8 @@ scrub_known_credential_formats() {
     -e 's/xox[abprs]-[A-Za-z0-9-]{10,}/[REDACTED-SLACK-TOKEN]/g' \
     -e 's/(^|[^A-Za-z0-9_])sk-(proj-|ant-)?[A-Za-z0-9_-]{20,}/\1[REDACTED-API-KEY]/g' \
     -e 's/AIza[0-9A-Za-z_-]{30,}/[REDACTED-GOOGLE-KEY]/g' \
-    -e 's/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/[REDACTED-JWT]/g'
+    -e 's/eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/[REDACTED-JWT]/g' \
+    -e 's/((^|[^A-Za-z0-9_])(aws_secret_access_key|aws_session_token)[[:space:]]*[:=][[:space:]]*['"'"'"]?)[A-Za-z0-9/+=]{30,}/\1[REDACTED-AWS-SECRET]/gI'
 }
 
 # 마지막 방어선(last line of defense) — 위 특정-포맷 룰에 더해 `key=value` 제네릭 룰까지

@@ -154,9 +154,21 @@ fi
 # 신호 없이 넘기면 "Kiro 셀들이 diff 뒷부분은 못 본 채 정상 응답으로 집계됐다"는 사실이
 # 리뷰에서 안 보인다. codex 자신이 이번 실행에서 죽었으면(degraded-models.txt)
 # "codex 단일 벤더 커버리지"라는 문구 자체가 거짓이 되므로 그 경우엔 문구를 바꾼다.
+# 배너 prepend 순서(코드 순서와 반대로 최종 렌더됨) — 이 블록 다음의 coverage-severe
+# 블록이 이 블록 *다음*에 prepend되므로 최종 렌더는 위→아래로 coverage-severe / (이 블록)
+# truncation / degraded(이 블록 *이전*에 이미 prepend됨) 순이다. 즉 truncation 배너
+# 기준으로 위=coverage-severe, 아래=degraded(round 10 리뷰 L5 MINOR — 이전 문구가
+# 반대 방향으로 참조해 수정).
 if [ -f "$WORK/kiro-diff-truncated.flag" ]; then
   if grep -qx "codex" "$WORK/degraded-models.txt" 2>/dev/null; then
-    KIRO_TRUNC_MSG="✂️ **Kiro diff truncated**: diff 가 KIRO_DIFF_CAP 을 초과해 Kiro 셀은 앞부분만 리뷰함 — codex 도 이번 실행에서 응답 없이 빠졌으므로(위 커버리지 저하 배너 참조) 뒷부분 이슈에 대한 벤더 커버리지가 전혀 없음."
+    KIRO_TRUNC_MSG="✂️ **Kiro diff truncated**: diff 가 KIRO_DIFF_CAP 을 초과해 Kiro 셀은 앞부분만 리뷰함 — codex 도 이번 실행에서 응답 없이 빠졌으므로(아래 커버리지 저하 배너 참조) 뒷부분 이슈에 대한 벤더 커버리지가 전혀 없음."
+  elif [ -s "$WORK/lens-coverage-gap.txt" ]; then
+    # codex 가 모델 전체로는 degraded 가 아니지만(전체 lens 무응답은 아님) 특정 lens 하나
+    # 에서만 응답 없었을 수 있다 — 그 lens 가 하필 Kiro truncation 과 겹치면 "codex 단일
+    # 벤더 커버리지"라는 단정이 그 lens 에 대해 거짓이 된다(round 10 리뷰 L5 MAJOR).
+    # 이미 위 coverage-severe 배너로 강제 FAIL 되므로 VERDICT 안전성엔 영향 없지만,
+    # 문구를 lens 마다 다를 수 있다고 정확히 hedge 한다.
+    KIRO_TRUNC_MSG="✂️ **Kiro diff truncated**: diff 가 KIRO_DIFF_CAP 을 초과해 Kiro 셀은 앞부분만 리뷰함 — 이번 실행에서 최소 한 lens 는 codex 도 응답하지 않았음(위 커버리지 붕괴 배너 참조), 그 lens 에서는 뒷부분 이슈에 대한 벤더 커버리지가 아예 없을 수 있음. lens 마다 다를 수 있어 일괄 \"codex 단일 벤더 커버리지\"로 단정하지 않음."
   else
     KIRO_TRUNC_MSG="✂️ **Kiro diff truncated**: diff 가 KIRO_DIFF_CAP 을 초과해 Kiro 셀은 앞부분만 리뷰함 — codex 는 이 스크립트에 전달된 전체 diff(스크럽·fence 적용본)를 캡 없이 stdin 으로 봤으므로 그 안에서는 뒷부분 이슈도 codex 단일 벤더 커버리지."
   fi
