@@ -188,13 +188,17 @@ jobs:
         run: |
           # fail-closed on truncation: a diff too large to review whole must NOT be passable —
           # the unreviewed tail could carry the security change. Block until it's split/raised.
+          # 마지막 non-empty 줄만 신뢰 — 본문 어딘가(패널 인용 등)에 "VERDICT: FAIL" 문자열이
+          # 나타나도 실제 판정 줄이 아니면 오검출되지 않도록. verdict_count==1 로 중복/부재도 배제.
+          last_line="$(tail -n1 /tmp/review.md)"
+          verdict_count="$(grep -c '^VERDICT:' /tmp/review.md 2>/dev/null)"
           if [ "${panel_truncated:-0}" = "1" ]; then
             echo "result=fail" >> "$GITHUB_OUTPUT"
             echo "reason=diff truncated — too large to fully review (fail-closed)" >> "$GITHUB_OUTPUT"
-          elif grep -q "^VERDICT: FAIL$" /tmp/review.md; then
+          elif [ "$last_line" = "VERDICT: FAIL" ]; then
             echo "result=fail" >> "$GITHUB_OUTPUT"
             echo "reason=VERDICT: FAIL" >> "$GITHUB_OUTPUT"
-          elif grep -q "^VERDICT: PASS$" /tmp/review.md; then
+          elif [ "$last_line" = "VERDICT: PASS" ] && [ "$verdict_count" = "1" ]; then
             echo "result=pass" >> "$GITHUB_OUTPUT"
             echo "reason=No blocking issues" >> "$GITHUB_OUTPUT"
           else
