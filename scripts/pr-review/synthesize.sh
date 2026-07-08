@@ -163,11 +163,14 @@ if [ -f "$WORK/kiro-diff-truncated.flag" ]; then
   } > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
 fi
 
-# 심각도 상향(run-panel.sh 의 coverage-severe.flag) — codex 가 죽거나 kiro 모델 전체가
-# 죽으면(둘 중 하나라도, run-panel.sh 의 CODEX_DEAD/KIRO_ALL_DEAD 축 — 모델 개수 축이
-# 아님) 살아남은 벤더가 최대 1개뿐이라 "lens당 교차확인"이 성립하지 않는다. 체어의 판정과 무관하게
-# VERDICT 를 강제 FAIL 한다(fail-closed 계약 보존 — 이 platform 의 defensive-only/fail-closed
-# 원칙과 정확히 일치).
+# 심각도 상향(run-panel.sh 의 coverage-severe.flag) — 이 플래그는 run-panel.sh 안의 두
+# 독립 게이트 중 하나라도 걸리면 세워진다: (1) codex 가 죽거나 kiro 모델 전체가 죽으면
+# (CODEX_DEAD/KIRO_ALL_DEAD 축 — 모델 개수 축이 아님) 살아남은 벤더가 최대 1개뿐이라
+# "lens당 교차확인"이 성립하지 않는다, (2) 모델 전체 탈락이 아니라 lens 하나에서만
+# codex/kiro 한쪽이 응답 없어도(lens-coverage-gap.txt) 그 lens 만 단일 벤더가 된다
+# (security-ops PR #7 리뷰 MINOR — 이 주석이 이전엔 (1)만 서술해 (2)를 놓쳤던 것을
+# 수정). 둘 중 하나라도 걸리면 체어의 판정과 무관하게 VERDICT 를 강제 FAIL 한다
+# (fail-closed 계약 보존 — 이 platform 의 defensive-only/fail-closed 원칙과 정확히 일치).
 if [ -f "$WORK/coverage-severe.flag" ]; then
   if grep -q '^VERDICT:' "$OUT"; then
     TAC_TMP="$(tac "$OUT" | sed '0,/^VERDICT:/d' | tac)"
