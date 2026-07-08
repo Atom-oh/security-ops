@@ -15,7 +15,9 @@ ensure_slots() {
   rm -rf "$1/slot"; mkdir -p "$1/slot"
 }
 
-# 한 패널 실행 결과를 평가해 responded 에 기록.
+# 한 패널 실행 결과를 평가해 responded 에 기록. $1.rc(run-panel.sh 의 try_panel() 이 마지막
+# 시도의 exit code 를 남긴 sidecar 파일)를 읽어 slot 이 non-empty 라도 rc != 0 이면 실패로
+# 처리하고, 처리 후 그 sidecar 파일은 지운다(side effect).
 #   $1 slot 파일 경로, $2 패널 라벨, $3 responded 파일
 record_result() {
   local slot="$1" label="$2" responded="$3"

@@ -145,18 +145,27 @@ if [ -s "$WORK/degraded-models.txt" ]; then
 fi
 
 # Kiro diff truncation 가시화 — 대형 diff 는 run-panel.sh 의 KIRO_DIFF_CAP 을 넘으면 Kiro
-# 셀에 prefix 만 전달된다. truncation 은 VERDICT 를 강제하진 않되(codex 는 전체 diff 를
-# 계속 봄) 신호 없이 넘기면 "Kiro 셀들이 diff 뒷부분은 못 본 채 정상 응답으로 집계됐다"는
-# 사실이 리뷰에서 안 보인다.
+# 셀에 prefix 만 전달된다. truncation 은 VERDICT 를 강제하진 않되(codex 는 이 스크립트가
+# 받은 $DIFF 입력 전체를 stdin 으로 계속 봄 — 그 $DIFF 자체가 워크플로 단계에서 이미
+# MAX_LINES=12000으로 선절단됐을 수 있음은 별도 관심사, panel_truncated 배너로 이미
+# 다뤄짐) 신호 없이 넘기면 "Kiro 셀들이 diff 뒷부분은 못 본 채 정상 응답으로 집계됐다"는
+# 사실이 리뷰에서 안 보인다. codex 자신이 이번 실행에서 죽었으면(degraded-models.txt)
+# "codex 단일 벤더 커버리지"라는 문구 자체가 거짓이 되므로 그 경우엔 문구를 바꾼다.
 if [ -f "$WORK/kiro-diff-truncated.flag" ]; then
-  { echo "✂️ **Kiro diff truncated**: diff 가 KIRO_DIFF_CAP 을 초과해 Kiro 셀은 앞부분만 리뷰함 — codex 는 전체 diff 를 봤으므로 뒷부분 이슈는 codex 단일 벤더 커버리지."
+  if grep -qx "codex" "$WORK/degraded-models.txt" 2>/dev/null; then
+    KIRO_TRUNC_MSG="✂️ **Kiro diff truncated**: diff 가 KIRO_DIFF_CAP 을 초과해 Kiro 셀은 앞부분만 리뷰함 — codex 도 이번 실행에서 응답 없이 빠졌으므로(위 커버리지 저하 배너 참조) 뒷부분 이슈에 대한 벤더 커버리지가 전혀 없음."
+  else
+    KIRO_TRUNC_MSG="✂️ **Kiro diff truncated**: diff 가 KIRO_DIFF_CAP 을 초과해 Kiro 셀은 앞부분만 리뷰함 — codex 는 이 스크립트에 전달된 \$DIFF 입력 전체를 stdin 으로 봤으므로 그 안에서는 뒷부분 이슈도 codex 단일 벤더 커버리지."
+  fi
+  { echo "$KIRO_TRUNC_MSG"
     echo ""
     cat "$OUT"
   } > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
 fi
 
 # 심각도 상향(run-panel.sh 의 coverage-severe.flag) — codex 가 죽거나 kiro 모델 전체가
-# 죽으면(둘 중 하나라도, DEAD_VENDORS 축 — 모델 개수 축이 아님) 살아남은 벤더가 최대 1개뿐이라 "lens당 교차확인"이 성립하지 않는다. 체어의 판정과 무관하게
+# 죽으면(둘 중 하나라도, run-panel.sh 의 CODEX_DEAD/KIRO_ALL_DEAD 축 — 모델 개수 축이
+# 아님) 살아남은 벤더가 최대 1개뿐이라 "lens당 교차확인"이 성립하지 않는다. 체어의 판정과 무관하게
 # VERDICT 를 강제 FAIL 한다(fail-closed 계약 보존 — 이 platform 의 defensive-only/fail-closed
 # 원칙과 정확히 일치).
 if [ -f "$WORK/coverage-severe.flag" ]; then
