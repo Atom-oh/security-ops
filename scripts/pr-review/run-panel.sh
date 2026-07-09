@@ -37,7 +37,7 @@ SLOT="$WORK/slot"; RESP="$WORK/responded.txt"; : > "$RESP"
 # 그대로 살아남아, 이번엔 모델 전부 정상 응답·전체 diff 를 봤어도 synthesize.sh 가 잘못된
 # 배너를 붙이거나 강제 FAIL 하게 된다 — responded.txt/degraded-models.txt 처럼 매 실행
 # 시작 시 리셋.
-rm -f "$WORK/coverage-severe.flag" "$WORK/kiro-diff-truncated.flag"
+rm -f "$WORK/coverage-severe.flag" "$WORK/kiro-diff-truncated.flag" "$WORK/kiro-lens-skipped.flag"
 T="${PANEL_TIMEOUT:-300}"
 RETRIES="${PANEL_RETRIES:-3}"
 KIRO_MODELS=("claude-opus-4.8:kiro-opus" "gpt-5.5:kiro-gpt" "glm-5:kiro-glm")
@@ -121,7 +121,9 @@ case "$KIRO_ARGV_CAP" in
   ''|*[!0-9]*) echo "run-panel.sh: KIRO_ARGV_CAP must be a positive integer, got: '$KIRO_ARGV_CAP'" >&2; exit 1 ;;
 esac
 [ "$KIRO_ARGV_CAP" -gt 0 ] || { echo "run-panel.sh: KIRO_ARGV_CAP must be > 0, got: $KIRO_ARGV_CAP" >&2; exit 1; }
-[ "$KIRO_ARGV_CAP" -le 131072 ] || { echo "run-panel.sh: KIRO_ARGV_CAP must be <= 131072 (MAX_ARG_STRLEN), got: $KIRO_ARGV_CAP" >&2; exit 1; }
+# 131071, not 131072 — MAX_ARG_STRLEN(131072) 검사는 종단 NUL 을 포함하므로 실사용
+# 가능한 문자열 최대 길이는 131071B(security-ops PR#8 리뷰 L2, 3개 벤더 독립 도달).
+[ "$KIRO_ARGV_CAP" -le 131071 ] || { echo "run-panel.sh: KIRO_ARGV_CAP must be <= 131071 (MAX_ARG_STRLEN - 1 for the trailing NUL), got: $KIRO_ARGV_CAP" >&2; exit 1; }
 DIFF_BYTES="$(wc -c < "$DIFF")"
 # 빈 diff 는 truncation flag 를 안 남겨 "diff 를 못 본 셀이 조용히 집계"되는 위협이 다른
 # 입구로 재유입될 수 있다(security-ops PR#8 리뷰 L4, defense-in-depth) — fail-closed.
@@ -134,6 +136,29 @@ DIFF_BYTES="$(wc -c < "$DIFF")"
 # 쓴다 — 위조 불가능한 랜덤 nonce 를 wrapper 에 직접 박아 fence 계약을 더 구체화한다.
 OPENING_FENCE="$(head -n1 "$DIFF")"
 CLOSING_FENCE="$(tail -n1 "$DIFF")"
+# 위 두 줄을 형식 검증 없이 신뢰 wrapper 문구("the exact opening line is: ...")로 그대로
+# 승격하고 있었다 — upstream fence 생성이 깨지거나(워크플로 버그) raw diff 가 그대로
+# 들어오면, PR 이 통제하는 마지막 줄이 신뢰 지시문 영역으로 편입돼 nonce 경계가 약화된다
+# (security-ops PR#8 리뷰 L3-MAJOR, 2개 벤더 독립 도달, diff 대조 확인). 여닫는 줄이
+# 정확한 nonce-fence 형식이고 서로 같은 nonce 를 공유하는지 검증 — 실패하면 그 내용을
+# 신뢰 영역에 절대 넣지 않고 fail-closed.
+if [[ "$OPENING_FENCE" =~ ^\<\<\<UNTRUSTED_DIFF_([0-9a-f]+)\>\>\>$ ]]; then
+  FENCE_NONCE="${BASH_REMATCH[1]}"
+else
+  echo "run-panel.sh: \$DIFF's first line does not match the expected nonce-fence format (<<<UNTRUSTED_DIFF_<hex>>>>) — refusing (fail-closed, cannot safely promote unverified content into the trusted wrapper)" >&2
+  exit 1
+fi
+if [ "$CLOSING_FENCE" != "<<<END_UNTRUSTED_DIFF_${FENCE_NONCE}>>>" ]; then
+  echo "run-panel.sh: \$DIFF's last line does not match the opening fence's nonce (expected <<<END_UNTRUSTED_DIFF_${FENCE_NONCE}>>>, got: '$CLOSING_FENCE') — refusing (fail-closed)" >&2
+  exit 1
+fi
+# fence 두 줄만 있고 그 사이 본문이 없는 파일(업스트림 diff 생성 실패 등)도 여기서 잡는다
+# — 이 PR 이 막으려는 "diff 를 못 본 셀의 조용한 정상 집계"가 이 입구로 재유입될 수 있다
+# (같은 리뷰, kiro-gpt/L4 지적, diff 대조로 실재 확인).
+OPENING_BYTES="$(printf '%s' "$OPENING_FENCE" | wc -c)"
+CLOSING_BYTES="$(printf '%s' "$CLOSING_FENCE" | wc -c)"
+BODY_BYTES=$(( DIFF_BYTES - OPENING_BYTES - CLOSING_BYTES - 2 ))
+[ "$BODY_BYTES" -gt 0 ] || { echo "run-panel.sh: \$DIFF has no content between the nonce fences (fence-only file) — refusing (fail-closed)" >&2; exit 1; }
 KIRO_DIFF_TEXT="$(head -c "$KIRO_DIFF_CAP" "$DIFF")"
 # truncation 자체는 무해(대형 diff 의 의도된 트레이드오프)하지만, 신호 없이 넘어가면 Kiro
 # 셀은 prefix 만 보고도 정상 응답으로 집계돼 "벤더 하나가 diff 일부만 보면 coverage 신호를
@@ -212,6 +237,10 @@ $CLOSING_FENCE
     if [ "$FINAL_INSTR_BYTES" -gt "$KIRO_ARGV_CAP" ]; then
       KIRO_LENS_OVERSIZED=1
       echo "::error::assembled Kiro instruction for lens $lens still exceeds KIRO_ARGV_CAP (${KIRO_ARGV_CAP}B) after trimming — lens prompt itself is too large; skipping all Kiro cells for this lens (degraded, not silently sent oversized)" >&2
+      # 이 lens 는 Kiro 셀이 diff 를 전혀 못 본 것과 같다("앞부분만 리뷰" 가 아니라 완전
+      # skip) — kiro-diff-truncated.flag(prefix 는 리뷰됨을 의미)와 구분되는 별도 플래그로
+      # synthesize.sh 가 정확한 배너 문구를 고르게 한다(security-ops PR#8 리뷰 L5-MAJOR).
+      : > "$WORK/kiro-lens-skipped.flag"
     else
       echo "::warning::assembled Kiro instruction for lens $lens exceeds KIRO_ARGV_CAP (${KIRO_ARGV_CAP}B) — trimmed further" >&2
     fi

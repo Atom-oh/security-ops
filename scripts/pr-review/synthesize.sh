@@ -165,7 +165,19 @@ fi
 # coverage-severe.flag 와 동일하게 fail-closed 취급한다(이 platform 의 defensive-only/
 # fail-closed 원칙, CLAUDE.md/architecture.md).
 if [ -f "$WORK/kiro-diff-truncated.flag" ]; then
-  TAIL_COVERAGE="codex 는 전체 diff 를 봤으므로 뒷부분 이슈는 codex 단일 벤더 커버리지."
+  # 두 경로를 구분한다(security-ops PR#8 리뷰 L5-MAJOR, diff 대조로 확인된 배너 부정확):
+  # kiro-lens-skipped.flag 가 있으면 최소 한 lens 의 Kiro 셀이 diff 를 전혀 못 봤다(cap
+  # 재트림 후에도 초과해 완전 skip) — "앞부분만 리뷰함" 은 그 경우 거짓이다.
+  if [ -f "$WORK/kiro-lens-skipped.flag" ]; then
+    KIRO_COVERAGE_DESC="적어도 한 lens 는 조립된 프롬프트가 KIRO_ARGV_CAP 을 초과해 Kiro 셀이 앞부분조차 못 보고 완전히 skip 됨"
+  else
+    KIRO_COVERAGE_DESC="diff 가 KIRO_DIFF_CAP 을 초과해 Kiro 셀은 앞부분만 리뷰함"
+  fi
+  # codex 커버리지 주장은 degraded-models.txt(전체 lens 기준) 로만 판별 가능 — codex 가
+  # "이번 실행 전체에서" degraded 인지는 정확히 알지만, "정확히 이 잘린 lens 에서" 응답했는지는
+  # 이 스크립트가 lens 단위로 추적하지 않아 확정할 수 없다(같은 리뷰, 부분 해소). 그 한계를
+  # 문구에 명시해 과대 서술을 피한다.
+  TAIL_COVERAGE="codex 가 이 실행에서 degraded 로 기록되지 않았다면 통상 전체 diff 를 봤겠으나, 이 문구는 실행 전체 기준이라 잘린 그 lens 에서의 codex 응답 여부까지는 확정하지 않음 — 뒷부분 이슈는 최선의 경우에도 codex 단일 벤더 커버리지."
   if [ -s "$WORK/degraded-models.txt" ] && grep -qx codex "$WORK/degraded-models.txt"; then
     TAIL_COVERAGE="codex 도 이 실행에서 degraded — diff 뒷부분(cap 이후)을 어떤 모델도 보지 않았을 수 있음."
   fi
@@ -174,7 +186,7 @@ if [ -f "$WORK/kiro-diff-truncated.flag" ]; then
     printf '%s\n' "$TAC_TMP" > "$OUT"
   fi
   {
-    echo "🛑 **Kiro diff truncated — 강제 FAIL**: diff 가 KIRO_DIFF_CAP 또는 조립된 프롬프트가 KIRO_ARGV_CAP 을 초과해 Kiro 셀은 앞부분만 리뷰함(run-panel.sh 가 둘 중 어느 쪽이든 이 플래그를 남김) — $TAIL_COVERAGE cap 이후 구간은 살아남은 벤더가 1개 이하인 것과 동등해 lens×model 교차확인이 성립하지 않으므로, PR 작성자가 diff 크기로 리뷰를 회피하지 못하도록 체어의 판정과 무관하게 fail-closed."
+    echo "🛑 **Kiro diff truncated — 강제 FAIL**: $KIRO_COVERAGE_DESC(run-panel.sh 가 KIRO_DIFF_CAP/KIRO_ARGV_CAP 둘 중 어느 쪽이든 이 플래그를 남김) — $TAIL_COVERAGE cap 이후 구간은 살아남은 벤더가 1개 이하인 것과 동등해 lens×model 교차확인이 성립하지 않으므로, PR 작성자가 diff 크기로 리뷰를 회피하지 못하도록 체어의 판정과 무관하게 fail-closed."
     echo ""
     cat "$OUT"
     echo ""
