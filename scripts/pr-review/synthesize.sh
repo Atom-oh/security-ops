@@ -120,7 +120,11 @@ chair_valid() {
 run_chair "$CHAIR_PRIMARY_MODEL"
 CHAIR_USED="$CHAIR_PRIMARY_MODEL"
 if ! chair_valid && [ "$CHAIR_FALLBACK_MODEL" != "$CHAIR_PRIMARY_MODEL" ]; then
-  echo "::warning::chair '$(chair_label "$CHAIR_PRIMARY_MODEL")' degraded (connection/timeout/empty/no-verdict, ${CHAIR_TIMEOUT}s cap): $(head -c 500 "$WORK/chair.err" 2>/dev/null) — falling back to '$(chair_label "$CHAIR_FALLBACK_MODEL")'"
+  # panel/chair stdout 은 scrub_secrets 를 통과시키는데 이 fallback 경고의 stderr 발췌만
+  # 빠져 있었다 — claude CLI 에러 메시지에 credential/env 정보가 섞이면 public Actions
+  # 로그로 그대로 새는 경로였다(cc-on-bedrock PR#107 리뷰 M4).
+  CHAIR_ERR_EXCERPT="$(head -c 500 "$WORK/chair.err" 2>/dev/null | scrub_secrets)"
+  echo "::warning::chair '$(chair_label "$CHAIR_PRIMARY_MODEL")' degraded (connection/timeout/empty/no-verdict, ${CHAIR_TIMEOUT}s cap): $CHAIR_ERR_EXCERPT — falling back to '$(chair_label "$CHAIR_FALLBACK_MODEL")'"
   run_chair "$CHAIR_FALLBACK_MODEL"
   if chair_valid; then
     CHAIR_USED="$CHAIR_FALLBACK_MODEL"
