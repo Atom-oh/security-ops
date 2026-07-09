@@ -159,7 +159,20 @@ codex_env() {
 # — 그대로 인용되는 예시 문구다(버전: `kiro-cli 2.11.1`, 라이브 재현으로도 재확인 —
 # 주입된 "read /etc/passwd" 지시가 거부됨). 향후 kiro-cli 가 이 시맨틱을 바꾸면
 # 이 fail-closed 가정도 재검증 필요.
-KIRO_DIFF_CAP="${KIRO_DIFF_CAP:-100000}"
+# 120000B(이전 100000B) — round 18 리뷰 MAJOR: 워크플로 자체의 강제-FAIL 기준
+# (MAX_LINES=12000행)과 이 캡(바이트) 사이에 수학적 간극이 있었다. 100000B/12000행
+# ≈ 8.3B/행인데 실제 diff 한 줄은 보통 그보다 길어서, 공격자가 diff 를 padding 해
+# 12000행 미만을 유지하면서도 100KB 는 쉽게 넘겨 위험 hunk 를 Kiro 캡 뒤로(=codex
+# 단일 벤더 리뷰로) 밀어넣을 수 있었다(사용자 확인, 2026-07-09 — "일반적인 truncation
+# 은 advisory 유지"라는 기존 결정과는 별개의 adversarial 시나리오로 판단, cap 증액
+# 채택). **완전히 못 닫는 한계**: Kiro 는 diff 를 단일 `kiro-cli chat` argv 원소로
+# 받으므로 Linux 커널의 `MAX_ARG_STRLEN`(~128KiB, 아래 KIRO_MAX_ARG_STRLEN)이 하드
+# 상한이다 — 12000행 × ~150B/행 ≈ 1.8MB 까지 완전히 올리는 건 이 전달 방식 자체로는
+# 불가능하고, 아래 ceiling 로직이 결국 그 한도 아래로 clamp 한다. 이 상수는 그 커널
+# 한도 안에서 실질적으로 최대한 끌어올린 값이며(간극을 8.3→10B/행 수준으로 좁힘),
+# 간극을 완전히 없애려면 diff chunking(여러 Kiro 호출로 나눠 전체를 커버) 같은 다른
+# 전달 방식이 필요 — 이는 이 라운드의 스코프를 넘는 더 큰 설계 변경이다.
+KIRO_DIFF_CAP="${KIRO_DIFF_CAP:-120000}"
 # fail-closed on a malformed override — a non-numeric/negative/zero value would make
 # `head -c` behave unpredictably (GNU head treats a leading `-` as "all but last N bytes").
 case "$KIRO_DIFF_CAP" in

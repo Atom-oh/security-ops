@@ -87,6 +87,30 @@ response to the exact same question raised while fixing the sibling repos sharin
 design) — see the "advisory (recommended)" option chosen over "make the gate stricter." That
 decision applies across this whole fleet of repos, not just this one.
 
+## Addendum (2026-07-09): adversarial diff padding
+
+A distinct question from the one above, raised by review round 18: the reasoning in point 1
+assumes truncation happens to *benign* large diffs (refactors, vendored dependency bumps).
+It does not address an attacker who *deliberately* pads a diff with filler content to push a
+dangerous hunk past `KIRO_DIFF_CAP` while staying under the workflow's own force-FAIL
+threshold (`MAX_LINES=12000` lines) — at the old default `KIRO_DIFF_CAP=100000`, that's
+~8.3 bytes/line at the boundary, well under a typical diff line's length, so this was easily
+achievable, not theoretical.
+
+Decision: raise `KIRO_DIFF_CAP` from 100000B to 120000B — as high as the delivery mechanism
+allows. Kiro receives the diff as a single `kiro-cli chat` argv element, and Linux's
+`MAX_ARG_STRLEN` (~128KiB) is a hard per-argument ceiling; `run-panel.sh`'s existing
+`KIRO_DIFF_CAP_CEILING` logic clamps below that regardless of this constant. Fully matching
+the workflow's line budget (12000 lines × a realistic ~150B/line ≈ 1.8MB) is not achievable
+through this delivery channel — that would require diff chunking (multiple sequential Kiro
+calls, each covering a slice, with results combined) or a different delivery mechanism
+entirely, both larger changes than a cap increase and out of scope for this pass.
+
+Consequence: this narrows the exploitable padding window (the gap between what forces a
+workflow-level FAIL and what exceeds Kiro's own cap) but does not close it. The residual gap
+is accepted for now, consistent with this ADR's overall advisory-only stance — revisit if
+adversarial padding is observed in practice, or when diff chunking is implemented.
+
 ## Consequences
 
 - A PR whose diff exceeds `KIRO_DIFF_CAP` gets a visible `✂️ **Kiro diff truncated**` banner
@@ -183,6 +207,28 @@ ttobak·claude-code-usage-dashboard·AWS-Demo-Platform 모든 sibling repo에서
 동일한 질문에 대해 받은 응답)으로 확인된 의도된 설계다 — "게이트를 더 엄격하게" 대신
 "현재 설계(advisory) 유지"를 선택했다. 이 결정은 이 repo 하나가 아니라 이 fleet 전체에
 적용된다.
+
+## 추가 결정 (2026-07-09): adversarial diff padding
+
+위와는 별개의 질문이 round 18 리뷰에서 제기됐다: 결정 1의 논거는 truncation 이 *benign*
+대형 diff(리팩터, vendored 의존성 업데이트)에 일어난다고 가정한다. 공격자가 diff 를
+*의도적으로* padding 해 위험 hunk 를 `KIRO_DIFF_CAP` 뒤로 밀면서도 워크플로 자체의
+강제-FAIL 기준(`MAX_LINES=12000`행)은 넘지 않게 하는 경우는 다루지 않는다 — 옛 기본값
+`KIRO_DIFF_CAP=100000`에서 경계상 ~8.3B/행인데, 실제 diff 한 줄은 보통 그보다 길어서
+이건 이론이 아니라 쉽게 실행 가능했다.
+
+결정: `KIRO_DIFF_CAP`을 100000B → 120000B로 올린다 — 전달 방식이 허용하는 한도 안에서
+최대한. Kiro 는 diff 를 단일 `kiro-cli chat` argv 원소로 받으므로 Linux 의
+`MAX_ARG_STRLEN`(~128KiB)이 하드 상한이다 — `run-panel.sh`의 기존 `KIRO_DIFF_CAP_CEILING`
+로직이 이 상수와 무관하게 결국 그 한도 아래로 clamp 한다. 워크플로의 행 예산(12000행 ×
+현실적 ~150B/행 ≈ 1.8MB)을 완전히 맞추는 건 이 전달 채널로는 불가능하다 — diff
+chunking(여러 순차 Kiro 호출로 나눠 전체를 커버) 또는 다른 전달 방식이 필요하며, 둘 다
+cap 증액보다 큰 변경이라 이번 라운드 스코프 밖이다.
+
+결과: 이는 padding 으로 악용 가능한 창(워크플로 레벨 강제 FAIL 기준과 Kiro 자체 캡 사이
+간극)을 좁히지만 완전히 없애지는 못한다. 남은 간극은 이 ADR 의 전체적인 advisory-only
+입장과 일관되게 지금은 수용한다 — 실전에서 adversarial padding 이 관측되거나 diff
+chunking 이 구현되면 재검토.
 
 ## 결과
 
