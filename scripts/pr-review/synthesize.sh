@@ -104,11 +104,11 @@ chair_label() { case "$1" in
   *)          echo "$1" ;;
 esac ; }
 
-run_chair() {  # $1=model → "$OUT" 에 기록. claude 실패해도 || true 로 계속.
+run_chair() {  # $1=model → "$OUT" 에 기록(scrub 통과). claude 실패해도 || true 로 계속.
   # argv(-p) 는 고정 지시문만(작고 상한 없음) — diff+패널(가변, 큼)은 stdin.
   ANTHROPIC_MODEL="$1" timeout "$CHAIR_TIMEOUT" \
     claude -p "$(cat "$WORK/synth-prompt.txt")" --output-format text \
-    < "$WORK/synth-stdin.txt" > "$OUT" 2>"$WORK/chair.err" || true
+    < "$WORK/synth-stdin.txt" 2>"$WORK/chair.err" | scrub_secrets > "$OUT" || true
 }
 
 # 요구사항: 마지막 non-empty 줄이 정확히 VERDICT: PASS 또는 VERDICT: FAIL.
@@ -120,7 +120,20 @@ chair_valid() {
 run_chair "$CHAIR_PRIMARY_MODEL"
 CHAIR_USED="$CHAIR_PRIMARY_MODEL"
 if ! chair_valid && [ "$CHAIR_FALLBACK_MODEL" != "$CHAIR_PRIMARY_MODEL" ]; then
-  echo "::warning::chair '$(chair_label "$CHAIR_PRIMARY_MODEL")' degraded (connection/timeout/empty/no-verdict, ${CHAIR_TIMEOUT}s cap): $(head -c 500 "$WORK/chair.err" 2>/dev/null) — falling back to '$(chair_label "$CHAIR_FALLBACK_MODEL")'"
+  # panel/chair stdout 은 scrub_secrets 를 통과시키는데 이 fallback 경고의 stderr 발췌만
+  # 빠져 있었다 — claude CLI 에러 메시지에 credential/env 정보가 섞이면 public Actions
+  # 로그로 그대로 새는 경로였다(cc-on-bedrock PR#107 리뷰 M4). scrub 을 head -c 뒤에 걸면
+  # 500B 경계에서 시크릿이 반토막 나 정규식 미매칭으로 통과할 수 있다 — 전체를 먼저
+  # scrub 하고 그 결과를 자른다(ttobak PR#104 리뷰). 단, scrub_secrets 결과를 파이프로
+  # head 에 바로 넘기면 head 가 500B 만 읽고 먼저 종료할 때 upstream awk/sed 가 SIGPIPE
+  # 를 받고 `set -euo pipefail` 하에서 그 command substitution 실패가 스크립트 전체를
+  # 죽인다 — 바로 이 fallback 경로(그리고 그 아래 최종 fail-closed 코멘트 생성)가 스킵
+  # 되는 최악의 타이밍이 된다(cc-on-bedrock PR#107 리뷰 M1). 패널 셀 처리와 동일하게
+  # 파일 기반으로 받는다.
+  scrub_secrets < "$WORK/chair.err" 2>/dev/null > "$WORK/chair-err-scrubbed.tmp" || true
+  CHAIR_ERR_EXCERPT="$(head -c 500 "$WORK/chair-err-scrubbed.tmp" 2>/dev/null)"
+  rm -f "$WORK/chair-err-scrubbed.tmp"
+  echo "::warning::chair '$(chair_label "$CHAIR_PRIMARY_MODEL")' degraded (connection/timeout/empty/no-verdict, ${CHAIR_TIMEOUT}s cap): $CHAIR_ERR_EXCERPT — falling back to '$(chair_label "$CHAIR_FALLBACK_MODEL")'"
   run_chair "$CHAIR_FALLBACK_MODEL"
   if chair_valid; then
     CHAIR_USED="$CHAIR_FALLBACK_MODEL"
@@ -140,6 +153,44 @@ if [ -s "$WORK/degraded-models.txt" ]; then
   { echo "⚠️ **커버리지 저하**: [$DEGRADED] 모델이 전체 lens 에서 응답 없음(플래그 무효·바이너리 부재·인증 실패 등) — 아래 리뷰는 그 모델 없이 종합됨."
     echo ""
     cat "$OUT"
+  } > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
+fi
+
+# Kiro diff truncation → fail-closed(CRITICAL, security-ops PR#8 리뷰 L4). 대형 diff 는
+# run-panel.sh 의 KIRO_DIFF_CAP/KIRO_ARGV_CAP 을 넘으면 Kiro 3개 모델 전부 prefix 만
+# 보고, cap 이후 구간은 codex 단독(살아있다면) 커버리지가 된다 — 이전 리비전은 soft 배너만
+# 붙이고 VERDICT 는 체어 판단에 맡겼는데, PR 작성자가 diff 크기를 통제할 수 있으므로 무해한
+# 변경으로 패딩한 뒤 악성 hunk 를 cap 뒤에 배치하면 cross-vendor consensus 를 구조적으로
+# 회피할 수 있었다. cap 이후 구간은 "살아남은 벤더 ≤1"과 동일한 조건이므로
+# coverage-severe.flag 와 동일하게 fail-closed 취급한다(이 platform 의 defensive-only/
+# fail-closed 원칙, CLAUDE.md/architecture.md).
+if [ -f "$WORK/kiro-diff-truncated.flag" ]; then
+  # 두 경로를 구분한다(security-ops PR#8 리뷰 L5-MAJOR, diff 대조로 확인된 배너 부정확):
+  # kiro-lens-skipped.flag 가 있으면 최소 한 lens 의 Kiro 셀이 diff 를 전혀 못 봤다(cap
+  # 재트림 후에도 초과해 완전 skip) — "앞부분만 리뷰함" 은 그 경우 거짓이다.
+  if [ -f "$WORK/kiro-lens-skipped.flag" ]; then
+    KIRO_COVERAGE_DESC="적어도 한 lens 는 조립된 프롬프트가 KIRO_ARGV_CAP 을 초과해 Kiro 셀이 앞부분조차 못 보고 완전히 skip 됨"
+  else
+    KIRO_COVERAGE_DESC="diff 가 KIRO_DIFF_CAP 을 초과해 Kiro 셀은 앞부분만 리뷰함"
+  fi
+  # codex 커버리지 주장은 degraded-models.txt(전체 lens 기준) 로만 판별 가능 — codex 가
+  # "이번 실행 전체에서" degraded 인지는 정확히 알지만, "정확히 이 잘린 lens 에서" 응답했는지는
+  # 이 스크립트가 lens 단위로 추적하지 않아 확정할 수 없다(같은 리뷰, 부분 해소). 그 한계를
+  # 문구에 명시해 과대 서술을 피한다.
+  TAIL_COVERAGE="codex 가 이 실행에서 degraded 로 기록되지 않았다면 통상 전체 diff 를 봤겠으나, 이 문구는 실행 전체 기준이라 잘린 그 lens 에서의 codex 응답 여부까지는 확정하지 않음 — 뒷부분 이슈는 최선의 경우에도 codex 단일 벤더 커버리지."
+  if [ -s "$WORK/degraded-models.txt" ] && grep -qx codex "$WORK/degraded-models.txt"; then
+    TAIL_COVERAGE="codex 도 이 실행에서 degraded — diff 뒷부분(cap 이후)을 어떤 모델도 보지 않았을 수 있음."
+  fi
+  if grep -q '^VERDICT:' "$OUT"; then
+    TAC_TMP="$(tac "$OUT" | sed '0,/^VERDICT:/d' | tac)"
+    printf '%s\n' "$TAC_TMP" > "$OUT"
+  fi
+  {
+    echo "🛑 **Kiro diff truncated — 강제 FAIL**: $KIRO_COVERAGE_DESC(run-panel.sh 가 KIRO_DIFF_CAP/KIRO_ARGV_CAP 둘 중 어느 쪽이든 이 플래그를 남김) — $TAIL_COVERAGE cap 이후 구간은 살아남은 벤더가 1개 이하인 것과 동등해 lens×model 교차확인이 성립하지 않으므로, PR 작성자가 diff 크기로 리뷰를 회피하지 못하도록 체어의 판정과 무관하게 fail-closed."
+    echo ""
+    cat "$OUT"
+    echo ""
+    echo "VERDICT: FAIL"
   } > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
 fi
 
