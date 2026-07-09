@@ -97,7 +97,18 @@ scrub_known_credential_formats() {
     }
     /^[ +-]?-----BEGIN [A-Z ]*PRIVATE KEY-----/ { print "[REDACTED-PRIVATE-KEY]"; skip = 1; next }
     skip && /^[ +-]?-----END [A-Z ]*PRIVATE KEY-----/ { skip = 0; next }
-    skip { next }
+    skip {
+      # 실제 PEM 본문은 base64(alphanumeric + '+', '/', '=')만 담는다 — 이 검증이
+      # 없으면 attacker 가 유효한(=matching END 있는) 가짜 BEGIN/END PRIVATE KEY 쌍으로
+      # *임의의* hunk 내용을 감싸 codex/Kiro/chair 전원에게서 동시에 숨길 수 있었다
+      # (round 14 리뷰 MAJOR — 2벤더 독립 수렴 + chair 로직 추적 CONFIRMED; round 13의
+      # hunk-경계 리셋은 *unterminated* 케이스만 막았을 뿐, well-formed 가짜 블록은
+      # 그대로 통과). 이 줄이 base64 모양이 아니면 즉시 skip 해제하고 원문 그대로
+      # 출력 — 진짜 PEM 이 아니라고 판단해 redaction 을 취소한다.
+      line = $0; sub(/^[ +-]/, "", line)
+      if (line !~ /^[A-Za-z0-9+\/=]*$/) { skip = 0; print; next }
+      next
+    }
     { print }
     END { if (skip) print "[REDACTED-UNTERMINATED-PEM-BLOCK]" }
   ' | sed -E \

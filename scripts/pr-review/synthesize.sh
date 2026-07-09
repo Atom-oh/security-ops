@@ -97,9 +97,14 @@ PROMPT_EOF
 # 적용해 대칭을 맞춘다. 위 SYNTH_NONCE 로 실제 fence — round 13 리뷰 전까지 프롬프트는
 # "per-run random-nonce fence" 라고 주장하면서 실제로는 고정 문자열 마커를 썼다(서술-
 # 동작 불일치). 지금은 프롬프트가 인용하는 마커와 여기서 실제로 쓰는 마커가 같다.
+SYNTH_DIFF_SCRUBBED="$(scrub_known_credential_formats < "$DIFF")"
+# run-panel.sh 의 동일 fail-closed 가드를 여기도 대칭 적용(round 14 리뷰 MINOR) — scrub
+# 파이프라인이 예기치 않게 빈 출력을 내면 체어가 빈 diff 를 "리뷰"하고도 정상 종합으로
+# 집계될 수 있다.
+[ -n "$SYNTH_DIFF_SCRUBBED" ] || { echo "synthesize.sh: scrub_known_credential_formats produced empty output for a non-empty diff -- failing closed" >&2; exit 1; }
 {
   echo "===BEGIN-DIFF-${SYNTH_NONCE}==="
-  scrub_known_credential_formats < "$DIFF"
+  printf '%s\n' "$SYNTH_DIFF_SCRUBBED"
   echo "===END-DIFF-${SYNTH_NONCE}==="
   echo ""
   echo "===BEGIN-PANEL-${SYNTH_NONCE}==="
