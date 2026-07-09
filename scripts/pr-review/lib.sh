@@ -82,8 +82,19 @@ scrub_known_credential_formats() {
   # context 줄은 ` -----BEGIN...`(공백 접두)로 렌더돼 어느 것도 `^-----`에 매치 안 됨
   # (round 12 리뷰 L2 MAJOR — diff 대조로 CONFIRMED, sed 규칙들은 앵커가 없어 이 결함이
   # 없었다). optional 문자 클래스 하나로 네 가지 경우(무접두/공백/plus/minus) 모두 커버.
+  # hunk/file 경계에서 skip 리셋(round 13 리뷰 MAJOR): diff 입력에 이 함수를 적용하기
+  # 시작하면서, END 를 못 만난 BEGIN(hunk 경계 밖에서 잘렸거나 diff-injection 이 일부러
+  # 심은 가짜 BEGIN)이 EOF 까지 나머지 전체를 삼켜 diff tail 전체가 모든 리뷰어(codex/
+  # Kiro/chair)에게서 사라지는 false-coverage 를 만들 수 있었다 — 스크럽 자체가 새로운
+  # diff-숨김 벡터가 된 것. 실제 PEM 본문은 base64 문자만 담으므로 unified diff 구조선
+  # (`diff --git`/`---`/`+++`/`@@`)을 만나면 그 즉시 skip 을 강제 해제해, swallow 를
+  # 최대 한 hunk 안으로 bound 한다.
   awk '
     BEGIN { skip = 0 }
+    /^(diff --git |--- |\+\+\+ |@@ )/ {
+      if (skip) { print "[REDACTED-UNTERMINATED-PEM-BLOCK]"; skip = 0 }
+      print; next
+    }
     /^[ +-]?-----BEGIN [A-Z ]*PRIVATE KEY-----/ { print "[REDACTED-PRIVATE-KEY]"; skip = 1; next }
     skip && /^[ +-]?-----END [A-Z ]*PRIVATE KEY-----/ { skip = 0; next }
     skip { next }
