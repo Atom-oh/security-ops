@@ -167,7 +167,7 @@ if [ -f "$WORK/kiro-diff-truncated.flag" ]; then
     printf '%s\n' "$TAC_TMP" > "$OUT"
   fi
   {
-    echo "🛑 **Kiro diff truncated — 강제 FAIL**: diff 가 KIRO_DIFF_CAP 을 초과해 Kiro 셀은 앞부분만 리뷰함 — $TAIL_COVERAGE cap 이후 구간은 살아남은 벤더가 1개 이하인 것과 동등해 lens×model 교차확인이 성립하지 않으므로, PR 작성자가 diff 크기로 리뷰를 회피하지 못하도록 체어의 판정과 무관하게 fail-closed."
+    echo "🛑 **Kiro diff truncated — 강제 FAIL**: diff 가 KIRO_DIFF_CAP 또는 조립된 프롬프트가 KIRO_ARGV_CAP 을 초과해 Kiro 셀은 앞부분만 리뷰함(run-panel.sh 가 둘 중 어느 쪽이든 이 플래그를 남김) — $TAIL_COVERAGE cap 이후 구간은 살아남은 벤더가 1개 이하인 것과 동등해 lens×model 교차확인이 성립하지 않으므로, PR 작성자가 diff 크기로 리뷰를 회피하지 못하도록 체어의 판정과 무관하게 fail-closed."
     echo ""
     cat "$OUT"
     echo ""
