@@ -82,13 +82,16 @@ scrub_known_credential_formats() {
   # context 줄은 ` -----BEGIN...`(공백 접두)로 렌더돼 어느 것도 `^-----`에 매치 안 됨
   # (round 12 리뷰 L2 MAJOR — diff 대조로 CONFIRMED, sed 규칙들은 앵커가 없어 이 결함이
   # 없었다). optional 문자 클래스 하나로 네 가지 경우(무접두/공백/plus/minus) 모두 커버.
-  # hunk/file 경계에서 skip 리셋(round 13 리뷰 MAJOR): diff 입력에 이 함수를 적용하기
-  # 시작하면서, END 를 못 만난 BEGIN(hunk 경계 밖에서 잘렸거나 diff-injection 이 일부러
-  # 심은 가짜 BEGIN)이 EOF 까지 나머지 전체를 삼켜 diff tail 전체가 모든 리뷰어(codex/
-  # Kiro/chair)에게서 사라지는 false-coverage 를 만들 수 있었다 — 스크럽 자체가 새로운
-  # diff-숨김 벡터가 된 것. 실제 PEM 본문은 base64 문자만 담으므로 unified diff 구조선
-  # (`diff --git`/`---`/`+++`/`@@`)을 만나면 그 즉시 skip 을 강제 해제해, swallow 를
-  # 최대 한 hunk 안으로 bound 한다.
+  # hunk/file 경계·EOF 에서도 buf 를 원문 그대로 flush(round 16 리뷰 MAJOR — round 13/15
+  # 는 여기서 `[REDACTED-UNTERMINATED-PEM-BLOCK]` 를 찍고 buf 를 버렸는데, 이는 mid-stream
+  # 에서 non-base64 라인을 만났을 때 buf 를 복원하는 동작과 **비대칭**이었다: 결과적으로
+  # "END 를 못 찾은 채 경계/EOF 에 닿은 경우"만 정상 diff 내용을 아무 신호 없이 삭제하는
+  # 코드였다(다벤더 독립 수렴 CONFIRMED). 미종료 블록은 진짜 PEM 인지 끝까지 확인 못했다는
+  # 뜻일 뿐 "가짜"라고 확정된 것도 아니므로, 판정 불능 상태에서는 데이터를 지우기보다
+  # 그대로 보존하는 쪽이 이 스크립트의 우선순위(coverage > redaction, last-line-of-defense
+  # 는 예방이 아니라는 파일 상단 원칙)에 맞다 — 실제로 여기서 잘리는 것이 진짜 키일 확률은
+  # 극히 낮고(멀티-hunk 파일에서 키 본문이 정확히 hunk 경계에서 쪼개져야 함), 설령 잘려도
+  # 그 diff 는 이미 PR 자체에 평문으로 존재해 리뷰어들에게 새로운 노출이 아니다.
   # BEGIN 후 즉시 치환하지 않고 버퍼링(round 15 리뷰 — round 14 의 base64 검증이 두
   # 갈래로 잘못됐던 것을 근본 수정): (1) BEGIN 라인을 만나는 즉시 `[REDACTED-...]`를
   # 출력해버리면, 나중에 non-base64 라인으로 "가짜 블록"이라 판정해도 이미 출력된
@@ -100,11 +103,12 @@ scrub_known_credential_formats() {
   # MAJOR — 이 스크럽이 막으려는 바로 그 케이스). 이제 BEGIN 부터의 후보 블록 전체를
   # `buf` 에 모으고, valid END 를 만나야만 그 전체를 `[REDACTED-PRIVATE-KEY]` 한 줄로
   # 치환·출력한다. base64 도 armor 헤더(`Key: Value`)도 아닌 줄을 만나거나 hunk/file
-  # 경계에 닿으면 "진짜 PEM 이 아니었다"고 판단해 버퍼를 원문 그대로 flush.
+  # 경계·EOF 에 닿으면 "확정 못함"으로 판단해 버퍼를 원문 그대로 flush(위 세 종료 경로
+  # 모두 동일하게 처리 — 비대칭 없음).
   awk '
     BEGIN { skip = 0; buf = "" }
     /^(diff --git |--- |\+\+\+ |@@ )/ {
-      if (skip) { print "[REDACTED-UNTERMINATED-PEM-BLOCK]"; skip = 0; buf = "" }
+      if (skip) { printf "%s", buf; skip = 0; buf = "" }
       print; next
     }
     /^[ +-]?-----BEGIN [A-Z ]*PRIVATE KEY-----/ { skip = 1; buf = $0 "\n"; next }
@@ -118,7 +122,7 @@ scrub_known_credential_formats() {
       printf "%s", buf; skip = 0; buf = ""
     }
     { print }
-    END { if (skip) print "[REDACTED-UNTERMINATED-PEM-BLOCK]" }
+    END { if (skip) printf "%s", buf }
   ' | sed -E \
     -e 's/A(KIA|SIA)[0-9A-Z]{16}/[REDACTED-AWS-KEY]/g' \
     -e 's/gh[pousr]_[A-Za-z0-9]{30,}/[REDACTED-GH-TOKEN]/g' \
