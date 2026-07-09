@@ -97,7 +97,13 @@ PROMPT_EOF
 # 적용해 대칭을 맞춘다. 위 SYNTH_NONCE 로 실제 fence — round 13 리뷰 전까지 프롬프트는
 # "per-run random-nonce fence" 라고 주장하면서 실제로는 고정 문자열 마커를 썼다(서술-
 # 동작 불일치). 지금은 프롬프트가 인용하는 마커와 여기서 실제로 쓰는 마커가 같다.
-SYNTH_DIFF_SCRUBBED="$(scrub_known_credential_formats < "$DIFF")"
+# run-panel.sh 와 동일하게 대입문의 실제 종료 코드를 명시적으로 검사(round 15 리뷰
+# MAJOR — 이 스크립트는 set -e 이긴 하나, `if !` 형태로 명시하는 게 subshell/pipefail
+# 상호작용의 미묘한 케이스에 덜 의존적이라 run-panel.sh 와 동일 패턴으로 통일).
+if ! SYNTH_DIFF_SCRUBBED="$(scrub_known_credential_formats < "$DIFF")"; then
+  echo "synthesize.sh: scrub_known_credential_formats exited non-zero -- failing closed" >&2
+  exit 1
+fi
 # run-panel.sh 의 동일 fail-closed 가드를 여기도 대칭 적용(round 14 리뷰 MINOR) — scrub
 # 파이프라인이 예기치 않게 빈 출력을 내면 체어가 빈 diff 를 "리뷰"하고도 정상 종합으로
 # 집계될 수 있다.
@@ -189,12 +195,14 @@ if [ -f "$WORK/kiro-diff-truncated.flag" ]; then
   if grep -qx "codex" "$WORK/degraded-models.txt" 2>/dev/null; then
     KIRO_TRUNC_MSG="✂️ **Kiro diff truncated**: diff 가 KIRO_DIFF_CAP 을 초과해 Kiro 셀은 앞부분만 리뷰함 — codex 도 이번 실행에서 응답 없이 빠졌으므로(아래 커버리지 저하 배너 참조) 뒷부분 이슈에 대한 벤더 커버리지가 전혀 없음."
   elif [ -s "$WORK/lens-coverage-gap.txt" ]; then
-    # codex 가 모델 전체로는 degraded 가 아니지만(전체 lens 무응답은 아님) 특정 lens 하나
-    # 에서만 응답 없었을 수 있다 — 그 lens 가 하필 Kiro truncation 과 겹치면 "codex 단일
-    # 벤더 커버리지"라는 단정이 그 lens 에 대해 거짓이 된다(round 10 리뷰 L5 MAJOR).
-    # 이미 위 coverage-severe 배너로 강제 FAIL 되므로 VERDICT 안전성엔 영향 없지만,
-    # 문구를 lens 마다 다를 수 있다고 정확히 hedge 한다.
-    KIRO_TRUNC_MSG="✂️ **Kiro diff truncated**: diff 가 KIRO_DIFF_CAP 을 초과해 Kiro 셀은 앞부분만 리뷰함 — 이번 실행에서 최소 한 lens 는 codex 도 응답하지 않았음(위 커버리지 붕괴 배너 참조), 그 lens 에서는 뒷부분 이슈에 대한 벤더 커버리지가 아예 없을 수 있음. lens 마다 다를 수 있어 일괄 \"codex 단일 벤더 커버리지\"로 단정하지 않음."
+    # `lens-coverage-gap.txt` 는 `lens_codex_ok==0 || lens_kiro_ok==0` 어느 쪽이든 같은
+    # 파일에 기록된다(run-panel.sh) — 즉 codex 가 모델 전체로는 안 죽었어도(전체 lens
+    # 무응답은 아님) 이 파일이 존재한다는 사실만으로 "codex 도 특정 lens 에서 응답
+    # 안 했다"고 단정할 수 없다: Kiro 쪽 gap 만으로도 같은 파일이 생긴다(round 15 리뷰
+    # L5 MINOR — 이전 문구가 codex 쪽으로 단정해 Kiro-only gap 케이스에서 거짓이 될 수
+    # 있었음). 이미 위 coverage-severe 배너로 강제 FAIL 되므로 VERDICT 안전성엔 영향
+    # 없지만, 어느 벤더 쪽 gap 인지는 이 파일만으로 알 수 없으므로 문구를 중립화한다.
+    KIRO_TRUNC_MSG="✂️ **Kiro diff truncated**: diff 가 KIRO_DIFF_CAP 을 초과해 Kiro 셀은 앞부분만 리뷰함 — 이번 실행에서 최소 한 lens 는 codex 또는 Kiro 중 한쪽이 응답하지 않았음(위 커버리지 붕괴 배너 참조), 그 lens 에서는 뒷부분 이슈에 대한 벤더 커버리지가 아예 없을 수 있음. 어느 쪽인지는 lens 마다 다를 수 있어 일괄 \"codex 단일 벤더 커버리지\"로 단정하지 않음."
   else
     KIRO_TRUNC_MSG="✂️ **Kiro diff truncated**: diff 가 KIRO_DIFF_CAP 을 초과해 Kiro 셀은 앞부분만 리뷰함 — codex 는 이 스크립트에 전달된 전체 diff(스크럽·fence 적용본)를 캡 없이 stdin 으로 봤으므로 그 안에서는 뒷부분 이슈도 codex 단일 벤더 커버리지."
   fi

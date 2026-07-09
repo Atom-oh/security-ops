@@ -89,25 +89,33 @@ scrub_known_credential_formats() {
   # diff-숨김 벡터가 된 것. 실제 PEM 본문은 base64 문자만 담으므로 unified diff 구조선
   # (`diff --git`/`---`/`+++`/`@@`)을 만나면 그 즉시 skip 을 강제 해제해, swallow 를
   # 최대 한 hunk 안으로 bound 한다.
+  # BEGIN 후 즉시 치환하지 않고 버퍼링(round 15 리뷰 — round 14 의 base64 검증이 두
+  # 갈래로 잘못됐던 것을 근본 수정): (1) BEGIN 라인을 만나는 즉시 `[REDACTED-...]`를
+  # 출력해버리면, 나중에 non-base64 라인으로 "가짜 블록"이라 판정해도 이미 출력된
+  # redaction 라인과 그 사이 삼켜진 라인들을 복원할 수 없어 정상 diff 내용이 그냥
+  # 사라졌다(false-positive 취소 시 라인 소실, MAJOR). (2) base64 전용 검증은 RFC 1421
+  # armor 헤더(`Proc-Type:`/`DEK-Info:` 같은 `Key: Value` 줄, 암호화된 PEM 이 BEGIN
+  # 직후 반드시 넣는 줄)를 non-base64 로 오판해, **실제 암호화 private key** 가 스크럽을
+  # 그대로 우회해 codex/Kiro/chair 를 거쳐 공개 코멘트까지 흐를 수 있었다(false-negative,
+  # MAJOR — 이 스크럽이 막으려는 바로 그 케이스). 이제 BEGIN 부터의 후보 블록 전체를
+  # `buf` 에 모으고, valid END 를 만나야만 그 전체를 `[REDACTED-PRIVATE-KEY]` 한 줄로
+  # 치환·출력한다. base64 도 armor 헤더(`Key: Value`)도 아닌 줄을 만나거나 hunk/file
+  # 경계에 닿으면 "진짜 PEM 이 아니었다"고 판단해 버퍼를 원문 그대로 flush.
   awk '
-    BEGIN { skip = 0 }
+    BEGIN { skip = 0; buf = "" }
     /^(diff --git |--- |\+\+\+ |@@ )/ {
-      if (skip) { print "[REDACTED-UNTERMINATED-PEM-BLOCK]"; skip = 0 }
+      if (skip) { print "[REDACTED-UNTERMINATED-PEM-BLOCK]"; skip = 0; buf = "" }
       print; next
     }
-    /^[ +-]?-----BEGIN [A-Z ]*PRIVATE KEY-----/ { print "[REDACTED-PRIVATE-KEY]"; skip = 1; next }
-    skip && /^[ +-]?-----END [A-Z ]*PRIVATE KEY-----/ { skip = 0; next }
+    /^[ +-]?-----BEGIN [A-Z ]*PRIVATE KEY-----/ { skip = 1; buf = $0 "\n"; next }
+    skip && /^[ +-]?-----END [A-Z ]*PRIVATE KEY-----/ { print "[REDACTED-PRIVATE-KEY]"; skip = 0; buf = ""; next }
     skip {
-      # 실제 PEM 본문은 base64(alphanumeric + '+', '/', '=')만 담는다 — 이 검증이
-      # 없으면 attacker 가 유효한(=matching END 있는) 가짜 BEGIN/END PRIVATE KEY 쌍으로
-      # *임의의* hunk 내용을 감싸 codex/Kiro/chair 전원에게서 동시에 숨길 수 있었다
-      # (round 14 리뷰 MAJOR — 2벤더 독립 수렴 + chair 로직 추적 CONFIRMED; round 13의
-      # hunk-경계 리셋은 *unterminated* 케이스만 막았을 뿐, well-formed 가짜 블록은
-      # 그대로 통과). 이 줄이 base64 모양이 아니면 즉시 skip 해제하고 원문 그대로
-      # 출력 — 진짜 PEM 이 아니라고 판단해 redaction 을 취소한다.
-      line = $0; sub(/^[ +-]/, "", line)
-      if (line !~ /^[A-Za-z0-9+\/=]*$/) { skip = 0; print; next }
-      next
+      content = $0; sub(/^[ +-]/, "", content)
+      if (content ~ /^[A-Za-z0-9+\/=]*$/ || content ~ /^[A-Za-z-]+:.*$/) { buf = buf $0 "\n"; next }
+      # base64 도 armor 헤더도 아님 — 진짜 PEM 이 아니라고 판단, 버퍼를 원문 그대로
+      # 복원(false positive 취소). next 를 호출하지 않아 아래 무조건 { print } 로
+      # 이어져 이번 줄도 정상 출력된다.
+      printf "%s", buf; skip = 0; buf = ""
     }
     { print }
     END { if (skip) print "[REDACTED-UNTERMINATED-PEM-BLOCK]" }

@@ -206,11 +206,20 @@ fi
 # 수 있고, scrub 은 `[REDACTED]`로 치환하며 원문보다 길어질 수 있어(예: 8자리 값 →
 # 10자 `[REDACTED]`) cap 을 먼저 재는 게 애초에 부정확했다 — scrub 후 실제 바이트
 # 길이 기준으로 cap 해야 조립된 argv 가 진짜로 `KIRO_DIFF_CAP` 이하임을 보장한다.
-KIRO_DIFF_SCRUBBED="$(scrub_known_credential_formats < "$DIFF")"
-# fail-fast — 스크립트는 set -uo pipefail 이지 set -e 는 아니므로, scrub 파이프라인
-# (awk|sed)이 예기치 않게 빈/부분 출력을 내도 조용히 진행돼 codex/Kiro 셀이 빈 fenced
-# diff 를 "리뷰"하고 false coverage 로 집계될 수 있다(round 11 리뷰 MAJOR). $DIFF 는
-# 이미 non-empty 임이 사실상 보장되므로(realpath 실패 시 스크립트 상단에서 이미
+# fail-fast — 스크립트는 set -uo pipefail 이지 set -e 는 아니므로, `VAR="$(...)"` 대입문
+# 자체는 그 안의 파이프라인이 non-zero 로 끝나도 스크립트를 중단시키지 않는다(pipefail 은
+# `$?` 값에는 반영되지만, set -e 없이는 대입문에서 그 값을 그냥 버린다) — round 15 리뷰
+# MAJOR: awk|sed 가 partial output(완전 empty 가 아닌 일부 성공)을 내는 실패 모드는 아래
+# non-empty 가드를 통과해버려 잘린 diff 가 정상 커버리지로 집계될 수 있었다. `if ! VAR=
+# "$(...)"; then` 형태로 대입문의 실제 종료 코드를 명시적으로 검사한다.
+if ! KIRO_DIFF_SCRUBBED="$(scrub_known_credential_formats < "$DIFF")"; then
+  echo "run-panel.sh: scrub_known_credential_formats exited non-zero -- failing closed" >&2
+  exit 1
+fi
+# fail-fast(빈 출력) — scrub 파이프라인이 exit 0 이면서도 예기치 않게 빈 출력을 내도
+# 조용히 진행돼 codex/Kiro 셀이 빈 fenced diff 를 "리뷰"하고 false coverage 로 집계될
+# 수 있다(round 11 리뷰 MAJOR). $DIFF 는 이미 non-empty 임이 사실상 보장되므로(realpath
+# 실패 시 스크립트 상단에서 이미
 # exit), scrub 후 완전히 비면 스크럽 단계 자체의 결함으로 보고 fail-closed.
 [ -n "$KIRO_DIFF_SCRUBBED" ] || { echo "run-panel.sh: scrub_known_credential_formats produced empty output for a non-empty diff -- failing closed" >&2; exit 1; }
 KIRO_DIFF_SCRUBBED_LEN="$(printf '%s' "$KIRO_DIFF_SCRUBBED" | wc -c)"
