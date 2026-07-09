@@ -104,11 +104,11 @@ chair_label() { case "$1" in
   *)          echo "$1" ;;
 esac ; }
 
-run_chair() {  # $1=model → "$OUT" 에 기록. claude 실패해도 || true 로 계속.
+run_chair() {  # $1=model → "$OUT" 에 기록(scrub 통과). claude 실패해도 || true 로 계속.
   # argv(-p) 는 고정 지시문만(작고 상한 없음) — diff+패널(가변, 큼)은 stdin.
   ANTHROPIC_MODEL="$1" timeout "$CHAIR_TIMEOUT" \
     claude -p "$(cat "$WORK/synth-prompt.txt")" --output-format text \
-    < "$WORK/synth-stdin.txt" > "$OUT" 2>"$WORK/chair.err" || true
+    < "$WORK/synth-stdin.txt" 2>"$WORK/chair.err" | scrub_secrets > "$OUT" || true
 }
 
 # 요구사항: 마지막 non-empty 줄이 정확히 VERDICT: PASS 또는 VERDICT: FAIL.
@@ -143,14 +143,29 @@ if [ -s "$WORK/degraded-models.txt" ]; then
   } > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
 fi
 
-# Kiro diff truncation 가시화 — 대형 diff 는 run-panel.sh 의 KIRO_DIFF_CAP 을 넘으면 Kiro
-# 셀에 prefix 만 전달된다(argv 커널 한도 회피, 의도된 트레이드오프). truncation 은 VERDICT
-# 를 강제하진 않되(codex 는 여전히 전체 diff 를 봄) 신호 없이 넘기면 "Kiro 셀이 diff 뒷부분은
-# 못 본 채 정상 응답으로 집계됐다"는 사실이 리뷰에서 안 보인다.
+# Kiro diff truncation → fail-closed(CRITICAL, security-ops PR#8 리뷰 L4). 대형 diff 는
+# run-panel.sh 의 KIRO_DIFF_CAP/KIRO_ARGV_CAP 을 넘으면 Kiro 3개 모델 전부 prefix 만
+# 보고, cap 이후 구간은 codex 단독(살아있다면) 커버리지가 된다 — 이전 리비전은 soft 배너만
+# 붙이고 VERDICT 는 체어 판단에 맡겼는데, PR 작성자가 diff 크기를 통제할 수 있으므로 무해한
+# 변경으로 패딩한 뒤 악성 hunk 를 cap 뒤에 배치하면 cross-vendor consensus 를 구조적으로
+# 회피할 수 있었다. cap 이후 구간은 "살아남은 벤더 ≤1"과 동일한 조건이므로
+# coverage-severe.flag 와 동일하게 fail-closed 취급한다(이 platform 의 defensive-only/
+# fail-closed 원칙, CLAUDE.md/architecture.md).
 if [ -f "$WORK/kiro-diff-truncated.flag" ]; then
-  { echo "✂️ **Kiro diff truncated**: diff 가 KIRO_DIFF_CAP 을 초과해 Kiro 셀은 앞부분만 리뷰함 — codex 는 전체 diff 를 봤으므로 뒷부분 이슈는 codex 단일 벤더 커버리지."
+  TAIL_COVERAGE="codex 는 전체 diff 를 봤으므로 뒷부분 이슈는 codex 단일 벤더 커버리지."
+  if [ -s "$WORK/degraded-models.txt" ] && grep -qx codex "$WORK/degraded-models.txt"; then
+    TAIL_COVERAGE="codex 도 이 실행에서 degraded — diff 뒷부분(cap 이후)을 어떤 모델도 보지 않았을 수 있음."
+  fi
+  if grep -q '^VERDICT:' "$OUT"; then
+    TAC_TMP="$(tac "$OUT" | sed '0,/^VERDICT:/d' | tac)"
+    printf '%s\n' "$TAC_TMP" > "$OUT"
+  fi
+  {
+    echo "🛑 **Kiro diff truncated — 강제 FAIL**: diff 가 KIRO_DIFF_CAP 을 초과해 Kiro 셀은 앞부분만 리뷰함 — $TAIL_COVERAGE cap 이후 구간은 살아남은 벤더가 1개 이하인 것과 동등해 lens×model 교차확인이 성립하지 않으므로, PR 작성자가 diff 크기로 리뷰를 회피하지 못하도록 체어의 판정과 무관하게 fail-closed."
     echo ""
     cat "$OUT"
+    echo ""
+    echo "VERDICT: FAIL"
   } > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
 fi
 
