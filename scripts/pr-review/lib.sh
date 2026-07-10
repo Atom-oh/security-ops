@@ -60,12 +60,16 @@ record_result() {
 # 텍스트라 diff 에 이미 있던 게 아니므로 `[REDACTED-UNTERMINATED-PEM-BLOCK]` 로 유지
 # (fail-closed).
 #
-# END 매치 시 치환 라인은 원래 END 라인의 diff prefix(`+`/`-`)를 보존한다(security-ops
-# PR#9 리뷰 L2-MAJOR) — bare `[REDACTED-PRIVATE-KEY]` 로만 찍으면 "이 PR 이 키를 추가했다
-# (critical) vs 삭제했다(무해)"는 unified-diff 구조 자체가 사라진다. 이미 `skip` 상태에서
-# 또 BEGIN 라인을 만나면(중첩/재시작) 먼저 이전 buf 를 mode 규칙대로 flush 하고 새 블록을
-# 시작한다 — 안 그러면 `buf = $0 "\n"` 가 이전 버퍼를 덮어써 원문 복원 없이 첫 블록이
-# 사라진다(PR#9 리뷰 L2-MINOR).
+# END 매치 시 치환 라인은 원래 END 라인의 diff prefix(`+`/`-`/공백)를 보존한다(security-ops
+# PR#9 라운드1 리뷰 L2-MAJOR) — bare `[REDACTED-PRIVATE-KEY]` 로만 찍으면 "이 PR 이 키를
+# 추가했다(critical) vs 삭제했다(무해)"는 unified-diff 구조 자체가 사라진다. 이미 `skip`
+# 상태에서 또 BEGIN 라인을 만나면(중첩/재시작) 먼저 이전 buf 를 mode 규칙대로 flush 하고
+# 새 블록을 시작한다 — 안 그러면 `buf = $0 "\n"` 가 이전 버퍼를 덮어써 원문 복원 없이 첫
+# 블록이 사라진다(PR#9 라운드1 리뷰 L2-MINOR). invalid-line(가짜 블록 판정) 분기도 mode 를
+# 따른다 — redact 모드에서 이 분기가 mode 무관하게 버퍼를 원문 flush 하면, 모델이 생성한
+# 셀 출력에 진짜 base64 키 본문을 담은 미종료-처럼-보이는 블록이 있을 때 그 키가 공개 PR
+# 코멘트로 그대로 흘러나간다 — redact 모드의 "미종료 = fail-closed" 계약을 깨는 회귀였다
+# (PR#9 라운드2 리뷰 L2-MAJOR, diff 대조로 confirmed).
 scrub_known_credential_formats() {
   local mode="${1:-flush}"
   awk -v mode="$mode" '
@@ -82,13 +86,14 @@ scrub_known_credential_formats() {
       skip = 1; buf = $0 "\n"; next
     }
     skip && /^[ +-]?-----END [A-Z ]*PRIVATE KEY-----/ {
-      marker = ""; if ($0 ~ /^[+-]/) marker = substr($0, 1, 1)
+      marker = ""; if ($0 ~ /^[ +-]/) marker = substr($0, 1, 1)
       print marker "[REDACTED-PRIVATE-KEY]"; skip = 0; buf = ""; next
     }
     skip {
       content = $0; sub(/^[ +-]/, "", content)
       if (content ~ /^[A-Za-z0-9+\/=]*$/ || content ~ /^[A-Za-z-]+:.*$/) { buf = buf $0 "\n"; next }
-      printf "%s", buf; skip = 0; buf = ""
+      if (mode == "redact") { print "[REDACTED-UNTERMINATED-PEM-BLOCK]" } else { printf "%s", buf }
+      skip = 0; buf = ""
     }
     { print }
     END {
