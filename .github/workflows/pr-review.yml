@@ -90,6 +90,7 @@ jobs:
           # 12000 lines fits comfortably inside the panel/chair model windows (Opus ≈1M tok),
           # so normal PRs are reviewed whole; only a genuinely huge diff truncates → fail-closed.
           MAX_LINES=12000
+          echo "max_lines=$MAX_LINES" >> "$GITHUB_ENV"
           head -"$MAX_LINES" /tmp/pr-diff.txt > /tmp/pr-diff-truncated.txt
 
           # The PR diff is ATTACKER-CONTROLLED data. Per this platform's own rule, wrap it in a
@@ -228,7 +229,7 @@ jobs:
             echo "## 🤖 AI Code Review (${chair_used:-Claude Fable 5} chair · lens×model matrix)"
             echo ""
             echo "_Panel: Claude(chair) · ${panel_responded:-solo}_"
-            [ "${panel_truncated:-0}" = "1" ] && echo "_⚠️ diff truncated to first 3000 lines — review is partial._"
+            [ "${panel_truncated:-0}" = "1" ] && echo "_⚠️ diff truncated to first ${max_lines:-12000} lines — review is partial._"
             echo ""
             echo "$STATUS_BADGE"
             echo ""
