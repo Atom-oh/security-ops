@@ -175,9 +175,8 @@ if ! DIFF_SCRUBBED_TMP="$(scrub_known_credential_formats < "$DIFF")"; then
   exit 1
 fi
 [ -n "$DIFF_SCRUBBED_TMP" ] || { echo "run-panel.sh: scrub_known_credential_formats produced empty output for a non-empty diff -- failing closed" >&2; exit 1; }
-DIFF_RAW="$DIFF"
 DIFF="$WORK/diff-scrubbed.txt"
-printf '%s' "$DIFF_SCRUBBED_TMP" > "$DIFF"
+printf '%s\n' "$DIFF_SCRUBBED_TMP" > "$DIFF"
 unset DIFF_SCRUBBED_TMP
 # 스크럽 후 재측정 — redaction 치환으로 길이가 바뀔 수 있어(예: 8자리 값 → 10자
 # `[REDACTED]`), 아래 fence-byte-length 계산과 truncation 판정은 실제로 쓰일 스크럽본

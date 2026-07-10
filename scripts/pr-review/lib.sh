@@ -36,11 +36,11 @@ record_result() {
 
 # 알려진 크리덴셜 포맷(AWS/GitHub/Slack/OpenAI·Anthropic/Google 키, JWT, PEM, AWS secret/
 # session token)만 치환 — `key=value` 제네릭 룰은 **의도적으로 뺀다**. 이 함수는 diff
-# *입력* 스크럽(run-panel.sh 가 직접 호출, 인자 없음 → flush 모드)과 셀 *출력* 스크럽
-# (`scrub_secrets()` 경유, "redact" 모드) 둘 다에 쓰인다 — 그 제네릭 룰을 입력에 그대로
-# 쓰면 8자 이상 아무 값이나 `api_key=`/`token=`/`secret=` 류 변수명과 같이 있으면
-# 매치해, 정상 코드의 테스트 fixture·mock 인증값까지 `[REDACTED]`로 치환해 리뷰 대상
-# 코드 자체를 훼손한다.
+# *입력* 스크럽(run-panel.sh 와 synthesize.sh 가 직접 호출, 인자 없음 → flush 모드)과 셀
+# *출력* 스크럽(`scrub_secrets()` 경유, "redact" 모드) 둘 다에 쓰인다 — 그 제네릭 룰을
+# 입력에 그대로 쓰면 8자 이상 아무 값이나 `api_key=`/`token=`/`secret=` 류 변수명과 같이
+# 있으면 매치해, 정상 코드의 테스트 fixture·mock 인증값까지 `[REDACTED]`로 치환해 리뷰
+# 대상 코드 자체를 훼손한다.
 #
 # PEM 은 BEGIN 만나는 즉시 치환하지 않고 버퍼링한 뒤, valid END 를 만나야만 그 전체를
 # `[REDACTED-PRIVATE-KEY]` 로 치환한다(즉시 치환 방식은 나중에 "가짜 블록"으로 판정돼도
@@ -59,6 +59,13 @@ record_result() {
 # 새 노출이 아니다. 셀 *출력*(mode=redact, `scrub_secrets()` 경유)에서는 모델이 생성한
 # 텍스트라 diff 에 이미 있던 게 아니므로 `[REDACTED-UNTERMINATED-PEM-BLOCK]` 로 유지
 # (fail-closed).
+#
+# END 매치 시 치환 라인은 원래 END 라인의 diff prefix(`+`/`-`)를 보존한다(security-ops
+# PR#9 리뷰 L2-MAJOR) — bare `[REDACTED-PRIVATE-KEY]` 로만 찍으면 "이 PR 이 키를 추가했다
+# (critical) vs 삭제했다(무해)"는 unified-diff 구조 자체가 사라진다. 이미 `skip` 상태에서
+# 또 BEGIN 라인을 만나면(중첩/재시작) 먼저 이전 buf 를 mode 규칙대로 flush 하고 새 블록을
+# 시작한다 — 안 그러면 `buf = $0 "\n"` 가 이전 버퍼를 덮어써 원문 복원 없이 첫 블록이
+# 사라진다(PR#9 리뷰 L2-MINOR).
 scrub_known_credential_formats() {
   local mode="${1:-flush}"
   awk -v mode="$mode" '
@@ -70,8 +77,14 @@ scrub_known_credential_formats() {
       }
       print; next
     }
-    /^[ +-]?-----BEGIN [A-Z ]*PRIVATE KEY-----/ { skip = 1; buf = $0 "\n"; next }
-    skip && /^[ +-]?-----END [A-Z ]*PRIVATE KEY-----/ { print "[REDACTED-PRIVATE-KEY]"; skip = 0; buf = ""; next }
+    /^[ +-]?-----BEGIN [A-Z ]*PRIVATE KEY-----/ {
+      if (skip) { if (mode == "redact") { print "[REDACTED-UNTERMINATED-PEM-BLOCK]" } else { printf "%s", buf } }
+      skip = 1; buf = $0 "\n"; next
+    }
+    skip && /^[ +-]?-----END [A-Z ]*PRIVATE KEY-----/ {
+      marker = ""; if ($0 ~ /^[+-]/) marker = substr($0, 1, 1)
+      print marker "[REDACTED-PRIVATE-KEY]"; skip = 0; buf = ""; next
+    }
     skip {
       content = $0; sub(/^[ +-]/, "", content)
       if (content ~ /^[A-Za-z0-9+\/=]*$/ || content ~ /^[A-Za-z-]+:.*$/) { buf = buf $0 "\n"; next }
