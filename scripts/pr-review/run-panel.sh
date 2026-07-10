@@ -50,16 +50,22 @@ if [ "${#LENS_FILES[@]}" -eq 0 ]; then
   exit 1
 fi
 
-# 한 셀을 최대 $RETRIES 회 실행 — 슬롯이 비면 재시도(transient). 백그라운드로 호출.
+# 한 셀을 최대 $RETRIES 회 실행 — 슬롯이 비거나 exit != 0 이면 재시도(transient). 백그라운드로
+# 호출. 마지막 시도의 exit code 를 "$slot.rc" 에 남겨 lib.sh 의 record_result() 가 "슬롯에
+# 뭔가 있지만 실제로는 실패한 실행"(non-zero exit + non-empty stdout, 예: 그럴듯한 "no
+# findings" 텍스트를 남기고 실패)을 응답으로 잘못 집계하지 않도록 한다 — 이전엔 `-s "$slot"`
+# 만 보고 판단해 이 클래스의 실패가 정상 커버리지로 조용히 섞였다(fleet 다른 repo들의
+# 표준 수정, 이 repo는 그동안 미적용).
 #   try_panel <slot> <err> <cmd...>   (stdin=$DIFF, stdout=slot, stderr=err)
 try_panel() {
   local slot="$1" err="$2"; shift 2
-  local a
+  local a rc=1
   for a in $(seq 1 "$RETRIES"); do
-    "$@" > "$slot" 2>"$err" < "$DIFF" || true
-    [ -s "$slot" ] && break
+    "$@" > "$slot" 2>"$err" < "$DIFF"; rc=$?
+    [ -s "$slot" ] && [ "$rc" -eq 0 ] && break
     [ "$a" -lt "$RETRIES" ] && echo "[retry $a/$RETRIES] $(basename "$slot" .md)" >&2
   done
+  echo "$rc" > "$slot.rc"
 }
 
 # Kiro 셀은 어떤 툴도 부여받지 않는다(`--trust-tools=`, 아래) — 이전 리비전은 `fs_read`를
@@ -92,6 +98,34 @@ kiro_env() {
   local cell_cwd="$1"; shift
   env -i PATH="$PATH" HOME="$cell_cwd" LANG="${LANG:-}" LC_ALL="${LC_ALL:-}" TMPDIR="${TMPDIR:-/tmp}" \
     ${KIRO_API_KEY:+KIRO_API_KEY="$KIRO_API_KEY"} "$@"
+}
+
+# codex 는 nonce-fence 된 untrusted diff 를 stdin 으로 소비하면서도 러너의 전체 env 를
+# 그대로 상속했다 — Kiro 는 `kiro_env()`로 `env -i` + allowlist(PATH/HOME/LANG/LC_ALL/
+# TMPDIR/KIRO_API_KEY)만 받는데 codex 는 `env AWS_REGION=... AWS_DEFAULT_REGION=...`로 그
+# 둘만 *추가* 했을 뿐 GH_TOKEN 등 잡의 다른 시크릿은 그대로 새어 들어갔다. diff-borne
+# 인젝션이 codex 를 "환경변수를 출력하라"에 넘기면 상속된 시크릿이 리뷰 출력 → 체어 종합 →
+# 공개 PR 코멘트로 유출될 수 있다. 이 워크플로 자체가 self-hosted 러너 IAM Instance
+# Profile(EC2 IMDS 경유, env 변수 의존 없음, OIDC role-assumption 없음 — .github/workflows/
+# pr-review.yml 헤더 주석 참조)로 Bedrock 인증하므로 `env -i` 로 안전하게 격리 가능함이
+# 가정이 아니라 이 repo 자신의 워크플로 파일로 확인됨.
+CODEX_HOME_BASE="$WORK/codex-home"
+[ -L "$CODEX_HOME_BASE" ] && { echo "run-panel.sh: \$CODEX_HOME_BASE is a symlink, refusing (TOCTOU guard)" >&2; exit 1; }
+rm -rf "$CODEX_HOME_BASE"; mkdir -p "$CODEX_HOME_BASE/.codex"
+if [ -f "$HOME/.codex/config.toml" ]; then
+  cp "$HOME/.codex/config.toml" "$CODEX_HOME_BASE/.codex/config.toml"
+else
+  # baked config 가 예상 경로에 없으면 격리를 풀지 않는다(실 $HOME 폴백은 이 isolation 이
+  # 존재하는 이유 자체를 무력화하는 fail-open) — config 없이 codex 를 실행하면 그냥 인증
+  # 실패로 그 실행의 codex 셀이 죽을 뿐이고, 아래 vendor-axis severe 게이트(CODEX_DEAD)가
+  # 그 상황을 안전하게 흡수한다. 실 $HOME 노출보다 codex 셀 하나가 죽는 쪽이 명백히 안전한
+  # 실패 방향이다.
+  echo "::warning::codex config.toml not found at \$HOME/.codex/config.toml -- codex will run in an isolated, config-less HOME and likely fail auth this run (safe failure; NOT falling back to the real \$HOME)" >&2
+fi
+codex_env() {
+  env -i PATH="$PATH" HOME="$CODEX_HOME_BASE" \
+    AWS_REGION="${CODEX_AWS_REGION:-us-east-1}" AWS_DEFAULT_REGION="${CODEX_AWS_REGION:-us-east-1}" \
+    LANG="${LANG:-}" LC_ALL="${LC_ALL:-}" TMPDIR="${TMPDIR:-/tmp}" "$@"
 }
 
 # diff 는 size-capped argv 텍스트로 직접 embed — 단일 argv 128KiB 커널 한도(MAX_ARG_STRLEN)
@@ -128,6 +162,27 @@ DIFF_BYTES="$(wc -c < "$DIFF")"
 # 빈 diff 는 truncation flag 를 안 남겨 "diff 를 못 본 셀이 조용히 집계"되는 위협이 다른
 # 입구로 재유입될 수 있다(security-ops PR#8 리뷰 L4, defense-in-depth) — fail-closed.
 [ "$DIFF_BYTES" -gt 0 ] || { echo "run-panel.sh: \$DIFF is empty (0 bytes) — refusing to run a panel with no diff to review" >&2; exit 1; }
+
+# diff 를 스크럽한 사본으로 교체 — 이후의 모든 처리(fence 추출, KIRO_DIFF_TEXT 캡핑, codex
+# 의 `try_panel` stdin 리다이렉트는 전역 $DIFF 를 그대로 참조)가 이 스크럽본을 쓴다. 지금까지
+# 이 diff *입력* 은 스크럽 없이 그대로 Kiro argv/codex stdin/체어 stdin 으로 나갔다 — diff 에
+# 실수로 커밋된 알려진-포맷 크리덴셜(AWS 키, GH 토큰, PEM 등)이 있으면 스크럽 없이 흘렀다.
+# `scrub_known_credential_formats()`(lib.sh)를 여기 한 번 적용하면 이후 모든 소비자에게
+# 대칭 적용된다. `set -uo pipefail`(이 스크립트는 `-e` 없음)이므로 대입문 자체의 exit code
+# 를 `if !` 로 명시 검사 — 그냥 두면 파이프라인 실패가 조용히 무시된다.
+if ! DIFF_SCRUBBED_TMP="$(scrub_known_credential_formats < "$DIFF")"; then
+  echo "run-panel.sh: scrub_known_credential_formats exited non-zero -- failing closed" >&2
+  exit 1
+fi
+[ -n "$DIFF_SCRUBBED_TMP" ] || { echo "run-panel.sh: scrub_known_credential_formats produced empty output for a non-empty diff -- failing closed" >&2; exit 1; }
+DIFF_RAW="$DIFF"
+DIFF="$WORK/diff-scrubbed.txt"
+printf '%s' "$DIFF_SCRUBBED_TMP" > "$DIFF"
+unset DIFF_SCRUBBED_TMP
+# 스크럽 후 재측정 — redaction 치환으로 길이가 바뀔 수 있어(예: 8자리 값 → 10자
+# `[REDACTED]`), 아래 fence-byte-length 계산과 truncation 판정은 실제로 쓰일 스크럽본
+# 기준이어야 정확하다.
+DIFF_BYTES="$(wc -c < "$DIFF")"
 # 여는/닫는 nonce fence(워크플로가 부여, $DIFF 첫/마지막 줄: <<<UNTRUSTED_DIFF_...>>> /
 # <<<END_UNTRUSTED_DIFF_...>>>)를 절단 전에 보존 — `head -c` 로 자르면 정확히 truncation
 # 케이스에서 닫는 fence 가 사라져 untrusted-data 경계가 종료 표시 없이 이어진다
@@ -183,13 +238,13 @@ for lens_file in "${LENS_FILES[@]}"; do
   lens="$(basename "$lens_file" .txt)"
   LENS_PROMPT="$(cat "$lens_file")"
 
-  # Codex 셀 (Bedrock, config.toml). --skip-git-repo-check 필수. AWS_REGION 강제:
-  # gpt-5.5(bedrock-mantle)는 In-Region(us-east-1) 만 지원 — 잡 region 무관하게 고정.
-  # diff 는 stdin.
+  # Codex 셀 (Bedrock, config.toml). --skip-git-repo-check 필수. AWS_REGION 은 codex_env()
+  # 안에서 고정: gpt-5.5(bedrock-mantle)는 In-Region(us-east-1) 만 지원 — 잡 region 무관하게
+  # 고정. diff 는 stdin(스크럽된 $DIFF — 위 스크럽 단계 참조). env 격리는 위 codex_env()
+  # 주석 참조 — GH_TOKEN 등 잡의 다른 시크릿을 상속하지 않는다.
   if command -v codex >/dev/null 2>&1; then
     ( try_panel "$SLOT/codex-$lens.md" "$SLOT/codex-$lens.err" \
-        env AWS_REGION="${CODEX_AWS_REGION:-us-east-1}" AWS_DEFAULT_REGION="${CODEX_AWS_REGION:-us-east-1}" \
-        timeout "$T" codex exec -s read-only --skip-git-repo-check "$LENS_PROMPT" ) &
+        codex_env timeout "$T" codex exec -s read-only --skip-git-repo-check "$LENS_PROMPT" ) &
   else echo "[skip] codex/$lens (binary absent)" >&2; : > "$SLOT/codex-$lens.md"; fi
 
   # Kiro x3 셀 — model:tag 를 한 배열에서 파생(호출/집계 동기화). Kiro's non-interactive
@@ -278,7 +333,6 @@ echo "Panel responded ($(wc -l < "$RESP") / $(( (${#KIRO_MODELS[@]} + 1) * ${#LE
 # (예: kiro-cli 신규 플래그(`--mode default --trust-tools=`)가 이 러너에서 무효면 Kiro
 # 12셀 전부 graceful skip → 실질 4셀짜리 리뷰인데 코멘트만 봐선 눈에 안 띌 수 있음).
 # 모델별 row 가 완전히 비면 경고 + synthesize.sh 가 리뷰 본문에 명시하도록 파일로 전달.
-TOTAL_MODELS=$(( ${#KIRO_MODELS[@]} + 1 ))
 : > "$WORK/degraded-models.txt"
 for model_tag in codex "${KIRO_MODELS[@]##*:}"; do
   # grep -c 는 매치가 0건이어도 "0"을 찍고 exit 1 한다(매치 없음 = grep 관점의 "실패") —
@@ -295,16 +349,27 @@ for model_tag in codex "${KIRO_MODELS[@]##*:}"; do
   fi
 done
 
-# 심각도 상향 — degraded 모델이 (전체-1)개 이상이면 살아남은 벤더가 최대 1개뿐이라, "매트릭스
-# 자체가 lens당 교차확인"이라는 warn-only 의 전제(다른 모델이 여전히 같은 lens 를 본다)가
-# 성립하지 않는다. 이 경우만 severe 로 승격해 synthesize.sh 가 VERDICT 를 강제 FAIL 하도록
-# 신호를 남긴다(모델 1개 탈락은 여전히 warn-only 유지 — 간헐적 rate-limit 로도 흔하고, 남은
-# 3개가 각 lens 를 여전히 교차확인하므로 이 PR 도입 시 설계한 대로 사람이 배너로만 인지해도
-# 된다는 원 판단은 유효). 신규 kiro-cli 플래그가 처음 실전 투입되는 시점(3개 kiro 모델이
-# 동시에 전멸하는 경우가 바로 이 기준을 정확히 친다)이 이 케이트가 노리는 실제 사례다.
-DEGRADED_COUNT=$(wc -l < "$WORK/degraded-models.txt")
-if [ "$DEGRADED_COUNT" -ge "$((TOTAL_MODELS - 1))" ]; then
-  echo "::error::coverage collapsed to ≤1 vendor ($DEGRADED_COUNT/$TOTAL_MODELS models degraded) — forcing VERDICT: FAIL, no cross-model check remains for any lens" >&2
+# 심각도 상향 — codex 가 죽거나 kiro 모델 전체가 죽으면(둘 중 하나라도) 살아남은 벤더가
+# 최대 1개뿐이라 "매트릭스 자체가 lens당 교차확인"이라는 warn-only 의 전제가 성립하지
+# 않는다. **모델-개수 축이 아니라 벤더-개수 축**으로 판정 — 옛 조건(`DEGRADED_COUNT >=
+# TOTAL_MODELS - 1`, 이 repo의 4모델 기준 3)은 codex 단독 탈락(모델 1개)을 놓쳤다: 남은
+# 3개가 전부 kiro(벤더 1개)인데도 "1 >= 3"이 거짓이라 severe 가 안 걸렸다 — 에러 메시지
+# 자신의 "≤1 vendor" 주장과 반대로 동작하던 버그(oh-my-cloud-skills 계열 fleet 수정, 이
+# repo는 별도 개발 라인이라 그동안 미적용). 모델 하나(codex 아닌 kiro 중 하나)만 탈락하는
+# 건 여전히 warn-only — 남은 두 벤더 패밀리가 각 lens 를 여전히 교차확인하므로 이 설계가
+# 의도적으로 non-severe 로 취급하는 시나리오다.
+CODEX_DEAD=0
+grep -qx "codex" "$WORK/degraded-models.txt" 2>/dev/null && CODEX_DEAD=1
+KIRO_TOTAL=${#KIRO_MODELS[@]}
+KIRO_DEGRADED_COUNT=0
+for entry in "${KIRO_MODELS[@]}"; do
+  tag="${entry##*:}"
+  grep -qx "$tag" "$WORK/degraded-models.txt" 2>/dev/null && KIRO_DEGRADED_COUNT=$((KIRO_DEGRADED_COUNT + 1))
+done
+KIRO_ALL_DEAD=0
+[ "$KIRO_TOTAL" -gt 0 ] && [ "$KIRO_DEGRADED_COUNT" -ge "$KIRO_TOTAL" ] && KIRO_ALL_DEAD=1
+if [ "$CODEX_DEAD" = 1 ] || [ "$KIRO_ALL_DEAD" = 1 ]; then
+  echo "::error::coverage collapsed to ≤1 vendor (codex dead=$CODEX_DEAD, kiro fully dead=$KIRO_ALL_DEAD) — forcing VERDICT: FAIL, no cross-vendor check remains for any lens" >&2
   : > "$WORK/coverage-severe.flag"
 fi
 
