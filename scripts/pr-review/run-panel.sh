@@ -237,7 +237,11 @@ for lens_file in "${LENS_FILES[@]}"; do
   lens="$(basename "$lens_file" .txt)"
   LENS_PROMPT="$(cat "$lens_file")"
 
-  # Codex 셀 (Bedrock, config.toml). --skip-git-repo-check 필수. AWS_REGION 은 codex_env()
+  # Codex 셀 (Bedrock, config.toml — 모델 문자열은 이 repo 코드가 아니라 러너 이미지의
+  # ~/.codex/config.toml 이 결정하며, 그 값이 gpt-5.6-sol; KIRO_MODELS 의 gpt-5.6-terra 와는
+  # 별개 문자열 — 둘 다 gpt-5.6 계열이지만 Kiro 의 cross-vendor 라우터 카탈로그와 Codex 자체
+  # Bedrock-mantle 카탈로그가 서로 다른 alias 를 매핑하므로, 하나가 다른 하나의 오타/drift가
+  # 아니다). --skip-git-repo-check 필수. AWS_REGION 은 codex_env()
   # 안에서 고정: gpt-5.6-sol(bedrock-mantle)는 In-Region(us-east-1) 만 지원 — 잡 region 무관하게
   # 고정. diff 는 stdin(스크럽된 $DIFF — 위 스크럽 단계 참조). env 격리는 위 codex_env()
   # 주석 참조 — GH_TOKEN 등 잡의 다른 시크릿을 상속하지 않는다.
