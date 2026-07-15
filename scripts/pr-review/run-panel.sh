@@ -8,7 +8,7 @@
 # TTY 아님 → no-hang); Kiro 는 stdin 을 무시하고 어떤 툴도 못 받으므로(아래 Kiro 셀 주석
 # 참조) size-capped argv 텍스트로 직접 embed 한다(워크플로가 이미 nonce 로 fence 한 diff
 # 파일을 그대로 캡핑해 embed 하므로 프롬프트 인젝션 방어는 그대로 유지됨). timeout 백스톱 +
-# 비대화형 플래그로 멈춤 방지. 셀이 비면 최대 PANEL_RETRIES 회 재시도(gpt-5.5/bedrock-mantle
+# 비대화형 플래그로 멈춤 방지. 셀이 비면 최대 PANEL_RETRIES 회 재시도(gpt-5.6-sol/bedrock-mantle
 # 등 transient 흡수). 매 시도마다 재실행.
 # 모든 셀(모델 수 × lens 수)이 병렬(&+wait) — 벽시계 ≈ 최슬로우 셀 하나, 순차합 아님.
 set -uo pipefail
@@ -40,7 +40,7 @@ SLOT="$WORK/slot"; RESP="$WORK/responded.txt"; : > "$RESP"
 rm -f "$WORK/coverage-severe.flag" "$WORK/kiro-diff-truncated.flag" "$WORK/kiro-lens-skipped.flag"
 T="${PANEL_TIMEOUT:-300}"
 RETRIES="${PANEL_RETRIES:-3}"
-KIRO_MODELS=("claude-opus-4.8:kiro-opus" "gpt-5.5:kiro-gpt" "glm-5:kiro-glm")
+KIRO_MODELS=("claude-opus-4.8:kiro-opus" "gpt-5.6-terra:kiro-gpt" "glm-5:kiro-glm")
 
 shopt -s nullglob
 LENS_FILES=("$LENSES_DIR"/*.txt)
@@ -238,7 +238,7 @@ for lens_file in "${LENS_FILES[@]}"; do
   LENS_PROMPT="$(cat "$lens_file")"
 
   # Codex 셀 (Bedrock, config.toml). --skip-git-repo-check 필수. AWS_REGION 은 codex_env()
-  # 안에서 고정: gpt-5.5(bedrock-mantle)는 In-Region(us-east-1) 만 지원 — 잡 region 무관하게
+  # 안에서 고정: gpt-5.6-sol(bedrock-mantle)는 In-Region(us-east-1) 만 지원 — 잡 region 무관하게
   # 고정. diff 는 stdin(스크럽된 $DIFF — 위 스크럽 단계 참조). env 격리는 위 codex_env()
   # 주석 참조 — GH_TOKEN 등 잡의 다른 시크릿을 상속하지 않는다.
   if command -v codex >/dev/null 2>&1; then
