@@ -24,7 +24,7 @@ jobs:
       pull-requests: write
       contents: read
     env:
-      # us-east-1 고정: codex(bedrock-mantle, openai.gpt-5.5)가 ap-northeast-2에서 401로
+      # us-east-1 고정: codex(bedrock-mantle, openai.gpt-5.6-sol)가 ap-northeast-2에서 401로
       # 실패해 이미 us-east-1 In-Region 전용으로 구워져 있다(config.toml). Claude 의장도
       # 같은 리전으로 맞춰 러너 전체를 단일 리전으로 유지한다.
       # us. geo(on-demand) inference profile — us-east-1 안에서도 리전 가용성 변동을 흡수.
