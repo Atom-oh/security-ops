@@ -65,7 +65,7 @@ L2=코드 정확성, L3=보안/신원, L4=Defensive-only/fail-closed/Bedrock 권
 Synthesize ONE final review, grouped by lens (L2/L3/L4/L5):
 1. **Summary** (2-3 sentences in Korean)
 2. **Issues per lens** — CRITICAL/MAJOR/MINOR with file:line references. 같은 lens 를 본
-   여러 모델 간 합의/이견을 표시(예: "3/4 모델 CRITICAL 지적, 1/4 미언급"). 서로 다른 모델이
+   여러 모델 간 합의/이견을 표시(예: "2/3 모델 CRITICAL 지적, 1/3 미언급"). 서로 다른 모델이
    독립적으로 같은 finding에 도달했으면 신호가 강하다고 명시하되, 합의 자체를 증거로 취급하지
    말고 diff와 대조해 확인하라(공유 학습 편향으로 여러 모델이 같은 오탐에 도달할 수 있음).
 3. **Suggestions**
@@ -188,7 +188,7 @@ if [ -s "$WORK/degraded-models.txt" ]; then
 fi
 
 # Kiro diff truncation → fail-closed(CRITICAL, security-ops PR#8 리뷰 L4). 대형 diff 는
-# run-panel.sh 의 KIRO_DIFF_CAP/KIRO_ARGV_CAP 을 넘으면 Kiro 3개 모델 전부 prefix 만
+# run-panel.sh 의 KIRO_DIFF_CAP/KIRO_ARGV_CAP 을 넘으면 Kiro 2개 모델 전부 prefix 만
 # 보고, cap 이후 구간은 codex 단독(살아있다면) 커버리지가 된다 — 이전 리비전은 soft 배너만
 # 붙이고 VERDICT 는 체어 판단에 맡겼는데, PR 작성자가 diff 크기를 통제할 수 있으므로 무해한
 # 변경으로 패딩한 뒤 악성 hunk 를 cap 뒤에 배치하면 cross-vendor consensus 를 구조적으로

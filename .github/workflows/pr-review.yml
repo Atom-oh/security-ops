@@ -1,10 +1,10 @@
 name: AI Code Review
 
-# PR마다 lens×모델 매트릭스 패널(Codex + Kiro x3, L2~L5 각 lens 독립 에이전트, 4모델×4lens=
-# 16셀)이 리뷰하고 Claude 의장(primary/fallback)이 lens별로 종합해 코멘트로 게시
+# PR마다 lens×모델 매트릭스 패널(Codex + Kiro x2, L2~L5 각 lens 독립 에이전트, 3모델×4lens=
+# 12셀)이 리뷰하고 Claude 의장(primary/fallback)이 lens별로 종합해 코멘트로 게시
 # (fail-closed VERDICT). self-hosted 러너 IAM Instance Profile 로 Bedrock 호출.
 #   - pull_request_target base-ref 체크아웃: PR head 코드 미실행, diff 는 데이터로만
-#   - 매트릭스 fan-out: scripts/pr-review/run-panel.sh(4모델×4lens=16셀) → synthesize.sh
+#   - 매트릭스 fan-out: scripts/pr-review/run-panel.sh(3모델×4lens=12셀) → synthesize.sh
 #   - diff 는 per-run random-nonce 로 fence 되어 untrusted data 로만 취급됨(prompt injection 방지)
 #   - VERDICT: PASS|FAIL 마지막 줄 룰로 job exit code 결정 (fail-closed)
 #   - <!-- mythos-agent-pr-review --> marker 로 코멘트 upsert (PR 업데이트마다 새 코멘트 안 쌓임)
