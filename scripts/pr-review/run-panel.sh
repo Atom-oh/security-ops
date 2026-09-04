@@ -40,7 +40,7 @@ SLOT="$WORK/slot"; RESP="$WORK/responded.txt"; : > "$RESP"
 rm -f "$WORK/coverage-severe.flag" "$WORK/kiro-diff-truncated.flag" "$WORK/kiro-lens-skipped.flag"
 T="${PANEL_TIMEOUT:-300}"
 RETRIES="${PANEL_RETRIES:-3}"
-KIRO_MODELS=("claude-opus-4.8:kiro-opus" "gpt-5.6-terra:kiro-gpt" "glm-5:kiro-glm")
+KIRO_MODELS=("claude-opus-5:kiro-opus" "gpt-5.6-terra:kiro-gpt" "glm-5:kiro-glm")
 
 shopt -s nullglob
 LENS_FILES=("$LENSES_DIR"/*.txt)
@@ -105,10 +105,25 @@ kiro_env() {
 # TMPDIR/KIRO_API_KEY)만 받는데 codex 는 `env AWS_REGION=... AWS_DEFAULT_REGION=...`로 그
 # 둘만 *추가* 했을 뿐 GH_TOKEN 등 잡의 다른 시크릿은 그대로 새어 들어갔다. diff-borne
 # 인젝션이 codex 를 "환경변수를 출력하라"에 넘기면 상속된 시크릿이 리뷰 출력 → 체어 종합 →
-# 공개 PR 코멘트로 유출될 수 있다. 이 워크플로 자체가 self-hosted 러너 IAM Instance
-# Profile(EC2 IMDS 경유, env 변수 의존 없음, OIDC role-assumption 없음 — .github/workflows/
-# pr-review.yml 헤더 주석 참조)로 Bedrock 인증하므로 `env -i` 로 안전하게 격리 가능함이
-# 가정이 아니라 이 repo 자신의 워크플로 파일로 확인됨.
+# 공개 PR 코멘트로 유출될 수 있다. 다만 "러너는 EC2 IMDS(Instance Profile)로 인증하니
+# env 변수 의존이 없다"는 원래 가정은 더 이상 사실이 아니다 — 러너 파드는 EKS Pod Identity
+# (SA `claude-runner` -> `mall-apne2-mgmt-ci-runner`)로 인증하고, 그 자격증명은 오직
+# AWS_CONTAINER_CREDENTIALS_FULL_URI + AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE **env 변수**로
+# 전달된다. `env -i` 가 그 둘을 지우면 codex 는 매 실행 4개 lens 전부에서
+# "failed to load AWS credentials: the credential provider was not enabled" 로 죽고,
+# vendor-axis severe 게이트가 강제 FAIL 을 내린다(2026-07-15 run 29457432385 실측).
+# 따라서 격리는 유지하되 Pod Identity 두 변수만 명시적으로 통과시킨다 — 이 둘은 노드가
+# 주입하는 자격증명 채널이고 잡의 시크릿(GH_TOKEN 등)이 아니므로 격리 목적과 상충하지 않는다.
+# 위협 모델 정직 기록: 두 값 자체는 시크릿이 아니지만(링크로컬 URI + 토큰 파일 *경로*)
+# 자격증명 minting 채널이므로, 실질 경계는 (a) 셀의 tool 표면 — codex 는 `codex exec
+# -s read-only` 샌드박스, kiro 는 `--trust-tools=` 무툴이라 diff-borne 인젝션이 토큰 파일
+# read → URI 교환을 tool 로 수행할 경로가 없다 — 과 (b) role least-privilege 다.
+# (b) 검증 결과(AWS-Demo-Platform infra/eks-mgmt/main.tf, Terraform 이 이 role 의 단일
+# 소유자): mall-apne2-mgmt-ci-runner 는 전체 claude 러너 플릿 공유 role 로 bedrock:*Invoke*
+# Resource "*" 외에 ReadOnlyAccess/AmazonS3FullAccess/ECR push/ECS deploy/CDK assume 등을
+# 갖는 광권한 role 이며 least-privilege 가 아니다. 전용 리뷰 러너 SA/role 분리가 같은
+# 파일에 tracked follow-up 으로 기록돼 있다 — 그 전까지 (a)가 유일한 실효 통제임을 인지하고
+# codex/kiro 셀에 tool 을 부여하는 변경은 이 경계를 직접 허무는 것이므로 금지.
 CODEX_HOME_BASE="$WORK/codex-home"
 [ -L "$CODEX_HOME_BASE" ] && { echo "run-panel.sh: \$CODEX_HOME_BASE is a symlink, refusing (TOCTOU guard)" >&2; exit 1; }
 rm -rf "$CODEX_HOME_BASE"; mkdir -p "$CODEX_HOME_BASE/.codex"
@@ -125,6 +140,8 @@ fi
 codex_env() {
   env -i PATH="$PATH" HOME="$CODEX_HOME_BASE" \
     AWS_REGION="${CODEX_AWS_REGION:-us-east-1}" AWS_DEFAULT_REGION="${CODEX_AWS_REGION:-us-east-1}" \
+    ${AWS_CONTAINER_CREDENTIALS_FULL_URI:+AWS_CONTAINER_CREDENTIALS_FULL_URI="$AWS_CONTAINER_CREDENTIALS_FULL_URI"} \
+    ${AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE:+AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE="$AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE"} \
     LANG="${LANG:-}" LC_ALL="${LC_ALL:-}" TMPDIR="${TMPDIR:-/tmp}" "$@"
 }
 
