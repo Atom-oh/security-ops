@@ -114,6 +114,16 @@ kiro_env() {
 # vendor-axis severe 게이트가 강제 FAIL 을 내린다(2026-07-15 run 29457432385 실측).
 # 따라서 격리는 유지하되 Pod Identity 두 변수만 명시적으로 통과시킨다 — 이 둘은 노드가
 # 주입하는 자격증명 채널이고 잡의 시크릿(GH_TOKEN 등)이 아니므로 격리 목적과 상충하지 않는다.
+# 위협 모델 정직 기록: 두 값 자체는 시크릿이 아니지만(링크로컬 URI + 토큰 파일 *경로*)
+# 자격증명 minting 채널이므로, 실질 경계는 (a) 셀의 tool 표면 — codex 는 `codex exec
+# -s read-only` 샌드박스, kiro 는 `--trust-tools=` 무툴이라 diff-borne 인젝션이 토큰 파일
+# read → URI 교환을 tool 로 수행할 경로가 없다 — 과 (b) role least-privilege 다.
+# (b) 검증 결과(AWS-Demo-Platform infra/eks-mgmt/main.tf, Terraform 이 이 role 의 단일
+# 소유자): mall-apne2-mgmt-ci-runner 는 전체 claude 러너 플릿 공유 role 로 bedrock:*Invoke*
+# Resource "*" 외에 ReadOnlyAccess/AmazonS3FullAccess/ECR push/ECS deploy/CDK assume 등을
+# 갖는 광권한 role 이며 least-privilege 가 아니다. 전용 리뷰 러너 SA/role 분리가 같은
+# 파일에 tracked follow-up 으로 기록돼 있다 — 그 전까지 (a)가 유일한 실효 통제임을 인지하고
+# codex/kiro 셀에 tool 을 부여하는 변경은 이 경계를 직접 허무는 것이므로 금지.
 CODEX_HOME_BASE="$WORK/codex-home"
 [ -L "$CODEX_HOME_BASE" ] && { echo "run-panel.sh: \$CODEX_HOME_BASE is a symlink, refusing (TOCTOU guard)" >&2; exit 1; }
 rm -rf "$CODEX_HOME_BASE"; mkdir -p "$CODEX_HOME_BASE/.codex"

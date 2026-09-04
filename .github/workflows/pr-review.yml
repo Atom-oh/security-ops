@@ -2,7 +2,8 @@ name: AI Code Review
 
 # PR마다 lens×모델 매트릭스 패널(Codex + Kiro x3, L2~L5 각 lens 독립 에이전트, 4모델×4lens=
 # 16셀)이 리뷰하고 Claude 의장(primary/fallback)이 lens별로 종합해 코멘트로 게시
-# (fail-closed VERDICT). self-hosted 러너 IAM Instance Profile 로 Bedrock 호출.
+# (fail-closed VERDICT). Bedrock 인증은 러너 파드의 EKS Pod Identity
+# (SA `claude-runner` -> role `mall-apne2-mgmt-ci-runner`) — EC2 IMDS Instance Profile 아님.
 #   - pull_request_target base-ref 체크아웃: PR head 코드 미실행, diff 는 데이터로만
 #   - 매트릭스 fan-out: scripts/pr-review/run-panel.sh(4모델×4lens=16셀) → synthesize.sh
 #   - diff 는 per-run random-nonce 로 fence 되어 untrusted data 로만 취급됨(prompt injection 방지)
@@ -33,8 +34,13 @@ jobs:
       # 실패해 이미 us-east-1 In-Region 전용으로 구워져 있다(config.toml). Claude 의장도
       # 같은 리전으로 맞춰 러너 전체를 단일 리전으로 유지한다.
       # us. geo(on-demand) inference profile — us-east-1 안에서도 리전 가용성 변동을 흡수.
-      # 셀프호스티드 러너의 IAM Instance Profile 은 bedrock:InvokeModel 을 Resource "*" 로
-      # 가지고 있어(ci_runner_bedrock 정책) 리전별 ARN 화이트리스트 걱정은 없음.
+      # 러너 파드의 Pod Identity role(mall-apne2-mgmt-ci-runner)은 bedrock:InvokeModel 을
+      # Resource "*" 로 가지고 있어(ci_runner_bedrock 정책, AWS-Demo-Platform
+      # infra/eks-mgmt/main.tf) 리전별 ARN 화이트리스트 걱정은 없음. 단 그 role 은 전체
+      # claude 러너 플릿이 공유하는 광권한 role(S3FullAccess/ReadOnlyAccess/ECS/ECR 포함)이라
+      # least-privilege 아님 — 전용 러너 SA/role 분리는 같은 파일에 tracked follow-up 으로
+      # 기록돼 있고, 그때까지는 패널 셀의 tool 표면 축소가 실질 경계다: codex 는
+      # `-s read-only` 샌드박스, kiro 는 `--trust-tools=`(무툴) — run-panel.sh 참조.
       # 의장은 fleet 표준(fable-5)으로 정렬 — 다른 pr-review 리포 전부 동일.
       ANTHROPIC_MODEL: us.anthropic.claude-fable-5
       # Sonnet 별칭 해석 시 계정에 미승인된 최신 후보(sonnet-4-5 등)를 순차 probing하다가
