@@ -24,14 +24,16 @@ jobs:
       pull-requests: write
       contents: read
     env:
-      # us-east-1 고정: codex(bedrock-mantle, openai.gpt-5.6-sol)가 ap-northeast-2에서 401로
-      # 실패해 이미 us-east-1 In-Region 전용으로 구워져 있다(config.toml). Claude 의장도
-      # 같은 리전으로 맞춰 러너 전체를 단일 리전으로 유지한다.
-      # us. geo(on-demand) inference profile — us-east-1 안에서도 리전 가용성 변동을 흡수.
+      # 의장은 fleet 표준(fable-5.1, global inference profile)으로 정렬 — 다른 pr-review
+      # 리포 전부 동일. global 프로파일이라 fable-5 자체는 더 이상 AWS_REGION/endpoint 고정이
+      # 필요 없다. codex 도 러너 이미지의 config.toml 이 amazon-bedrock-runtime +
+      # global.openai.gpt-6-astra(global 모델)로 바뀌어 리전 고정이 필요 없다.
+      ANTHROPIC_MODEL: global.anthropic.claude-fable-5-1
+      # AWS_REGION/ANTHROPIC_BEDROCK_BASE_URL 을 us-east-1 로 유지하는 건 fable 때문이 아니라
+      # 아래 ANTHROPIC_DEFAULT_SONNET_MODEL(us.anthropic.claude-sonnet-5, on-demand US geo
+      # inference profile) 때문이다 — 이 pin 을 지우면 Sonnet 호출의 SigV4 서명이 깨진다.
       # 셀프호스티드 러너의 IAM Instance Profile 은 bedrock:InvokeModel 을 Resource "*" 로
       # 가지고 있어(ci_runner_bedrock 정책) 리전별 ARN 화이트리스트 걱정은 없음.
-      # 의장은 fleet 표준(fable-5)으로 정렬 — 다른 pr-review 리포 전부 동일.
-      ANTHROPIC_MODEL: us.anthropic.claude-fable-5
       # Sonnet 별칭 해석 시 계정에 미승인된 최신 후보(sonnet-4-5 등)를 순차 probing하다가
       # 구형 claude-sonnet-4-20250514(2026-06-15 retire)로 조용히 폴백하는 문제 — us-east-1엔
       # us.anthropic.claude-sonnet-5 inference profile이 있으므로 명시해서 probing을 건너뛴다.
