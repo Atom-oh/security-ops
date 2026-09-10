@@ -40,8 +40,8 @@ SLOT="$WORK/slot"; RESP="$WORK/responded.txt"; : > "$RESP"
 rm -f "$WORK/coverage-severe.flag" "$WORK/kiro-diff-truncated.flag" "$WORK/kiro-lens-skipped.flag"
 T="${PANEL_TIMEOUT:-300}"
 RETRIES="${PANEL_RETRIES:-3}"
-# glm-5(kiro-glm) 는 로스터에서 제외 — AWS-Demo-Platform PR#88 리뷰에서 이 모델만
-# 4건의 오탐을 냈다(ADR-015). 되살릴 때는 오탐률을 먼저 재측정할 것.
+# glm-5(kiro-glm) 는 로스터에서 제외 — AWS-Demo-Platform repo 의 PR#88 리뷰에서 이 모델만
+# 4건의 오탐을 냈다(AWS-Demo-Platform repo 의 ADR-015 — 이 repo 엔 없음). 되살릴 때는 오탐률을 먼저 재측정할 것.
 KIRO_MODELS=("claude-opus-5:kiro-opus" "gpt-5.6-terra:kiro-gpt")
 
 shopt -s nullglob
@@ -379,7 +379,7 @@ done
 # 심각도 상향 — codex 가 죽거나 kiro 모델 전체가 죽으면(둘 중 하나라도) 살아남은 벤더가
 # 최대 1개뿐이라 "매트릭스 자체가 lens당 교차확인"이라는 warn-only 의 전제가 성립하지
 # 않는다. **모델-개수 축이 아니라 벤더-개수 축**으로 판정 — 옛 조건(`DEGRADED_COUNT >=
-# TOTAL_MODELS - 1`, 이 repo의 4모델 기준 3)은 codex 단독 탈락(모델 1개)을 놓쳤다: 남은
+# TOTAL_MODELS - 1`, 당시 4모델 기준 3)은 codex 단독 탈락(모델 1개)을 놓쳤다: 남은
 # 3개가 전부 kiro(벤더 1개)인데도 "1 >= 3"이 거짓이라 severe 가 안 걸렸다 — 에러 메시지
 # 자신의 "≤1 vendor" 주장과 반대로 동작하던 버그(oh-my-cloud-skills 계열 fleet 수정, 이
 # repo는 별도 개발 라인이라 그동안 미적용). 모델 하나(codex 아닌 kiro 중 하나)만 탈락하는
