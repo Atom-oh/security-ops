@@ -9,7 +9,7 @@ RESP="$(tr '\n' ',' < "$WORK/responded.txt" 2>/dev/null | sed 's/,$//')" || true
 
 # 패널 출력 합본. 파일명 컨벤션 = <모델>-<lens>.md (예: kiro-opus-L3.md) — 체어가
 # 그 태그로 lens별 그룹핑/합의-이견 판정을 하도록 헤더에 그대로 노출.
-# 셀당 바이트 캡(belt-and-braces) — 매트릭스가 4→16 출력으로 늘어난 뒤에도 체어 입력을
+# 셀당 바이트 캡(belt-and-braces) — 매트릭스가 4→12 출력으로 늘어난 뒤에도 체어 입력을
 # 유한하게 유지(폭주한 셀 하나가 체어 컨텍스트/처리시간을 지배하지 않도록).
 PANEL_CELL_CAP="${PANEL_CELL_CAP:-20000}"
 PANEL=""
@@ -125,7 +125,7 @@ CHAIR_PRIMARY_MODEL="${CHAIR_PRIMARY_MODEL:-global.anthropic.claude-fable-5-1}"
 CHAIR_FALLBACK_MODEL="${CHAIR_FALLBACK_MODEL:-us.anthropic.claude-opus-4-8}"
 # CHAIR_TIMEOUT 600s (oh-my-cloud-skills #105 실측 근거 재사용): 같은 러너 이미지/서비스
 # 어카운트를 쓰는 ttobak 에서, 타임아웃 없는 구(4-패널) 버전 스크립트가 357줄 diff 종합에
-# 286초를 정상적으로 썼다. 매트릭스(4→16 패널 출력)는 체어 입력이 더 커 286s 실측조차
+# 286초를 정상적으로 썼다. 매트릭스(4→12 패널 출력)는 체어 입력이 더 커 286s 실측조차
 # 밑돎 — job timeout-minutes 여유를 반영해 600s로 상향.
 CHAIR_TIMEOUT="${CHAIR_TIMEOUT:-600}"
 
