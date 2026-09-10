@@ -139,7 +139,6 @@ else
 fi
 codex_env() {
   env -i PATH="$PATH" HOME="$CODEX_HOME_BASE" \
-    AWS_REGION="${CODEX_AWS_REGION:-us-east-1}" AWS_DEFAULT_REGION="${CODEX_AWS_REGION:-us-east-1}" \
     ${AWS_CONTAINER_CREDENTIALS_FULL_URI:+AWS_CONTAINER_CREDENTIALS_FULL_URI="$AWS_CONTAINER_CREDENTIALS_FULL_URI"} \
     ${AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE:+AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE="$AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE"} \
     LANG="${LANG:-}" LC_ALL="${LC_ALL:-}" TMPDIR="${TMPDIR:-/tmp}" "$@"
@@ -254,10 +253,12 @@ for lens_file in "${LENS_FILES[@]}"; do
   lens="$(basename "$lens_file" .txt)"
   LENS_PROMPT="$(cat "$lens_file")"
 
-  # Codex 셀 (Bedrock, config.toml). --skip-git-repo-check 필수. AWS_REGION 은 codex_env()
-  # 안에서 고정: gpt-5.6-sol(bedrock-mantle)는 In-Region(us-east-1) 만 지원 — 잡 region 무관하게
-  # 고정. diff 는 stdin(스크럽된 $DIFF — 위 스크럽 단계 참조). env 격리는 위 codex_env()
-  # 주석 참조 — GH_TOKEN 등 잡의 다른 시크릿을 상속하지 않는다.
+  # Codex 셀 (Bedrock, config.toml). --skip-git-repo-check 필수. config.toml 이
+  # amazon-bedrock-runtime + global.openai.gpt-6-astra 로 바뀌어(러너 이미지 쪽 변경 — 이
+  # repo 코드가 아니라 ~/.codex/config.toml 이 모델을 결정) global 모델이라 더 이상
+  # AWS_REGION 고정이 필요 없다(예전 gpt-5.6-sol/bedrock-mantle 은 In-Region(us-east-1) 만
+  # 지원해 고정이 필요했음). diff 는 stdin(스크럽된 $DIFF — 위 스크럽 단계 참조). env 격리는
+  # 위 codex_env() 주석 참조 — GH_TOKEN 등 잡의 다른 시크릿을 상속하지 않는다.
   if command -v codex >/dev/null 2>&1; then
     ( try_panel "$SLOT/codex-$lens.md" "$SLOT/codex-$lens.err" \
         codex_env timeout "$T" codex exec -s read-only --skip-git-repo-check "$LENS_PROMPT" ) &
