@@ -138,7 +138,15 @@ else
   echo "::warning::codex config.toml not found at \$HOME/.codex/config.toml -- codex will run in an isolated, config-less HOME and likely fail auth this run (safe failure; NOT falling back to the real \$HOME)" >&2
 fi
 codex_env() {
+  # AWS_REGION must still be passed through even though codex's model itself is global
+  # (amazon-bedrock-runtime/global.openai.gpt-6-astra) — the AWS SDK's auth resolution
+  # needs SOME region value to build the request regardless of model routing, and env -i
+  # wipes the ambient AWS_REGION this job sets, so codex fails outright with "AWS SDK
+  # config did not resolve a region" if it's not explicitly re-added here (confirmed live,
+  # run 34423771214 on this same PR). Passed through, not hardcoded, so it always matches
+  # whatever region this job's own env block is using.
   env -i PATH="$PATH" HOME="$CODEX_HOME_BASE" \
+    ${AWS_REGION:+AWS_REGION="$AWS_REGION"} ${AWS_DEFAULT_REGION:+AWS_DEFAULT_REGION="$AWS_DEFAULT_REGION"} \
     ${AWS_CONTAINER_CREDENTIALS_FULL_URI:+AWS_CONTAINER_CREDENTIALS_FULL_URI="$AWS_CONTAINER_CREDENTIALS_FULL_URI"} \
     ${AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE:+AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE="$AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE"} \
     LANG="${LANG:-}" LC_ALL="${LC_ALL:-}" TMPDIR="${TMPDIR:-/tmp}" "$@"
