@@ -9,7 +9,8 @@
 # 참조) size-capped argv 텍스트로 직접 embed 한다(워크플로가 이미 nonce 로 fence 한 diff
 # 파일을 그대로 캡핑해 embed 하므로 프롬프트 인젝션 방어는 그대로 유지됨). timeout 백스톱 +
 # 비대화형 플래그로 멈춤 방지. 셀이 비면 최대 PANEL_RETRIES 회 재시도(codex의 gpt-5.6-sol/bedrock-mantle
-# 등 transient 흡수). 매 시도마다 재실행.
+# 등 transient 흡수) — 단 Kiro 월간 한도 소진·`--agent` 폴백은 non-transient 라 즉시 중단
+# (아래 KIRO_QUOTA_RE/KIRO_AGENT_FALLBACK_RE). 매 시도마다 재실행.
 # 모든 셀(모델 수 × lens 수)이 병렬(&+wait) — 벽시계 ≈ 최슬로우 셀 하나, 순차합 아님.
 set -uo pipefail
 DIFF="$(realpath "$1" 2>/dev/null)" \
@@ -37,12 +38,17 @@ SLOT="$WORK/slot"; RESP="$WORK/responded.txt"; : > "$RESP"
 # 그대로 살아남아, 이번엔 모델 전부 정상 응답·전체 diff 를 봤어도 synthesize.sh 가 잘못된
 # 배너를 붙이거나 강제 FAIL 하게 된다 — responded.txt/degraded-models.txt 처럼 매 실행
 # 시작 시 리셋.
-rm -f "$WORK/coverage-severe.flag" "$WORK/kiro-diff-truncated.flag" "$WORK/kiro-lens-skipped.flag"
+rm -f "$WORK/coverage-severe.flag" "$WORK/kiro-diff-truncated.flag" "$WORK/kiro-lens-skipped.flag" \
+  "$WORK/kiro-quota.flag" "$WORK/kiro-agent-fallback.flag"
 T="${PANEL_TIMEOUT:-300}"
 RETRIES="${PANEL_RETRIES:-3}"
 # glm-5(kiro-glm) 는 로스터에서 제외 — AWS-Demo-Platform repo 의 PR#88 리뷰에서 이 모델만
 # 4건의 오탐을 냈다(AWS-Demo-Platform repo 의 ADR-015 — 이 repo 엔 없음). 되살릴 때는 오탐률을 먼저 재측정할 것.
 KIRO_MODELS=("claude-opus-5:kiro-opus" "gpt-5.6-terra:kiro-gpt")
+# 러너 이미지의 kiro-cli 는 unpinned vendor-latest 라(AWS-Demo-Platform repo 의
+# docker/actions-runner-claude/Dockerfile 참조) 아래 무툴/한도 시그니처 가정(2.11.1 기준)이
+# 어느 버전에서 깨졌는지 로그에서 추적할 수 있게 버전을 stderr 첫 줄에 찍는다.
+command -v kiro-cli >/dev/null 2>&1 && echo "run-panel.sh: $(kiro-cli --version 2>/dev/null | head -1)" >&2
 
 shopt -s nullglob
 LENS_FILES=("$LENSES_DIR"/*.txt)
@@ -52,40 +58,97 @@ if [ "${#LENS_FILES[@]}" -eq 0 ]; then
   exit 1
 fi
 
+# Kiro 월간 요청 한도 소진(ServiceQuotaExceededException reason=MONTHLY_REQUEST_COUNT)
+# 시그니처. v2 엔진(현재 사용)은 stderr 에 "Monthly request limit reached / The limits
+# reset on MM/DD" 를 찍고 **rc=0 + 빈 stdout** 으로 끝나 "빈 응답"과 구분이 안 된다;
+# `--v3` 엔진은 rc=1 로 끝나되 메시지가 stdout 으로 나온다("You've reached your monthly
+# usage limit", stderr 엔 JSON body 의 MONTHLY_REQUEST_COUNT/UsageLimitReachedError).
+# 두 경로 모두 잡는다. 2026-09-10 claude-code-usage-dashboard repo 의 PR #31 리뷰에서 Kiro
+# 셀 전멸의 실제 원인이 이것이었고(동일 KIRO_API_KEY 로 v2/v3 모두 같은 에러 — headless
+# 플래그 문제가 아님), 옛 로직은 셀마다 $RETRIES 회씩 재시도만 태우고 배너엔 "플래그
+# 무효·바이너리 부재·인증 실패 등"이라는 오답 후보만 남겼다.
+# stderr 만 스캔한다 — 두 엔진 모두 stderr 에 시그니처를 남기고(v3 는 JSON body 의
+# MONTHLY_REQUEST_COUNT), stdout(=슬롯)까지 보면 리뷰 대상 diff 가 이 문구를 인용하는 경우
+# (이 스크립트 자신을 고치는 PR 이 그 예) 부분 응답이 한도 소진으로 오분류될 수 있다.
+KIRO_QUOTA_RE='Monthly request limit reached|MONTHLY_REQUEST_COUNT|UsageLimitReachedError'
+
+# `--agent` 로드 실패 시그니처. kiro-cli 2.11.1 은 이름 불일치·JSON 파싱 실패 모두에서
+# stderr 에 "Error: no agent with name X found. Falling back to user specified default" 를
+# 찍고 **rc=0 으로 기본 에이전트(툴 있음)를 그대로 실행**한다. 그대로 두면 무툴 계약이
+# 조용히 깨진 채 정상 응답으로 집계되므로(`--trust-tools=` 가 무시되던 것과 같은 실패
+# 양식 — 아래 Kiro 셀 주석 참조) 시그니처를 잡아 슬롯을 비우고 severe 로 승격한다.
+KIRO_AGENT_FALLBACK_RE='no agent with name|Falling back to user specified default|Json supplied at .* is invalid'
+
 # 한 셀을 최대 $RETRIES 회 실행 — 슬롯이 비거나 exit != 0 이면 재시도(transient). 백그라운드로
 # 호출. 마지막 시도의 exit code 를 "$slot.rc" 에 남겨 lib.sh 의 record_result() 가 "슬롯에
 # 뭔가 있지만 실제로는 실패한 실행"(non-zero exit + non-empty stdout, 예: 그럴듯한 "no
 # findings" 텍스트를 남기고 실패)을 응답으로 잘못 집계하지 않도록 한다 — 이전엔 `-s "$slot"`
 # 만 보고 판단해 이 클래스의 실패가 정상 커버리지로 조용히 섞였다(fleet 다른 repo들의
 # 표준 수정, 이 repo는 그동안 미적용).
-#   try_panel <slot> <err> <cmd...>   (stdin=$DIFF, stdout=slot, stderr=err)
+#   try_panel <provider> <slot> <err> <cmd...>   (stdin=$DIFF, stdout=slot, stderr=err)
+# 한도 소진·에이전트 폴백은 non-transient 라 재시도하지 않고 즉시 중단 — `$slot.quota` /
+# `$slot.agentfail` 마커를 남기고 슬롯을 비운다(응답이 있어도 집계에서 제외). 에이전트
+# 폴백 검사는 성공 판정(`-s slot && rc==0`) **앞**에 둔다 — 폴백 시 kiro-cli 는 rc=0 +
+# 그럴듯한 응답을 내므로 성공 분기가 먼저 break 하면 검사에 닿지 못한다. codex 는 stderr
+# 에 입력 diff 를 echo 하므로(diff 가 이 시그니처 문구를 인용하는 PR — 이 파일을 고치는
+# PR 이 그 예 — 에서 codex 셀이 오폐기됨) Kiro 전용 시그니처는 provider=kiro 에만 적용.
 try_panel() {
-  local slot="$1" err="$2"; shift 2
+  local provider="$1" slot="$2" err="$3"; shift 3
   local a rc=1
   for a in $(seq 1 "$RETRIES"); do
     "$@" > "$slot" 2>"$err" < "$DIFF"; rc=$?
+    if [ "$provider" = kiro ] && grep -qE "$KIRO_AGENT_FALLBACK_RE" "$err" 2>/dev/null; then
+      grep -E "$KIRO_AGENT_FALLBACK_RE" "$err" | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' | head -2 > "$slot.agentfail"
+      : > "$slot"; rc=1
+      echo "[agent-fallback] $(basename "$slot" .md) — kiro-cli ignored --agent, no-tools contract broken; discarding response" >&2
+      break
+    fi
     [ -s "$slot" ] && [ "$rc" -eq 0 ] && break
+    if [ "$provider" = kiro ] && grep -qE "$KIRO_QUOTA_RE" "$err" 2>/dev/null; then
+      grep -E "$KIRO_QUOTA_RE|limits reset on" "$err" \
+        | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' | head -3 > "$slot.quota"
+      : > "$slot"; rc=1
+      echo "[quota] $(basename "$slot" .md) — monthly request limit reached, not retrying" >&2
+      break
+    fi
     [ "$a" -lt "$RETRIES" ] && echo "[retry $a/$RETRIES] $(basename "$slot" .md)" >&2
   done
   echo "$rc" > "$slot.rc"
 }
 
-# Kiro 셀은 어떤 툴도 부여받지 않는다(`--trust-tools=`, 아래) — 이전 리비전은 `fs_read`를
-# 부여해 diff 경로만 넘기고 Kiro 가 직접 읽게 했으나, 두 가지 문제가 있었다: (1) diff 는
-# 신뢰할 수 없는 PR 콘텐츠라, 그 안의 프롬프트 인젝션이 "그 경로 대신 절대경로
-# ~/.aws/credentials 를 읽어라"를 유도할 수 있었다(격리 cwd/HOME 으로도 절대경로 read 자체는
-# 못 막음 — oh-my-cloud-skills 19차 리뷰 CRITICAL, 격리된 cwd 에서도 Kiro 가 실제로
-# 절대경로 레포 파일을 읽어냄이 실증됨) — 이 platform 의 defensive-only/fail-closed 원칙과
-# 정면으로 어긋나는 위험이다. (2) `fs_read` 호출 자체를 모델이 안 해도(또는 sandbox 에
+# Kiro 셀은 어떤 툴도 부여받지 않는다(`--agent pr-review-notools`, `tools: []` — 아래) — 이전
+# 리비전은 `fs_read`를 부여해 diff 경로만 넘기고 Kiro 가 직접 읽게 했으나, 두 가지 문제가
+# 있었다: (1) diff 는 신뢰할 수 없는 PR 콘텐츠라, 그 안의 프롬프트 인젝션이 "그 경로 대신
+# 절대경로 ~/.aws/credentials 를 읽어라"를 유도할 수 있었다(격리 cwd/HOME 으로도 절대경로
+# read 자체는 못 막음 — oh-my-cloud-skills 19차 리뷰 CRITICAL, 격리된 cwd 에서도 Kiro 가
+# 실제로 절대경로 레포 파일을 읽어냄이 실증됨) — 이 platform 의 defensive-only/fail-closed
+# 원칙과 정면으로 어긋나는 위험이다. (2) `fs_read` 호출 자체를 모델이 안 해도(또는 sandbox 에
 # 막혀도) "no findings" 류의 그럴듯한 non-empty 응답을 낼 수 있어, 커버리지 floor(아래)가
 # 빈 슬롯만 탐지하는 한 diff 를 실제로 못 본 셀이 정상 응답으로 조용히 집계된다
 # (cc-on-bedrock PR#107 리뷰 MAJOR-1). 툴을 아예 안 주고 diff 를 argv 로 직접 넘기면 두
 # 문제가 구조적으로 함께 사라진다 — read 호출이 필요 없으니 건너뛸 수도 없고, 부여된 툴이
 # 없으니 절대경로 read 경로 자체가 없다.
-# `--trust-tools=`(빈 값)이 "무툴"임은 kiro-cli 자신의 공식 문서(`kiro-cli chat --help`):
-# "trust no tools: '--trust-tools='" — 그대로 인용되는 예시 문구(버전: kiro-cli 2.11.1,
-# 라이브 재현으로도 재확인 — 주입된 "read /etc/passwd" 지시가 거부됨). 향후 kiro-cli 가
-# 이 시맨틱을 바꾸면 이 fail-closed 가정도 재검증 필요.
+#
+# "무툴"의 구현 수단은 `--trust-tools=`(빈 값)에서 에이전트 설정으로 바꿨다(2026-09-11,
+# claude-code-usage-dashboard repo 의 PR#33 포팅). kiro-cli 2.11.1 은 `chat --help` 에
+# 여전히 "trust no tools: '--trust-tools='" 를 적어 두지만, 실제로는 빈 값을 커스텀 툴 이름
+# "" 로 해석해 `WARNING: --trust-tools arg for custom tool  needs to be prepended with
+# @{MCPSERVERNAME}/` 만 찍고 **무시**한다 — 내장 툴 이름이 fs_read/fs_write →
+# read/write/shell/glob/grep/code/aws… 로 바뀌면서 기본 에이전트의 "trust working
+# directory"(read/glob/grep/code)·"trust read-only"(aws) 신뢰가 그대로 살아남는다. 라이브
+# 재현(2.11.1, headless): `--trust-tools=` 로도 cwd 안 파일을 `read` 로 읽어 내용을 그대로
+# 출력했다(cwd 밖 절대경로만 non-interactive 거부) — 이 주석의 이전 판이 근거로 삼았던
+# "주입된 read /etc/passwd 거부"는 cwd 밖 경로라 거부된 것이지 무툴의 증거가 아니었다.
+# 반면 `tools: []` 에이전트를 `--agent` 로 지정하면 v2 엔진은 read/shell 요구에 NO_TOOLS 로
+# 답한다(cwd 안 파일 포함). `--v3` 엔진은 같은 에이전트의 `tools: []` 를 **무시**하고 cwd
+# 안 파일을 읽었으므로 v3 는 이 용도에 쓸 수 없다 — run-panel.sh 는 v2 엔진(기본)을
+# 유지하고, v3 전용 플래그였던 `--mode default` 도 함께 제거했다(AWS-Demo-Platform repo 의
+# ADR-011 `--v3` 드롭 결정과도 일치 — 이 repo 자신의 ADR 번호와는 무관).
+# 에이전트 파일은 셀마다 `$CELL_CWD/.kiro/agents/` 로 복사한다 — HOME=$CELL_CWD 이므로
+# 전역(~/.kiro/agents)·워크스페이스(.kiro/agents) 탐색 경로가 같은 디렉터리로 모인다.
+# kiro-cli 가 에이전트를 못 읽으면 rc=0 으로 기본 에이전트에 조용히 폴백하므로(위
+# KIRO_AGENT_FALLBACK_RE) 그 시그니처를 try_panel 이 잡아 응답을 폐기하고 severe 로 승격한다.
+# 향후 kiro-cli 가 이 시맨틱을 또 바꾸면 이 fail-closed 가정도 재검증 필요.
 # 격리는 셀(모델×lens)마다 별도 서브디렉터리로 유지한다(co-agent PR 게이트의
 # `_review_one`/`_sanitized_env`와 동일 패턴) — 툴 제거와 격리는 직교한 두 결정이다:
 # 매트릭스의 모든 kiro 셀이 동시(&) 실행되므로, 셀 하나의 cwd/HOME 을 공유하면 kiro-cli
@@ -96,6 +159,41 @@ try_panel() {
 KIRO_CWD_BASE="$WORK/kiro-cwd"
 [ -L "$KIRO_CWD_BASE" ] && { echo "run-panel.sh: \$KIRO_CWD_BASE is a symlink, refusing (TOCTOU guard)" >&2; exit 1; }
 rm -rf "$KIRO_CWD_BASE"; mkdir -p "$KIRO_CWD_BASE"
+# 무툴 에이전트 설정 — 부재/이름 불일치/`tools: []` 아님/중복 키 는 실행 전에 fail-fast.
+# 사후 폴백 감지(KIRO_AGENT_FALLBACK_RE)는 이미 툴 있는 에이전트에 diff 가 넘어간 뒤의
+# 방어선이므로, 이 repo 코드로 통제 가능한 구성 오류는 여기서 먼저 막는다. python3 는 러너
+# 이미지에 있고(scrub 과 같은 tier 의 필수 도구), 없으면 kiro 셀을 조용히 진행하지 않고 중단.
+KIRO_AGENT_NAME="pr-review-notools"
+KIRO_AGENT_SRC="$DIR/agents/$KIRO_AGENT_NAME.json"
+[ -f "$KIRO_AGENT_SRC" ] || { echo "run-panel.sh: kiro no-tools agent config missing: $KIRO_AGENT_SRC" >&2; exit 1; }
+if ! python3 - "$KIRO_AGENT_SRC" "$KIRO_AGENT_NAME" <<'PY'
+import json, sys
+def unique_object(pairs):
+    obj = {}
+    for key, value in pairs:
+        if key in obj:
+            raise ValueError("duplicate key")
+        obj[key] = value
+    return obj
+try:
+    with open(sys.argv[1]) as source:
+        agent = json.load(source, object_pairs_hook=unique_object)
+    valid = (agent["name"] == sys.argv[2] and agent["tools"] == []
+             and agent["allowedTools"] == [] and agent["mcpServers"] == {}
+             and agent["resources"] == [] and agent["useLegacyMcpJson"] is False)
+    if not valid:
+        raise ValueError("tool configuration")
+except (OSError, ValueError, KeyError, TypeError):
+    sys.exit(1)
+PY
+then
+  echo "run-panel.sh: invalid no-tools agent configuration (name must be '$KIRO_AGENT_NAME', tools/allowedTools/resources must be [], mcpServers {}, no duplicate keys): $KIRO_AGENT_SRC" >&2
+  exit 1
+fi
+prepare_kiro_agent() {  # $1=cell cwd → $1/.kiro/agents/pr-review-notools.json
+  local cell_cwd="$1"
+  mkdir -p "$cell_cwd/.kiro/agents" && cp "$KIRO_AGENT_SRC" "$cell_cwd/.kiro/agents/"
+}
 kiro_env() {
   local cell_cwd="$1"; shift
   env -i PATH="$PATH" HOME="$cell_cwd" LANG="${LANG:-}" LC_ALL="${LC_ALL:-}" TMPDIR="${TMPDIR:-/tmp}" \
@@ -118,8 +216,8 @@ kiro_env() {
 # 주입하는 자격증명 채널이고 잡의 시크릿(GH_TOKEN 등)이 아니므로 격리 목적과 상충하지 않는다.
 # 위협 모델 정직 기록: 두 값 자체는 시크릿이 아니지만(링크로컬 URI + 토큰 파일 *경로*)
 # 자격증명 minting 채널이므로, 실질 경계는 (a) 셀의 tool 표면 — codex 는 `codex exec
-# -s read-only` 샌드박스, kiro 는 `--trust-tools=` 무툴이라 diff-borne 인젝션이 토큰 파일
-# read → URI 교환을 tool 로 수행할 경로가 없다 — 과 (b) role least-privilege 다.
+# -s read-only` 샌드박스, kiro 는 `--agent pr-review-notools`(`tools: []`) 무툴이라 diff-borne
+# 인젝션이 토큰 파일 read → URI 교환을 tool 로 수행할 경로가 없다 — 과 (b) role least-privilege 다.
 # (b) 검증 결과(AWS-Demo-Platform infra/eks-mgmt/main.tf, Terraform 이 이 role 의 단일
 # 소유자): mall-apne2-mgmt-ci-runner 는 전체 claude 러너 플릿 공유 role 로 bedrock:*Invoke*
 # Resource "*" 외에 ReadOnlyAccess/AmazonS3FullAccess/ECR push/ECS deploy/CDK assume 등을
@@ -270,13 +368,13 @@ for lens_file in "${LENS_FILES[@]}"; do
   # 지원해 고정이 필요했음). diff 는 stdin(스크럽된 $DIFF — 위 스크럽 단계 참조). env 격리는
   # 위 codex_env() 주석 참조 — GH_TOKEN 등 잡의 다른 시크릿을 상속하지 않는다.
   if command -v codex >/dev/null 2>&1; then
-    ( try_panel "$SLOT/codex-$lens.md" "$SLOT/codex-$lens.err" \
+    ( try_panel codex "$SLOT/codex-$lens.md" "$SLOT/codex-$lens.err" \
         codex_env timeout "$T" codex exec -s read-only --skip-git-repo-check "$LENS_PROMPT" ) &
   else echo "[skip] codex/$lens (binary absent)" >&2; : > "$SLOT/codex-$lens.md"; fi
 
-  # Kiro x3 셀 — model:tag 를 한 배열에서 파생(호출/집계 동기화). Kiro's non-interactive
+  # Kiro 셀 — model:tag 를 한 배열에서 파생(호출/집계 동기화). Kiro's non-interactive
   # `chat` reads ONLY the prompt arg — it ignores stdin, so diff 는 argv 에 직접 embed(캡됨,
-  # 툴 미부여 — 위 KIRO_DIFF_TEXT/`--trust-tools=` 주석 참조). $KIRO_DIFF_TEXT 는 워크플로가
+  # 툴 미부여 — 위 KIRO_DIFF_TEXT/`--agent pr-review-notools` 주석 참조). $KIRO_DIFF_TEXT 는 워크플로가
   # nonce 로 fence 한 diff 파일에서 그대로 캡핑한 것이라 untrusted-data 표시가 유지된다.
   # 지시문 자체가 fence 계약을 명시하지 않으면 무툴 전환 이후 그 경계 준수가 전적으로
   # $LENS_PROMPT(lens 파일, 이 스크립트 밖)에 의존하게 된다 — 여기서도 최소 계약을 건다
@@ -333,10 +431,14 @@ $CLOSING_FENCE
     if [ "$KIRO_LENS_OVERSIZED" -eq 1 ]; then
       echo "[skip] $tag/$lens (lens prompt too large even after argv-cap trim)" >&2; : > "$SLOT/$tag-$lens.md"
     elif command -v kiro-cli >/dev/null 2>&1; then
-      CELL_CWD="$KIRO_CWD_BASE/$tag-$lens"; mkdir -p "$CELL_CWD"
-      ( cd "$CELL_CWD" && try_panel "$SLOT/$tag-$lens.md" "$SLOT/$tag-$lens.err" \
+      CELL_CWD="$KIRO_CWD_BASE/$tag-$lens"
+      # 복사 실패를 조용히 넘기면 kiro-cli 가 rc=0 으로 툴 있는 기본 에이전트에 폴백해 diff 가
+      # 그 에이전트로 넘어간다(사후 감지가 잡긴 하지만 이미 보낸 뒤) — 여기서 fail-fast.
+      prepare_kiro_agent "$CELL_CWD" \
+        || { echo "run-panel.sh: failed to copy kiro no-tools agent into $CELL_CWD/.kiro/agents/" >&2; exit 1; }
+      ( cd "$CELL_CWD" && try_panel kiro "$SLOT/$tag-$lens.md" "$SLOT/$tag-$lens.err" \
           kiro_env "$CELL_CWD" timeout "$T" kiro-cli chat "$KIRO_INSTRUCTION" --model "$m" \
-          --mode default --no-interactive --trust-tools= --wrap never ) &
+          --agent "$KIRO_AGENT_NAME" --no-interactive --wrap never ) &
     else echo "[skip] $tag/$lens (binary absent)" >&2; : > "$SLOT/$tag-$lens.md"; fi
   done
 done
@@ -357,8 +459,8 @@ echo "Panel responded ($(wc -l < "$RESP") / $(( (${#KIRO_MODELS[@]} + 1) * ${#LE
 
 # 커버리지 floor — 모델 하나(플래그 무효화/바이너리 부재/전면 인증 실패 등)가 lens 전부에서
 # 응답 없으면, 매트릭스가 조용히 그 모델 없이 축소된 채 VERDICT: PASS 로 이어질 수 있다
-# (예: kiro-cli 신규 플래그(`--mode default --trust-tools=`)가 이 러너에서 무효면 Kiro
-# 8셀 전부 graceful skip → 실질 4셀짜리 리뷰인데 코멘트만 봐선 눈에 안 띌 수 있음).
+# (예: kiro-cli 플래그/`--agent` 가 이 러너에서 무효거나 모델 ID 가 계정에 프로비저닝 안
+# 되면 Kiro 8셀 전부 graceful skip → 실질 4셀짜리 리뷰인데 코멘트만 봐선 눈에 안 띌 수 있음).
 # 모델별 row 가 완전히 비면 경고 + synthesize.sh 가 리뷰 본문에 명시하도록 파일로 전달.
 : > "$WORK/degraded-models.txt"
 for model_tag in codex "${KIRO_MODELS[@]##*:}"; do
@@ -398,6 +500,40 @@ KIRO_ALL_DEAD=0
 if [ "$CODEX_DEAD" = 1 ] || [ "$KIRO_ALL_DEAD" = 1 ]; then
   echo "::error::coverage collapsed to ≤1 vendor (codex dead=$CODEX_DEAD, kiro fully dead=$KIRO_ALL_DEAD) — forcing VERDICT: FAIL, no cross-vendor check remains for any lens" >&2
   : > "$WORK/coverage-severe.flag"
+fi
+
+# 에이전트 폴백 가시화 + severe 승격 — try_panel 이 남긴 `$slot.agentfail` 마커가 하나라도
+# 있으면 그 러너의 kiro-cli 가 `--agent` 를 무시한 것이라 남은 Kiro 응답도 무툴 보장이 없다.
+# 슬롯은 이미 비워져 있으므로(집계 제외) coverage 축으로도 잡히지만, 원인을 "빈 응답"이 아닌
+# "계약 위반"으로 명시하고 체어 판정과 무관하게 FAIL 을 강제한다(fail-closed 원칙).
+shopt -s nullglob
+AGENTFAIL_MARKERS=("$SLOT"/*.agentfail)
+shopt -u nullglob
+if [ "${#AGENTFAIL_MARKERS[@]}" -gt 0 ]; then
+  AGENTFAIL_DETAIL="$(cat "${AGENTFAIL_MARKERS[@]}" | scrub_secrets | grep -v '^\s*$' | sort -u | tr '\n' ' ' | sed 's/ *$//')"
+  AGENTFAIL_CELLS="$(for q in "${AGENTFAIL_MARKERS[@]}"; do basename "$q" .md.agentfail; done | tr '\n' ' ' | sed 's/ *$//')"
+  echo "::error::kiro-cli ignored --agent $KIRO_AGENT_NAME (fell back to the default agent WITH tools) in ${#AGENTFAIL_MARKERS[@]} cell(s) [$AGENTFAIL_CELLS]: $AGENTFAIL_DETAIL — responses discarded, forcing VERDICT: FAIL (no-tools contract; see docs/runbooks/pr-review-panel.md)" >&2
+  printf '%s\n' "$AGENTFAIL_DETAIL" > "$WORK/kiro-agent-fallback.flag"
+  : > "$WORK/coverage-severe.flag"
+  rm -f "${AGENTFAIL_MARKERS[@]}"
+fi
+
+# Kiro 월간 요청 한도 소진 가시화 — try_panel 이 남긴 `$slot.quota` 마커가 하나라도 있으면
+# 위 degraded/severe 배너의 "플래그 무효·바이너리 부재·인증 실패 등" 추정 대신 실제 원인
+# (KIRO_API_KEY 계정의 MONTHLY_REQUEST_COUNT 한도, 리셋 날짜)을 로그와 리뷰 코멘트에 명시한다.
+# 한도는 이 러너 이미지를 공유하는 모든 repo 의 pr-review 가 같은 키로 소비하므로, 해소는
+# 코드가 아니라 계정 측(overage 활성화 또는 Secrets Manager /demo-platform/actions/AI-key 의
+# KIRO_API_KEY 교체 — AWS-Demo-Platform repo 소유)에서만 가능하다. fail-closed 계약
+# (Kiro 전멸 → coverage-severe → 강제 FAIL)은 위 벤더-축 판정이 그대로 담당한다.
+shopt -s nullglob
+QUOTA_MARKERS=("$SLOT"/*.quota)
+shopt -u nullglob
+if [ "${#QUOTA_MARKERS[@]}" -gt 0 ]; then
+  QUOTA_DETAIL="$(cat "${QUOTA_MARKERS[@]}" | scrub_secrets | grep -v '^\s*$' | sort -u | tr '\n' ' ' | sed 's/ *$//')"
+  QUOTA_CELLS="$(for q in "${QUOTA_MARKERS[@]}"; do basename "$q" .md.quota; done | tr '\n' ' ' | sed 's/ *$//')"
+  echo "::error::Kiro monthly request quota exhausted for KIRO_API_KEY — ${#QUOTA_MARKERS[@]} cell(s) [$QUOTA_CELLS]: $QUOTA_DETAIL — enable overages or rotate the key (Secrets Manager /demo-platform/actions/AI-key); not a headless-flag failure (see docs/runbooks/pr-review-panel.md)" >&2
+  printf '%s\n' "$QUOTA_DETAIL" > "$WORK/kiro-quota.flag"
+  rm -f "${QUOTA_MARKERS[@]}"
 fi
 
 # skip 원인 노출: 빈 슬롯인데 stderr 가 있으면 stderr 의 끝(실제 에러)을 로그에 찍는다.

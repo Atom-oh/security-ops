@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - AgentCore `Ineffectual token` 401 — proactively refresh the Cognito token near expiry.
 - Blank-screen crashes during async polling and history view (guard empty IN_PROGRESS records, undefined gate fields).
 - Files without a hardcoded sink are still hunted (whole-file fallback) — fixes "scan ends instantly".
+- **CI / AI PR review:** Kiro panel cells now run under a zero-tool agent (`scripts/pr-review/agents/pr-review-notools.json`, `--agent pr-review-notools`) — kiro-cli 2.11.1 silently ignores `--trust-tools=` (empty), leaving cwd `read`/`glob`/`grep`/`code` trusted; `--mode default` (v3-only) dropped. Agent-fallback (`no agent with name … Falling back`) and monthly-quota (`Monthly request limit reached` / `MONTHLY_REQUEST_COUNT`) stderr signatures are detected on Kiro stderr only, not retried, and surfaced as review-comment banners plus `::error::`; agent fallback forces `VERDICT: FAIL`. See `docs/runbooks/pr-review-panel.md`.
 
 ## [0.1.0] - 2026-06-17
 
@@ -71,6 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - AgentCore `Ineffectual token` 401 — Cognito 토큰 만료 임박 시 선제 갱신.
 - 비동기 폴링·이력 보기 중 빈 화면 크래시 수정(빈 IN_PROGRESS 레코드·undefined 게이트 필드 가드).
 - 하드코딩 싱크 없는 파일도 헌트(전체 파일 폴백) — "스캔이 즉시 끝나는" 문제 수정.
+- **CI / AI PR 리뷰:** Kiro 패널 셀을 무툴 에이전트(`scripts/pr-review/agents/pr-review-notools.json`, `--agent pr-review-notools`)로 실행 — kiro-cli 2.11.1 은 `--trust-tools=`(빈 값)을 조용히 무시해 cwd 의 `read`/`glob`/`grep`/`code` 신뢰가 살아 있었음; v3 전용 `--mode default` 제거. 에이전트 폴백(`no agent with name … Falling back`)·월간 한도(`Monthly request limit reached` / `MONTHLY_REQUEST_COUNT`) 시그니처를 Kiro stderr 에서만 감지해 재시도 없이 리뷰 코멘트 배너 + `::error::` 로 노출; 에이전트 폴백은 `VERDICT: FAIL` 강제. `docs/runbooks/pr-review-panel.md` 참조.
 
 ## [0.1.0] - 2026-06-17
 

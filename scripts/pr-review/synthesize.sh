@@ -188,6 +188,29 @@ if [ -s "$WORK/degraded-models.txt" ]; then
   } > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
 fi
 
+# Kiro 월간 요청 한도 소진(run-panel.sh 의 kiro-quota.flag) — 위 degraded 배너의 원인 후보
+# 나열 대신 실제 원인을 못박는다. 코드/플래그 문제가 아니라 KIRO_API_KEY 계정 한도이므로
+# 사람이 취할 행동(overage 활성화 또는 키 교체)과 리셋 시점을 코멘트에서 바로 읽을 수 있게.
+# VERDICT 강제는 하지 않는다 — Kiro 전멸 시 coverage-severe.flag(아래)가 이미 fail-closed.
+if [ -s "$WORK/kiro-quota.flag" ]; then
+  QUOTA_DETAIL="$(tr '\n' ' ' < "$WORK/kiro-quota.flag" | sed 's/ *$//')"
+  { echo "🚫 **Kiro 월간 요청 한도 소진**: KIRO_API_KEY 계정이 MONTHLY_REQUEST_COUNT 한도에 도달해 Kiro 셀이 응답 없음 (\`$QUOTA_DETAIL\`) — kiro-cli headless 플래그 문제가 아님. overage 활성화 또는 Secrets Manager \`/demo-platform/actions/AI-key\` 의 KIRO_API_KEY 교체 전까지 매 실행 반복됨. 절차: docs/runbooks/pr-review-panel.md"
+    echo ""
+    cat "$OUT"
+  } > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
+fi
+
+# Kiro 에이전트 폴백(run-panel.sh 의 kiro-agent-fallback.flag) — 러너의 kiro-cli 가
+# `--agent pr-review-notools` 를 무시하고 툴 있는 기본 에이전트로 실행한 셀이 있었다. 응답은
+# 이미 폐기됐고 coverage-severe 로 강제 FAIL 되지만, "왜 FAIL 인지"를 코멘트에서 바로 읽게 한다.
+if [ -s "$WORK/kiro-agent-fallback.flag" ]; then
+  AGENTFAIL_DETAIL="$(tr '\n' ' ' < "$WORK/kiro-agent-fallback.flag" | sed 's/ *$//')"
+  { echo "🔓 **Kiro 무툴 계약 위반**: kiro-cli 가 \`--agent pr-review-notools\` 를 무시하고 툴 있는 기본 에이전트로 실행함 (\`$AGENTFAIL_DETAIL\`) — 해당 셀 응답은 폐기, 강제 FAIL. 러너 이미지의 kiro-cli 버전/에이전트 스키마 변경 여부 확인 필요(docs/runbooks/pr-review-panel.md)."
+    echo ""
+    cat "$OUT"
+  } > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
+fi
+
 # Kiro diff truncation → fail-closed(CRITICAL, security-ops PR#8 리뷰 L4). 대형 diff 는
 # run-panel.sh 의 KIRO_DIFF_CAP/KIRO_ARGV_CAP 을 넘으면 Kiro 3개 모델 전부 prefix 만
 # 보고, cap 이후 구간은 codex 단독(살아있다면) 커버리지가 된다 — 이전 리비전은 soft 배너만
