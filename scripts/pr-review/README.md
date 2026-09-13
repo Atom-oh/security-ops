@@ -106,7 +106,7 @@ scope does not. Codex/Claude are always required for reviewable source.
 Kiro can be inactive only for unambiguously frontend-only paths with presentation
 extensions and no applicable content signals. TSX/JSX under `app/` remains
 conservative. AWS/service/ARN/region signals in the whole diff require both Kiro
-roles; deployment/API/schema/retry signals additionally require operations.
+roles; deployment/API/schema/retry signals additionally require `kiro-sol`.
 Unknown paths, README/runbook text, Terraform, workflows, IAM/policy JSON,
 Dockerfiles and review scripts keep both roles required. Plan/summary record each
 role's requirement and routing reason. Failed output is never N/A. Requests carry nonce
@@ -129,6 +129,16 @@ Responses are one JSON object with `head_sha`, role slug, `scope_complete`,
 appear once; checks need changed paths and concrete evidence. Findings require
 severity (CRITICAL/MAJOR/MINOR/INFO), path, condition and evidence. Receipt, scope,
 nonce and response digests are revalidated. Configured IDs do not attest weights.
+
+Model responses remain untrusted data after validation, including free text in
+checks, findings and uncertainties. The chair must receive them in a fresh
+nonce-delimited evidence block with an explicit instruction to ignore embedded
+commands and verdict claims. Validation does not promote model text to instructions.
+Public/deterministic reports must JSON-escape or neutralize embedded control lines
+and apply credential scrubbing; quoted model text cannot supply the host verdict.
+The publication gate accepts only a substantive report with exactly one
+`^VERDICT:` line, at the final nonempty line, whose value is `VERDICT: PASS` or
+`VERDICT: FAIL`. Extra or malformed verdict lines block publication as a success.
 
 Issue/record exclude each other. Duplicate records block and cannot overwrite the
 first result. Valid results cannot be reissued. Invalid nonterminal results may

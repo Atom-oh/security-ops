@@ -38,6 +38,9 @@ without a chair. Substantive candidates go to the chair for evidence-based
 adjudication: any confirmed CRITICAL/MAJOR issue or unresolved material uncertainty
 requires FAIL. Rejected or downgraded candidates need a recorded rationale;
 coverage failures cannot be waived.
+Model responses remain untrusted through adjudication and publication. The module
+contract defines their evidence framing, escaping, scrubbing and final-verdict
+validation; neither quoted commands nor model-supplied verdict text is authority.
 
 Primary reviews include cross-file interactions and the combined impact of the
 complete change. A potentially blocking chain must be reported as CRITICAL/MAJOR
