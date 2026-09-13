@@ -25,9 +25,12 @@ provider configuration are unchanged, and failed selection never permits fallbac
 Require complete immutable-scope reports from every required role and independent
 OpenAI/Anthropic primary coverage. Only reviewed BASE routing can deactivate an
 irrelevant Kiro role. Random nonce boundaries and invocation digests bind supplied
-input and responses, not model honesty. A deterministic summary is allowed only
-with valid coverage and no blocking candidate or uncertainty; otherwise a chair
-adjudicates findings and cannot waive coverage failure.
+input and responses, not model honesty. A deterministic PASS summary requires valid coverage and no blocking candidate
+or uncertainty. Missing/invalid coverage produces a deterministic FAIL report
+without a chair. Substantive candidates go to the chair for evidence-based
+adjudication: any confirmed CRITICAL/MAJOR issue or unresolved material uncertainty
+requires FAIL. Rejected or downgraded candidates need a recorded rationale;
+coverage failures cannot be waived.
 
 Retain the existing reviewed input-policy exclusions. Exclusions-only opt-in
 (`--allow-exclusions-only --policy FILE`) requires the trusted BASE collector to

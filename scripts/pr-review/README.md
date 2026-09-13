@@ -114,12 +114,17 @@ this reserved output is never authority to waive a coverage failure.
 | Aggregate outcome | Consumer action |
 | --- | --- |
 | Exit 0 / deterministic | Publish its validated report; Minor/Info alone do not require a chair. |
-| Exit 0 / review | Run the chair for substantive candidates or uncertainty. |
+| Exit 0 / review | Run the chair; confirmed CRITICAL/MAJOR issues or unresolved material uncertainty require FAIL. |
 | Exit 2 / blocked | Publish deterministic FAIL; the chair cannot waive invalid/missing coverage. |
 | Abnormal exit or missing/mismatched artifacts | Execution failure; never credit stale output. |
 
-Successful aggregation writes `role-summary.json`, `responded.txt` and
+Controlled aggregation (exit 0 or 2) writes `role-summary.json`, `responded.txt` and
 `chair-mode.txt`; deterministic/blocked modes also write `deterministic-review.md`.
+The chair checks evidence and combined impact; candidate severity is not an
+unreviewable verdict. It records why candidates are rejected/downgraded and emits
+exactly one final `VERDICT: PASS` or `VERDICT: FAIL` line with a substantive body.
+PASS is permitted only after all blocking candidates and material uncertainty
+are resolved. A deterministic FAIL report is not the deterministic PASS mode.
 Result `failure_codes` and summary `failures` serve different scopes. Keep raw
 `roles/*.diff` and `requests/*.input/.prompt` private and out of publication.
 Executors must provide private directories, cleanup and a scrubbed artifact allowlist.
