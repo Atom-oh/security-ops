@@ -50,12 +50,14 @@ Codex/Claude are required for reviewable source; trusted routing may deactivate
 irrelevant Kiro roles. App Router React is conservative. Failed output is never
 N/A. Parsing misses whole omissions/some cut prefixes: verify Git scope/hashes.
 
-BASE-approved exclusions-only scope may yield NOT_APPLICABLE/PASS without models.
-Require empty diff/paths, `scope_exception: configured_exclusions_only`, lowercase
-64-character `input_policy_sha256`, and identical nonempty unique safe
-`scope_paths`/`excluded_paths`. The collector verifies policy/all paths; the report
-shows exclusions/hash. Accidental empty input never qualifies. New exclusions
-need policy review; project-specific exceptions remain.
+Exclusions-only NOT_APPLICABLE/PASS requires `--allow-exclusions-only --policy FILE`.
+The schema-1 policy bytes must match the 64-hex `input_policy_sha256`; the private
+`exclusions-policy.json` anchor is rechecked on aggregation. Require empty diff,
+`--paths` file containing `[]`, `scope_exception: configured_exclusions_only`, and
+identical nonempty unique safe `scope_paths`/`excluded_paths`. The trusted BASE
+collector must verify policy and all Git paths. Missing opt-in, accidental empty
+input or mismatch blocks. The report discloses exclusions/hash and no model review.
+New exclusions require policy review; project-specific rules remain.
 
 Start fresh work before collection. `prepare` clears owned results/receipts, claims,
 duplicate/terminal flags and histories; upstream flags remain. Issue/record exclude
@@ -86,11 +88,5 @@ no live provider execution.
 Sol replaces this repository's legacy Terra slot at activation; application
 inference models remain unchanged.
 
-Exclusions-only review requires both `--allow-exclusions-only --policy FILE`.
-The trusted BASE collector supplies a schema-1 policy; its exact bytes must match
-`input_policy_sha256`. The private `exclusions-policy.json` anchor is rechecked
-during aggregation. Missing or mismatched opt-in blocks. The collector, not this
-offline library, must establish complete Git scope and approved exclusions.
-
-A valid result cannot be reissued to discard findings or uncertainty. Start a new
-preparation for a new review; failed attempts retain their diagnostic history.
+Valid results cannot be reissued. Failed retries retain diagnostics; prepare
+again for a new review.
