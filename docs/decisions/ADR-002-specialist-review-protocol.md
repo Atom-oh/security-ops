@@ -1,38 +1,52 @@
 # ADR-002: Specialist review protocol
 
-## Status
+## Status and context
 
-Accepted, 2026-09-13 (design; not live activation). Protocol library planned; the legacy workflow is still
-active. Activation must be reviewed separately with its input and runner controls.
+Accepted, 2026-09-13, as a design decision. Implementation and activation are
+separate reviewed changes; this policy installs neither. The legacy matrix in
+`run-panel.sh`, chair in `synthesize.sh`, helpers in `lib.sh` and
+`.github/workflows/pr-review.yml` remain active with their existing coverage floor.
+Repeated model/lens reviews motivate distinct specialist responsibilities while
+retaining independent evidence and the project's defensive, fail-closed contract.
 
 ## Decision
 
-Assign distinct responsibilities to the supported model pool instead of repeating
-every lens. Codex uses GPT-6 Astra, Kiro uses Opus 5 and GPT-5.6 Sol, and the Claude
-role uses Fable 5.1. Require complete, immutable-scope reports and independent
-OpenAI/Anthropic primary coverage. Only trusted routing can mark a role inactive.
-Use random-nonce input boundaries and bind invocation nonces into result digests.
+Use the fleet schema-1 tags and explicit model bindings in the
+[module contract](../../scripts/pr-review/README.md): Astra for Codex correctness,
+Opus for Kiro AWS, Sol for Kiro operations and Fable for Claude requirements.
+`kiro-fable` is a shared protocol identifier, not the legacy tag or model brand.
+The legacy `gpt-5.6-terra:kiro-gpt` slot is replaced only at activation. Kiro aliases
+and Codex Runtime/Mantle IDs are distinct; application inference models and
+provider configuration are unchanged, and failed selection never permits fallback.
 
-A complete report without blocking candidates or uncertainty may receive a
-deterministic summary. A chair adjudicates substantive candidates, but cannot
-waive missing or invalid coverage. Preserve existing project input exclusions,
-secret/state custody, context and budgets. No quota or billing limits are raised.
-New protocol instructions and output use English at activation; the legacy
-review language remains unchanged until then.
+Require complete immutable-scope reports from every required role and independent
+OpenAI/Anthropic primary coverage. Only reviewed BASE routing can deactivate an
+irrelevant role. Random nonce boundaries and invocation digests bind supplied
+input and responses, not model honesty. A deterministic summary is allowed only
+with valid coverage and no blocking candidate or uncertainty; otherwise a chair
+adjudicates findings and cannot waive coverage failure.
 
-This records the approved design; it does not supersede the live legacy
-workflow yet. The activation change must identify which older execution/coverage
-rules it replaces and preserve their remaining security and ownership decisions.
-See [the module contract](../../scripts/pr-review/README.md) for planned interfaces
-and offline checks. Model access and production execution require separate evidence.
+Retain the existing reviewed input-policy exclusions. Exclusions-only opt-in
+(`--allow-exclusions-only --policy FILE`) requires the trusted BASE collector to
+account for all original paths, bind policy bytes and match every excluded path.
+The filtered review input is empty; the report lists exclusions and claims no
+model review. Unknown/source omissions or collector failures remain blocking.
 
-The target Sol configuration intentionally replaces the legacy Terra review slot
-for consistent fleet configuration. This is an explicit target selection, not a
-claim that Sol is already LIVE or a change to the application inference models.
+Accept an explicit compatibility interface for collector-approved metadata-only
+deletions (`path_only` plus `--allow-metadata-only`). The collector must establish
+BASE-policy eligibility; deletion headers are validated and withheld bodies are
+disclosed. This is not authorization to omit arbitrary source. The generic Git
+collector does not use this mode. These two opt-ins have separate evidence rules
+in the module contract; a caller-provided hash alone authorizes neither.
 
-A scope containing only files excluded by the existing, base-approved project
-input policy may complete as NOT_APPLICABLE with a PASS gate result. The trusted
-collector must account for every path and record the policy hash; the report
-identifies excluded paths and claims no model review. Any reviewable source,
-unknown exclusion, source omission or failed collector remains blocking. New
-exclusions require their own reviewed policy change.
+## Consequences and verification
+
+Preserve provider bindings, secret/state custody, limits and budgets. New protocol
+documentation is English; automated output switches only at activation, leaving
+the legacy Korean/English prompts unchanged. No Korean duplicate is required.
+
+The implementation must test scope completeness, exception rules, nonce/receipt
+binding, terminal failures, scrubbing and output ownership. Activation must review
+the executors, private artifact lifecycle, configured model access and exact-HEAD
+publication, and identify the legacy rules it replaces. Configuration and offline
+tests are not proof of live availability or deployment.
