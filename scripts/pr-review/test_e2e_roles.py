@@ -98,10 +98,7 @@ class EndToEndRoleTests(unittest.TestCase):
         self.assertTrue((target / "lib.sh").exists(), "Repository scrubbers must be available")
         (self.repo / "AGENTS.md").write_text("Trusted project context: preserve data and auth.\n")
         (self.repo / "CLAUDE.md").write_text("Project source instructions.\n")
-        (target / "role-input-scope.json").write_text(json.dumps({
-            "schema_version": 1, "basenames": ["package-lock.json"],
-            "extensions": [".png"], "directories": [], "prefixes": [],
-        }))
+        shutil.copy2(SOURCE / "role-input-scope.json", target / "role-input-scope.json")
         self.git("init", "-q", "-b", "main")
         self.git("config", "user.name", "Review tests")
         self.git("config", "user.email", "tests@example.invalid")
@@ -115,8 +112,12 @@ class EndToEndRoleTests(unittest.TestCase):
             BASE_SHA=self.base, GH_REPO="example/project", PANEL_RETRIES="1",
             PANEL_TIMEOUT="10", KIRO_PREFLIGHT_TIMEOUT="10",
         )
-        self.environment.pop("GITHUB_ENV", None)
-        self.environment.pop("ROLE_REVIEW", None)
+        runner_home = self.root / "runner-home"
+        (runner_home / ".codex").mkdir(parents=True)
+        (runner_home / ".codex/config.toml").write_text("# Offline fixture only\n")
+        self.environment["HOME"] = str(runner_home)
+        self.environment["GITHUB_ENV"] = str(self.root / "github-env")
+        self.environment["ROLE_REVIEW"] = "1"
 
     def git(self, *arguments):
         return subprocess.check_output(["git", *arguments], cwd=self.repo, text=True)
@@ -130,12 +131,12 @@ class EndToEndRoleTests(unittest.TestCase):
         self.environment["HEAD_SHA"] = self.git("rev-parse", "HEAD").strip()
         self.git("checkout", "-q", "--detach", self.base)
         result = subprocess.run([
-            "bash", "scripts/pr-review/run-specialists.sh", "unused", "unused", str(self.work),
+            "bash", "scripts/pr-review/run-panel.sh", "unused", "unused", str(self.work),
         ], cwd=self.repo, env=self.environment, capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         result = subprocess.run([
-            "python3", "scripts/pr-review/synthesize_roles.py",
-            "--work", str(self.work), "--output", str(self.work / "review.md"),
+            "bash", "scripts/pr-review/synthesize.sh", "unused", str(self.work),
+            "18", "Offline test", str(self.work / "review.md"),
         ], cwd=self.repo, env=self.environment, capture_output=True, text=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         calls = self.root / "calls.jsonl"
@@ -145,6 +146,7 @@ class EndToEndRoleTests(unittest.TestCase):
         calls = self.run_pipeline("frontend/components/Button.tsx")
         self.assertEqual(sorted(call["name"] for call in calls), ["claude", "codex"])
         self.assertTrue((self.work / "review.md").read_text().endswith("VERDICT: PASS\n"))
+        self.assertIn("chair_used=Deterministic specialist summary", (self.root / "github-env").read_text())
 
     def test_aws_change_uses_four_reviews_and_two_safety_checks(self):
         calls = self.run_pipeline("infra/network.tf")
@@ -157,6 +159,7 @@ class EndToEndRoleTests(unittest.TestCase):
         calls = self.run_pipeline("frontend/components/Button.tsx")
         self.assertEqual(len(calls), 2)
         self.assertTrue((self.work / "review.md").read_text().endswith("VERDICT: FAIL\n"))
+        self.assertIn("chair_failed=1", (self.root / "github-env").read_text())
 
     def test_major_candidate_adds_exactly_one_chair_call(self):
         (self.root / "major").touch()
@@ -203,15 +206,29 @@ class EndToEndRoleTests(unittest.TestCase):
         self.run_pipeline("frontend/components/Button.tsx")
         self.assertTrue((self.work / "review.md").read_text().endswith("VERDICT: FAIL\n"))
 
-    def test_approved_asset_only_scope_skips_models_without_losing_provenance(self):
-        calls = self.run_pipeline("frontend/public/icon.png")
+    def test_approved_reference_only_scope_skips_models_without_losing_provenance(self):
+        calls = self.run_pipeline("reference-docs/reference.txt")
         self.assertEqual(calls, [])
         source = json.loads((self.work / "role-source.json").read_text())
-        self.assertEqual(source["excluded_paths"], ["frontend/public/icon.png"])
+        self.assertEqual(source["excluded_paths"], ["reference-docs/reference.txt"])
         self.assertTrue((self.work / "review.md").read_text().endswith("VERDICT: PASS\n"))
 
     def test_approved_lockfile_only_scope_skips_models(self):
         self.assertEqual(self.run_pipeline("frontend/package-lock.json"), [])
+
+    def test_unapproved_asset_scope_remains_required(self):
+        calls = self.run_pipeline("frontend/public/icon.png")
+        self.assertEqual(len(calls), 6)
+        source = json.loads((self.work / "role-source.json").read_text())
+        self.assertEqual(source["excluded_paths"], [])
+
+    def test_current_collector_failure_remains_blocking(self):
+        self.work.mkdir()
+        (self.work / "source-omission.flag").touch()
+        calls = self.run_pipeline("frontend/components/Button.tsx")
+        self.assertFalse(any(call["name"] == "claude" and call["args"][1].startswith("You chair") for call in calls))
+        self.assertTrue((self.work / "source-omission.flag").exists())
+        self.assertTrue((self.work / "review.md").read_text().endswith("VERDICT: FAIL\n"))
 
 
 if __name__ == "__main__":

@@ -36,9 +36,8 @@ quota exhaustion and failed required roles block coverage. A JSON shape is
 evidence of protocol completion, not proof that the model found every defect.
 
 The common protocol accepts a complete diff within 3,000 lines and 95,000 UTF-8
-bytes. It blocks oversized input without awarding credit for a prefix. Existing
-repository-specific chunking is governed by its own implementation and budget;
-do not remove chunk attestations or raise limits to obtain a pass.
+bytes. It blocks oversized input without awarding credit for a prefix. This
+repository has no specialist chunk coordinator; do not raise limits to obtain a pass.
 
 ## Execution and synthesis
 
@@ -78,8 +77,9 @@ a clean result. Model limits and required gates remain in force.
 
 ## Approved source scope
 
-`role-input-scope.json` preserves this repository's existing lockfile/generated-
-asset exclusions. The trusted base copy classifies immutable Git paths before
+`role-input-scope.json` retains four lockfile basenames (`package-lock.json`,
+`yarn.lock`, `pnpm-lock.yaml`, `.terraform.lock.hcl`) and `reference-docs/`.
+There is no general generated-asset exclusion. The trusted base copy classifies immutable Git paths before
 requests are prepared. Provenance records every excluded path and both raw and
 approved diff hashes. Renames are expanded into deletion/addition records so a
 source path cannot disappear through an artifact rename. A verified exclusions-
@@ -90,3 +90,11 @@ not authorize excluding additional source merely to obtain a pass.
 Approved exclusions-only input explicitly supplies `--allow-exclusions-only` and
 a private `--policy` file copied from Git BASE. The engine checks its byte hash
 and retains an anchor through aggregation; arbitrary provenance cannot opt in.
+
+The workflow clears previous workspace artifacts before input collection; current
+collector/preflight failure flags remain blocking. Uploaded evidence is restricted
+to scrubbed results, receipts, attempts, timings, flags and plan/summary/source
+metadata, named for the HEAD and run attempt. Private context, requests and diffs
+are excluded. Preparation/execution exceptions produce a static FAIL report and
+failure flag so publication remains visible. Comments identify validated specialists
+and actual synthesis mode, and reject a changed HEAD before posting.

@@ -34,14 +34,32 @@ class IntegrityTests(unittest.TestCase):
             "--work", str(self.work),
         ], check=True, capture_output=True)
         self.plan = json.loads((self.work / "role-plan.json").read_text())
+        runner_home = self.root / "runner-home"
+        (runner_home / ".codex").mkdir(parents=True)
+        (runner_home / ".codex/config.toml").write_text("# Offline config\n")
         self.environment = patch.dict(os.environ, {
             "PANEL_RETRIES": "2", "PANEL_TIMEOUT": "10", "KIRO_PREFLIGHT_TIMEOUT": "10",
             "CHAIR_TIMEOUT": "10",
+            "HOME": str(runner_home), "GITHUB_ENV": str(self.root / "env"),
             "CHAIR_PRIMARY_MODEL": "global.anthropic.claude-fable-5-1",
             "CHAIR_FALLBACK_MODEL": "global.anthropic.claude-opus-5",
         })
         self.environment.start()
         self.addCleanup(self.environment.stop)
+        self.recorded_output = []
+        self.recorded_paths = []
+        real_run = subprocess.run
+        def capture_record(command, *arguments, **options):
+            if "record" in command and "--output" in command:
+                path = Path(command[command.index("--output") + 1])
+                self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+                self.assertNotIn(self.work, path.parents)
+                self.recorded_output.append(path.read_bytes().decode())
+                self.recorded_paths.append(path)
+            return real_run(command, *arguments, **options)
+        self.record_capture = patch.object(run_role.subprocess, "run", side_effect=capture_record)
+        self.record_capture.start()
+        self.addCleanup(self.record_capture.stop)
 
     def response(self, tag):
         return json.dumps({
@@ -171,7 +189,7 @@ class IntegrityTests(unittest.TestCase):
         self.assertEqual(command[command.index("--model") + 1], "global.openai.gpt-6-astra")
         self.assertEqual(command[-1], "-")
         self.assertEqual(cwd, Path.cwd())
-        self.assertEqual(environment["AWS_PROFILE"], "existing-bedrock")
+        self.assertNotIn("AWS_PROFILE", environment)
         self.assertEqual(environment["AWS_REGION"], "ap-northeast-2")
         self.assertNotIn("GH_TOKEN", environment)
         self.assertEqual(timeout, 10)
@@ -211,7 +229,8 @@ class IntegrityTests(unittest.TestCase):
             run_role.run(self.work, "codex")
         result = json.loads((self.work / "slot/codex-result.json").read_text())
         self.assertFalse(result["valid"])
-        self.assertEqual((self.work / "runtime/codex.txt").read_text(), "")
+        self.assertEqual(self.recorded_output, [""])
+        self.assertTrue(all(not path.exists() for path in self.recorded_paths))
 
     def test_codex_transport_does_not_extract_json_from_invalid_agent_text(self):
         final = "Unrequested prose\n" + self.response("codex")
@@ -221,7 +240,8 @@ class IntegrityTests(unittest.TestCase):
             run_role.run(self.work, "codex")
         result = json.loads((self.work / "slot/codex-result.json").read_text())
         self.assertFalse(result["valid"])
-        self.assertTrue((self.work / "runtime/codex.txt").read_text().startswith("Unrequested prose"))
+        self.assertEqual(self.recorded_output, [final + "\n"])
+        self.assertTrue(all(not path.exists() for path in self.recorded_paths))
 
     def test_codex_progress_is_ignored_but_cli_final_reply_is_strictly_validated(self):
         final = self.response("codex")
