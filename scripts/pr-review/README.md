@@ -94,6 +94,14 @@ for reviewable source; only trusted routing can deactivate irrelevant Kiro roles
 Unknown scope is conservative. Failed output is never N/A. Requests carry nonce
 boundaries; models cannot change routing or gate state through their output.
 
+Every primary role assesses interactions and combined impact across the full
+supplied change. A plausible blocking chain must be a CRITICAL/MAJOR candidate
+or an uncertainty, so it reaches the chair. `scope_complete` attests this assigned
+review scope; Minor/Info-only results attest no blocking combined impact too.
+The host validates these reports and their scope, not the truth of model reasoning.
+This approved PR-review optimization replaces unconditional legacy synthesis;
+it does not relax the application's independent vulnerability/chaining gate.
+
 Responses are one JSON object with `head_sha`, role slug, `scope_complete`,
 `reviewed_paths`, `checks`, `findings` and `uncertainties`. All assigned paths must
 appear once; checks need changed paths and concrete evidence. Findings require

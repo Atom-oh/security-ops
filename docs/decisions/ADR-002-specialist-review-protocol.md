@@ -32,6 +32,15 @@ adjudication: any confirmed CRITICAL/MAJOR issue or unresolved material uncertai
 requires FAIL. Rejected or downgraded candidates need a recorded rationale;
 coverage failures cannot be waived.
 
+Primary reviews include cross-file interactions and the combined impact of the
+complete change. A potentially blocking chain must be reported as CRITICAL/MAJOR
+or unresolved uncertainty, not split into apparently harmless labels. Minor/Info
+means the primary reviewers found no blocking standalone or combined impact.
+Skipping the chair in that case deliberately replaces the PR pipeline's legacy
+always-chair rule; it is not a mathematical proof that findings cannot combine.
+The application's vulnerability-scanning pipeline and its chaining gate are
+separate and unchanged by this PR-review decision.
+
 Retain the existing reviewed input-policy exclusions. Exclusions-only opt-in
 (`--allow-exclusions-only --policy FILE`) requires the trusted BASE collector to
 account for all original paths, bind policy bytes and match every excluded path.
