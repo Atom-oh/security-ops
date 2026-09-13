@@ -201,7 +201,7 @@ def complete_hunks(chunk, metadata_only=False):
         raise Invalid("incomplete_diff_hunk")
     if hunk_seen:
         return
-    # Metadata must prove that no content hunk is needed.
+    # Metadata must justify absent hunks.
     if re.search(r"^(?:--- |\+\+\+ )", chunk, re.M):
         raise Invalid("incomplete_diff_hunk")
     index = re.search(r"^index ([0-9a-f]{7,64})\.\.([0-9a-f]{7,64})(?: \d+)?$", chunk, re.M)
@@ -241,7 +241,7 @@ def diff_paths(text, manifest=None, metadata_only=()):
     paths, headers = [], []
     for i, start in enumerate(starts):
         chunk = text[start.start():starts[i + 1].start() if i + 1 < len(starts) else len(text)]
-        # Headers end at the first hunk; added content may itself contain +++.
+        # Ignore +++ inside hunks.
         metadata = chunk.split("\n@@", 1)[0].splitlines()
         old = new = renamed = None
         saw_new = False
@@ -526,7 +526,7 @@ def prepare(args):
     plan["plan_digest"] = digest(plan)
     write_json(work / "role-plan.json", plan)
     (work / "slot").mkdir(parents=True, exist_ok=True)
-    # Reprepare invalidates records, including identical inputs; upstream flags remain.
+    # Invalidate prior records; retain upstream flags.
     for pattern in ("*-result.json", "*-timing.json", "*-request.json"):
         for previous in (work / "slot").glob(pattern):
             remove(previous)
@@ -799,7 +799,7 @@ def scrub(value, preserved=frozenset()):
             return canonical(scrub(strict_json(match.group()), preserved))
         except Invalid:
             return match.group()
-    # Decode nested JSON strings/escaped keys before applying key/value patterns.
+    # Decode nested JSON before matching keys.
     value = re.sub(r'"(?:\\.|[^"\\])*"', quoted, value)
     identifier = SENSITIVE_KEY.pattern
     quote = r"""\\*["']"""
@@ -1018,7 +1018,7 @@ def aggregate(args):
                       "Failure codes:"] + [f"- `{code}`" for code in sorted(set(failures))]
         else:
             for finding in findings:
-                # One line per finding prevents model text forging a verdict line.
+                # Escape findings to prevent forged verdict lines.
                 text = canonical(finding)
                 lines.append("- " + text)
             if not findings:
