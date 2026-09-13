@@ -40,8 +40,7 @@ the collector checks both sides. Omit the file only for unambiguous patch paths.
 40-hex Git revisions; `diff_sha256` hashes exact filtered diff bytes.
 
 Optional provenance fields are `scope_paths` (all original changed paths),
-`excluded_paths` (paths removed by approved input policy), `path_only` (disclosed
-metadata-only deletions), `scope_exception`, `input_policy_sha256`, and
+`excluded_paths` (paths removed by approved input policy), `scope_exception`, `input_policy_sha256`, and
 `input_failures`. Failure codes must fullmatch `[a-z][a-z0-9_:.-]{0,63}`; any code
 blocks. The plan carries scrubbed provenance into requests and the public summary.
 
@@ -72,26 +71,41 @@ Set provenance `scope_exception` to `configured_exclusions_only` and
 `input_policy_sha256` to the exact policy file's SHA-256. These are different
 inventories, not a claim that the original PR has no changes.
 
-The schema-1 policy has optional string arrays `basenames`, `extensions`,
-`directories` (parents only), `prefixes` and `path_regexes`. Every claimed path
-must match a rule. Its copied `exclusions-policy.json` bytes and rules are
+The schema-1 policy has optional nonempty-string arrays: `basenames` matches the
+final component exactly; `extensions` matches the final suffix; `directories`
+matches a parent component; `prefixes` uses literal starts-with; `path_regexes`
+uses Python regex search (anchors must be explicit). Invalid regexes block.
+These are trusted BASE configuration, not PR-supplied expressions. Every claimed
+path must match a rule. Its copied `exclusions-policy.json` bytes and rules are
 rechecked on aggregation. This may yield NOT_APPLICABLE/PASS with no model calls;
 the report lists excluded paths and the policy hash. A generic collector may use
 this only with its reviewed BASE policy and explicit opt-in; an untrusted caller
 cannot authorize exclusions. Unknown scope, source omissions and collector failure block.
 
-`path_only` separately requires `--allow-metadata-only`. Entries must be unique
-safe paths in the patch, with a deletion `index` header containing a nonzero old
-OID and an all-zero new OID (abbreviated Git OIDs are supported). This preserves a
-controlled metadata-only deletion interface: the collector must prove eligibility
-under reviewed BASE policy and the report discloses that deleted bodies were not
-reviewed. The generic Git collector does not use this mode.
+For this rollout the approved exclusions are exactly the existing workflow's
+`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `.terraform.lock.hcl` basenames
+and `reference-docs/` prefix. No extension, directory or regex rule is approved.
+Changing that set requires a separate BASE-policy review; this schema description
+does not approve catch-all rules or new source omissions. Lockfile exclusions are
+an explicit retained limitation, not a claim that those files lack security impact.
+
+Metadata-only deletion support is deferred. This rollout rejects nonempty
+`path_only`, even with an opt-in flag: deletion headers or caller hashes cannot
+authorize withholding source bodies. A future collector needs a separately
+reviewed policy and verifiable eligibility contract before enabling that mode.
 
 ## Coverage, lifecycle and publication
 
-Every required role reviews its complete assigned diff. Codex/Claude are required
-for reviewable source; only trusted routing can deactivate irrelevant Kiro roles.
-Unknown scope is conservative. Failed output is never N/A. Requests carry nonce
+Every required role receives the same complete filtered diff and path inventory.
+`roles/TAG.diff` is a per-role copy, not a slice; responsibilities differ, input
+scope does not. Codex/Claude are always required for reviewable source.
+Kiro can be inactive only for unambiguously frontend-only paths with presentation
+extensions and no applicable content signals. TSX/JSX under `app/` remains
+conservative. AWS/service/ARN/region signals in the whole diff require both Kiro
+roles; deployment/API/schema/retry signals additionally require operations.
+Unknown paths, README/runbook text, Terraform, workflows, IAM/policy JSON,
+Dockerfiles and review scripts keep both roles required. Plan/summary record each
+role's requirement and routing reason. Failed output is never N/A. Requests carry nonce
 boundaries; models cannot change routing or gate state through their output.
 
 Every primary role assesses interactions and combined impact across the full
@@ -99,8 +113,12 @@ supplied change. A plausible blocking chain must be a CRITICAL/MAJOR candidate
 or an uncertainty, so it reaches the chair. `scope_complete` attests this assigned
 review scope; Minor/Info-only results attest no blocking combined impact too.
 The host validates these reports and their scope, not the truth of model reasoning.
-This approved PR-review optimization replaces unconditional legacy synthesis;
-it does not relax the application's independent vulnerability/chaining gate.
+This decision explicitly accepts the residual risk that primary reviewers can miss
+or misclassify an interaction. There is no automatic cross-report adjudication of
+Minor/Info-only findings. It replaces unconditional PR synthesis, not the
+application scanner's Critical/High/chaining gate. Neither model self-attestation
+nor a chair PASS proves the absence of defects; missing or invalid required
+evidence still blocks mechanically. No finding-count heuristic is authorized.
 
 Responses are one JSON object with `head_sha`, role slug, `scope_complete`,
 `reviewed_paths`, `checks`, `findings` and `uncertainties`. All assigned paths must
