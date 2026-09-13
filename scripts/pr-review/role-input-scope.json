@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "basenames": [
+    "package-lock.json",
+    "yarn.lock",
+    "pnpm-lock.yaml",
+    ".terraform.lock.hcl"
+  ],
+  "extensions": [],
+  "directories": [],
+  "prefixes": [
+    "reference-docs/"
+  ]
+}
