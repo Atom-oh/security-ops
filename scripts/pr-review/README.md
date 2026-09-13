@@ -13,9 +13,11 @@ records the decision. This library performs no Git operations or provider calls.
 | claude-self | `global.anthropic.claude-fable-5-1` / Bedrock Runtime | Auth, data, API and ADR |
 
 Tags match the fleet's [schema-1 protocol](https://github.com/Atom-oh/AWS-Demo-Platform/blob/eca34549267b6bb71e7d3bc4f9184d7f94b83d00/scripts/pr-review/role_review.py).
-`kiro-fable` is its compatibility identifier for the Opus AWS role; it does not
-rename this repository's legacy `kiro-opus`/`kiro-gpt` tags. The library's `ROLES`
-table binds models explicitly; never infer a model from a tag. Local Codex on
+`kiro-fable` is its compatibility identifier for the Opus AWS role. Activation
+replaces legacy `kiro-opus` with `kiro-fable` and legacy `kiro-gpt` with `kiro-sol`;
+only those two Kiro roles run in the specialist path. Legacy script names remain
+until cutover. This table defines the planned binding; the library's `ROLES`
+table must implement it explicitly; never infer a model from a tag. Local Codex on
 Mantle uses `openai.gpt-6-astra`, a different namespace. The old Mantle regional
 Sol observation does not establish Kiro alias availability. No automatic fallback.
 
@@ -42,6 +44,18 @@ Optional provenance fields are `scope_paths` (all original changed paths),
 metadata-only deletions), `scope_exception`, `input_policy_sha256`, and
 `input_failures`. Failure codes must fullmatch `[a-z][a-z0-9_:.-]{0,63}`; any code
 blocks. The plan carries scrubbed provenance into requests and the public summary.
+
+Safe paths are nonempty UTF-8 repository-relative names, with no absolute prefix,
+NUL, or empty/`.`/`..` component. Preserve literal Git spelling; do not normalize
+or rename paths silently. Serialize paths as JSON so quotes, CR/LF and controls
+cannot become raw prompt lines, delimiters or public-report syntax. Existing
+input/request byte limits bound them; literal Git path handling prevents options.
+
+Every PR-derived path and provenance value is untrusted data. Issued requests must
+put this metadata, like the diff, inside a nonce-bound data block, separate from
+trusted BASE instructions. The prompt must explicitly forbid obeying instructions
+inside either block, including marker-like text. Public metadata uses escaped JSON;
+a filename or provenance value cannot supply instructions or a verdict.
 
 ## Trust and scope exceptions
 

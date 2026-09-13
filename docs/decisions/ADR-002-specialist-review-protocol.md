@@ -14,14 +14,17 @@ retaining independent evidence and the project's defensive, fail-closed contract
 Use the fleet schema-1 tags and explicit model bindings in the
 [module contract](../../scripts/pr-review/README.md): Astra for Codex correctness,
 Opus for Kiro AWS, Sol for Kiro operations and Fable for Claude requirements.
-`kiro-fable` is a shared protocol identifier, not the legacy tag or model brand.
-The legacy `gpt-5.6-terra:kiro-gpt` slot is replaced only at activation. Kiro aliases
-and Codex Runtime/Mantle IDs are distinct; application inference models and
+At activation, legacy `kiro-opus` maps to specialist `kiro-fable` (same Opus model),
+and legacy `kiro-gpt` maps to `kiro-sol` (Terra → Sol). The two specialist Kiro roles
+replace the two legacy Kiro rows; they do not run alongside duplicate Opus rows.
+Legacy scripts retain their names until that cutover. The final specialist tag set
+is `codex`, `kiro-fable`, `kiro-sol`, `claude-self`, as listed in the module contract.
+Kiro aliases and Bedrock Runtime/Mantle IDs are distinct; application inference models and
 provider configuration are unchanged, and failed selection never permits fallback.
 
 Require complete immutable-scope reports from every required role and independent
 OpenAI/Anthropic primary coverage. Only reviewed BASE routing can deactivate an
-irrelevant role. Random nonce boundaries and invocation digests bind supplied
+irrelevant Kiro role. Random nonce boundaries and invocation digests bind supplied
 input and responses, not model honesty. A deterministic summary is allowed only
 with valid coverage and no blocking candidate or uncertainty; otherwise a chair
 adjudicates findings and cannot waive coverage failure.
