@@ -12,9 +12,11 @@ The application's defensive scanner and its chaining gate are outside this decis
 
 ## Decision
 
-Use the fleet schema-1 tags and explicit model bindings in the
-[module contract](../../scripts/pr-review/README.md): Astra for Codex correctness,
-Opus for Kiro AWS, Sol for Kiro operations and Fable for Claude requirements.
+Use the fleet schema-1 tags in the
+[module contract](../../scripts/pr-review/README.md). Its table is the sole
+normative mapping of tag, requested model/provider and responsibility.
+`kiro-fable` is a compatibility tag for Opus; the Fable model belongs to
+`claude-self`.
 At activation, legacy `kiro-opus` maps to specialist `kiro-fable` (same Opus model),
 and legacy `kiro-gpt` maps to `kiro-sol` (Terra → Sol). The two specialist Kiro roles
 replace the two legacy Kiro rows; they do not run alongside duplicate Opus rows.
