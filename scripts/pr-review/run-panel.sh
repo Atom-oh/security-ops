@@ -12,6 +12,11 @@
 # 등 transient 흡수). 매 시도마다 재실행.
 # 모든 셀(모델 수 × lens 수)이 병렬(&+wait) — 벽시계 ≈ 최슬로우 셀 하나, 순차합 아님.
 set -uo pipefail
+
+# CI selects the specialist protocol; legacy fixtures remain available.
+if [ "${ROLE_REVIEW:-0}" = 1 ]; then
+  exec bash "$(dirname "$0")/run-specialists.sh" "$@"
+fi
 DIFF="$(realpath "$1" 2>/dev/null)" \
   || { echo "run-panel.sh: realpath failed to resolve diff path: $1" >&2; exit 1; }
 LENSES_DIR="$2"; WORK="$3"
@@ -42,7 +47,7 @@ T="${PANEL_TIMEOUT:-300}"
 RETRIES="${PANEL_RETRIES:-3}"
 # glm-5(kiro-glm) 는 로스터에서 제외 — AWS-Demo-Platform repo 의 PR#88 리뷰에서 이 모델만
 # 4건의 오탐을 냈다(AWS-Demo-Platform repo 의 ADR-015 — 이 repo 엔 없음). 되살릴 때는 오탐률을 먼저 재측정할 것.
-KIRO_MODELS=("claude-opus-5:kiro-opus" "gpt-5.6-terra:kiro-gpt")
+KIRO_MODELS=("claude-opus-5:kiro-opus" "gpt-5.6-sol:kiro-gpt")
 
 shopt -s nullglob
 LENS_FILES=("$LENSES_DIR"/*.txt)
@@ -271,7 +276,7 @@ for lens_file in "${LENS_FILES[@]}"; do
   # 위 codex_env() 주석 참조 — GH_TOKEN 등 잡의 다른 시크릿을 상속하지 않는다.
   if command -v codex >/dev/null 2>&1; then
     ( try_panel "$SLOT/codex-$lens.md" "$SLOT/codex-$lens.err" \
-        codex_env timeout "$T" codex exec -s read-only --skip-git-repo-check "$LENS_PROMPT" ) &
+        codex_env timeout "$T" codex exec --model global.openai.gpt-6-astra -s read-only --skip-git-repo-check "$LENS_PROMPT" ) &
   else echo "[skip] codex/$lens (binary absent)" >&2; : > "$SLOT/codex-$lens.md"; fi
 
   # Kiro x3 셀 — model:tag 를 한 배열에서 파생(호출/집계 동기화). Kiro's non-interactive

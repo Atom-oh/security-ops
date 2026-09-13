@@ -14,6 +14,13 @@ on:
   pull_request_target:
     types: [opened, synchronize]
 
+env:
+  GH_TOKEN: ${{ github.token }}
+  ROLE_REVIEW: "1"
+  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+  GH_REPO: ${{ github.repository }}
+
 jobs:
   review:
     if: github.event.pull_request.head.repo.full_name == github.repository
@@ -48,6 +55,9 @@ jobs:
       # 따라서 base(머지 대상, 신뢰됨)를 체크아웃해 scripts/* + CLAUDE.md/AGENTS.md 를
       # 신뢰 컨텍스트로 쓰고, PR 변경분은 아래 `gh pr diff` 로 '데이터'로만 받는다(미실행).
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
 
       - name: Verify Claude Code CLI present (pre-installed on runner)
         # security-ops-claude-arm 러너에는 @anthropic-ai/claude-code 가 pre-install 되어 있어야 한다.
@@ -175,7 +185,7 @@ jobs:
             echo "panel_truncated=1" >> "$GITHUB_ENV"
           fi
 
-      - name: Run panel + synthesize (lens×model matrix -> Claude chair)
+      - name: Run specialists and conditionally adjudicate findings
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
@@ -187,6 +197,19 @@ jobs:
           bash scripts/pr-review/synthesize.sh /tmp/pr-diff-fenced.txt /tmp/pr-review \
             "$PR_NUMBER" "$PR_TITLE" /tmp/review.md
           echo "panel_responded=$(tr '\n' ' ' < /tmp/pr-review/responded.txt 2>/dev/null)" >> "$GITHUB_ENV"
+
+      - name: Preserve specialist scope and execution evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: specialist-review-${{ github.event.pull_request.head.sha }}
+          path: |
+            /tmp/pr-review/slot/*-result.json
+            /tmp/pr-review/slot/*-timing.json
+            /tmp/pr-review/slot/*.flag
+            /tmp/pr-review/role-plan.json
+            /tmp/pr-review/role-summary.json
+          if-no-files-found: error
 
       - name: Check for blocking issues
         id: gate
@@ -219,8 +242,15 @@ jobs:
           REPO: ${{ github.repository }}
           GATE_RESULT: ${{ steps.gate.outputs.result }}
         run: |
+          CURRENT_HEAD="$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.head.sha')"
+          if [ "$CURRENT_HEAD" != "$HEAD_SHA" ]; then
+            echo "::error::PR head changed; this review belongs to an older commit"
+            exit 1
+          fi
           MARKER="<!-- mythos-agent-pr-review -->"
-          if [ "$GATE_RESULT" = "fail" ]; then
+          if [ "$GATE_RESULT" = "fail" ] && [ "${chair_failed:-0}" = "1" ]; then
+            STATUS_BADGE="**Status: BLOCKED** — required review execution or coverage failed"
+          elif [ "$GATE_RESULT" = "fail" ]; then
             STATUS_BADGE="**Status: BLOCKED** — CRITICAL/MAJOR issues must be resolved before merge"
           else
             STATUS_BADGE="**Status: PASSED** — No blocking issues found"
@@ -229,7 +259,8 @@ jobs:
           sed '$ { /^VERDICT:/d }' /tmp/review.md > /tmp/review-clean.md
           {
             echo "$MARKER"
-            echo "## 🤖 AI Code Review (${chair_used:-Claude Fable 5} chair · lens×model matrix)"
+            echo "## AI Code Review — specialists"
+            echo "_Synthesis: ${chair_used:-pending}_"
             echo ""
             echo "_Panel: Claude(chair) · ${panel_responded:-solo}_"
             [ "${panel_truncated:-0}" = "1" ] && echo "_⚠️ diff truncated to first ${max_lines:-12000} lines — review is partial._"
