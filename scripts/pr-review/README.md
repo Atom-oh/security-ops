@@ -1,7 +1,7 @@
 # Specialist review protocol
 
-**Installed protocol and tests.** Exact routing classifiers and implementation:
-[role_review.py](role_review.py).
+**Installed protocol and tests.** Declared scope is reconciled; BASE collectors
+authorize mixed-scope exclusions. Implementation: [role_review.py](role_review.py).
 The legacy review pipeline remains active; executor integration and activation
 require separate review. [ADR-002](../../docs/decisions/ADR-002-specialist-review-protocol.md)
 records the decision. This library performs no Git operations or provider calls.
