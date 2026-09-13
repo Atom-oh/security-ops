@@ -173,7 +173,7 @@ def header_path(header):
     return candidates[0] if len(candidates) == 1 else None
 
 
-def complete_hunks(chunk, metadata_only=False):
+def complete_hunks(chunk):
     """Validate complete hunks or provably hunk-free metadata."""
     remaining = None
     hunk_seen = False
@@ -212,9 +212,6 @@ def complete_hunks(chunk, metadata_only=False):
     def empty_blob(oid):
         return any(full.startswith(oid) for full in empty_ids)
 
-    if (metadata_only and index and set(index[1]) != {"0"} and set(index[2]) == {"0"}
-            and re.search(r"^deleted file mode [0-7]{6}$", chunk, re.M)):
-        return
     if re.search(r"^new file mode ", chunk, re.M):
         if index and set(index[1]) == {"0"} and empty_blob(index[2]):
             return
@@ -234,7 +231,7 @@ def complete_hunks(chunk, metadata_only=False):
     raise Invalid("diff_change_missing")
 
 
-def diff_paths(text, manifest=None, metadata_only=()):
+def diff_paths(text, manifest=None):
     starts = list(re.finditer(r"^diff --git .+$", text, re.M))
     if not starts or text[:starts[0].start()].strip():
         raise Invalid("unparseable_diff")
@@ -255,7 +252,7 @@ def diff_paths(text, manifest=None, metadata_only=()):
             elif line.startswith("copy to "):
                 renamed = repo_path(unquote_path(line[len("copy to "):]))
         path = (new or old) if saw_new else (renamed or header_path(metadata[0]))
-        complete_hunks(chunk, metadata_only=path in metadata_only)
+        complete_hunks(chunk)
         paths.append(path)
         headers.append(metadata[0])
     if manifest is not None:
@@ -274,8 +271,6 @@ def diff_paths(text, manifest=None, metadata_only=()):
         raise Invalid("ambiguous_diff_paths_require_manifest")
     else:
         result = sorted(set(paths))
-    if not set(metadata_only) <= set(result):
-        raise Invalid("invalid_input_provenance")
     return result
 
 
@@ -458,8 +453,6 @@ def prepare(args):
             raise Invalid("invalid_input_provenance")
         if metadata_only:
             raise Invalid("invalid_input_provenance")
-        if len({repo_path(path) for path in metadata_only}) != len(metadata_only):
-            raise Invalid("invalid_input_provenance")
         if (args.allow_exclusions_only or args.policy
                 or provenance.get("scope_exception") == "configured_exclusions_only"):
             if not args.allow_exclusions_only or not args.policy:
@@ -469,7 +462,7 @@ def prepare(args):
                     or not policy_covers(provenance, candidate)):
                 raise Invalid("invalid_exclusions_policy")
             material, policy_hash = candidate, digest(candidate)
-        paths = [] if policy_hash else diff_paths(diff, manifest, metadata_only)
+        paths = [] if policy_hash else diff_paths(diff, manifest)
     except Invalid as exc:
         paths = []
         failures.append(str(exc))
@@ -490,6 +483,10 @@ def prepare(args):
             if len(set(validated)) != len(validated):
                 raise Invalid("invalid_input_provenance")
             preserved.update(validated)
+        scope, excluded = provenance.get("scope_paths"), set(provenance.get("excluded_paths", []))
+        if ((scope is not None and set(scope) != set(paths) | excluded)
+                or set(paths) & excluded or (excluded and scope is None)):
+            raise Invalid("invalid_input_provenance")
     except Invalid:
         failures.append("invalid_input_provenance")
         provenance = {}
@@ -500,7 +497,6 @@ def prepare(args):
         "diff_bytes": len(raw), "diff_lines": lines, "context_cap": args.context_cap,
         "paths": paths, "roles": {}, "provenance": provenance,
         "exclusions_policy_sha256": policy_hash,
-        "metadata_only_opted_in": args.allow_metadata_only,
     }
     routes = routing(paths, diff)
     if policy_hash:
@@ -1011,8 +1007,6 @@ def aggregate(args):
         if provenance.get("excluded_paths"):
             lines += ["Excluded paths: " + canonical(provenance["excluded_paths"]),
                       "Input policy SHA-256: " + canonical(provenance.get("input_policy_sha256")), ""]
-        if provenance.get("path_only"):
-            lines += ["Content withheld by collector policy: " + canonical(provenance["path_only"]), ""]
         if failures:
             lines += ["Review blocked: required input or response validation failed.", "",
                       "Failure codes:"] + [f"- `{code}`" for code in sorted(set(failures))]
@@ -1046,7 +1040,7 @@ def main(argv=None):
     prep.add_argument("--context-cap", type=context_cap, default=MAX_CONTEXT_BYTES)
     prep.add_argument("--paths", help="JSON array of complete repository-relative changed paths")
     prep.add_argument("--allow-metadata-only", action="store_true",
-                      help="Opt into collector-approved deletion metadata with an index proof")
+                      help="Reserved; metadata-only deletion is unsupported")
     prep.add_argument("--allow-exclusions-only", action="store_true",
                       help="Opt into no-model PASS for the trusted collector's exclusions-only scope")
     prep.add_argument("--policy", help="Trusted BASE policy JSON file; exact bytes must match provenance")

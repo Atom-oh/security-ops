@@ -216,6 +216,18 @@ class EndToEndRoleTests(unittest.TestCase):
     def test_approved_lockfile_only_scope_skips_models(self):
         self.assertEqual(self.run_pipeline("frontend/package-lock.json"), [])
 
+    def test_mixed_scope_preserves_base_policy_and_required_reviews(self):
+        lock = self.repo / "frontend/package-lock.json"
+        lock.parent.mkdir(parents=True)
+        lock.write_text('{"lockfileVersion":3}\n')
+        calls = self.run_pipeline("frontend/components/Button.tsx")
+        self.assertEqual(sorted(call["name"] for call in calls), ["claude", "codex"])
+        source = json.loads((self.work / "role-source.json").read_text())
+        self.assertEqual(source["scope_paths"], ["frontend/components/Button.tsx", "frontend/package-lock.json"])
+        self.assertEqual(source["excluded_paths"], ["frontend/package-lock.json"])
+        self.assertEqual(len(source["input_policy_sha256"]), 64)
+        self.assertTrue((self.work / "review.md").read_text().endswith("VERDICT: PASS\n"))
+
     def test_unapproved_asset_scope_remains_required(self):
         calls = self.run_pipeline("frontend/public/icon.png")
         self.assertEqual(len(calls), 6)

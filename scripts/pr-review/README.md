@@ -5,6 +5,10 @@ validated aggregation and conditional adjudication. The protocol library itself
 performs no Git operations or provider calls. See [the project contract](../../docs/pr-review-specialists.md)
 and [ADR-002](../../docs/decisions/ADR-002-specialist-review-protocol.md).
 
+Declared scope must equal reviewed plus excluded paths, without overlap.
+The BASE collector owns mixed-scope exclusion authorization; the explicit policy
+anchor remains mandatory for exclusions-only zero-role completion.
+
 | Tag | Requested model / provider namespace | Responsibility |
 | --- | --- | --- |
 | codex | `global.openai.gpt-6-astra` / Bedrock Runtime | Implementation and tests |
