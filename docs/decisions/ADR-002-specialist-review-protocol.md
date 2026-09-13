@@ -26,8 +26,9 @@ provider configuration are unchanged, and failed selection never permits fallbac
 Require complete immutable-scope reports from every required role and independent
 OpenAI/Anthropic primary coverage. Every active role receives the same entire
 filtered change; per-role slicing is prohibited. Only reviewed BASE routing may
-deactivate Kiro for clearly frontend-only, signal-free changes under the exact
-criteria in the module contract; unknown or sensitive paths keep both Kiro roles.
+deactivate Kiro for clearly frontend-only, signal-free changes under criteria
+fixed and reviewed in the library PR before activation; unknown or sensitive
+paths keep both Kiro roles.
 Random nonce boundaries and invocation digests bind supplied
 input and responses, not model honesty. A deterministic PASS summary requires valid coverage and no blocking candidate
 or uncertainty. Missing/invalid coverage produces a deterministic FAIL report

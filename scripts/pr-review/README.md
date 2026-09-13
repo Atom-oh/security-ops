@@ -40,9 +40,13 @@ the collector checks both sides. Omit the file only for unambiguous patch paths.
 40-hex Git revisions; `diff_sha256` hashes exact filtered diff bytes.
 
 Optional provenance fields are `scope_paths` (all original changed paths),
-`excluded_paths` (paths removed by approved input policy), `scope_exception`, `input_policy_sha256`, and
-`input_failures`. Failure codes must fullmatch `[a-z][a-z0-9_:.-]{0,63}`; any code
-blocks. The plan carries scrubbed provenance into requests and the public summary.
+`excluded_paths` (paths removed by approved input policy), `scope_exception`,
+`input_policy_sha256`, and `input_failures`. The reserved provenance `path_only`
+array must be absent or empty in this rollout; nonempty values block.
+Caller-supplied provenance `input_failures` entries must fullmatch
+`[a-z][a-z0-9_:.-]{0,63}`; any entry blocks. The host combines them with preparation
+errors in `role-plan.json.input_failures`. Scrubbed provenance reaches requests
+and the public summary; it is not a model-response schema.
 
 Safe paths are nonempty UTF-8 repository-relative names, with no absolute prefix,
 NUL, or empty/`.`/`..` component. Preserve literal Git spelling; do not normalize
@@ -139,19 +143,28 @@ this reserved output is never authority to waive a coverage failure.
 
 | Aggregate outcome | Consumer action |
 | --- | --- |
-| Exit 0 / deterministic | Publish its validated report; Minor/Info alone do not require a chair. |
+| Exit 0 / deterministic | Publish its validated report; Minor/Info alone do not require a chair. Includes approved exclusions-only `NOT_APPLICABLE` applicability with the existing PASS result. |
 | Exit 0 / review | Run the chair; confirmed CRITICAL/MAJOR issues or unresolved material uncertainty require FAIL. |
 | Exit 2 / blocked | Publish deterministic FAIL; the chair cannot waive invalid/missing coverage. |
 | Abnormal exit or missing/mismatched artifacts | Execution failure; never credit stale output. |
 
 Controlled aggregation (exit 0 or 2) writes `role-summary.json`, `responded.txt` and
 `chair-mode.txt`; deterministic/blocked modes also write `deterministic-review.md`.
+`NOT_APPLICABLE` labels excluded scope in that report; it is not another
+`chair-mode.txt` value or a claim of model coverage. An exclusions-only report
+retains `mode=deterministic` and its final `VERDICT: PASS`.
 The chair checks evidence and combined impact; candidate severity is not an
 unreviewable verdict. It records why candidates are rejected/downgraded and emits
 exactly one final `VERDICT: PASS` or `VERDICT: FAIL` line with a substantive body.
 PASS is permitted only after all blocking candidates and material uncertainty
 are resolved. A deterministic FAIL report is not the deterministic PASS mode.
-Result `failure_codes` and summary `failures` serve different scopes. Keep raw
+The host writes per-attempt errors to `slot/TAG-result.json.failure_codes`.
+Aggregation combines input, role and artifact failures in
+`role-summary.json.failures`; `role-summary.json.failure_codes` is its alias.
+Aggregate codes may qualify a failure with its role tag. These host-generated
+fields are separate from the model response and caller provenance
+`input_failures`; the provenance regex does not define every host-generated code.
+Keep raw
 `roles/*.diff` and `requests/*.input/.prompt` private and out of publication.
 Executors must provide private directories, cleanup and a scrubbed artifact allowlist.
 Scrubbing must retain valid paths while removing credential values, including
