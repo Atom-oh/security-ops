@@ -64,7 +64,7 @@ wall-clock speedup. Per-role timing artifacts support before/after measurement.
 
 ## Maintenance and release
 
-Run `python3 -m unittest discover -s scripts/pr-review -p 'test_*role*.py' -v`
+Run `python3 -m unittest discover -s scripts/pr-review -p 'test_*.py' -v`
 and the repository's existing review tests. Offline fake CLIs validate routing,
 scope, subprocess status and safety boundaries without spending model credits.
 They do not establish successful live model execution.

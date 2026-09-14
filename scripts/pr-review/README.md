@@ -196,7 +196,8 @@ lower this), and less than 128 KiB per framed request including overhead. Any
 limit failure blocks; these are not a promise that simultaneous maxima fit.
 No chunk coordinator or combining partial PASS results. Preserve project budgets.
 
-Run `python3 -m unittest discover -s scripts/pr-review -p 'test_*role*.py' -v`.
+Run `python3 -m unittest discover -s scripts/pr-review -p 'test_*.py' -v` and
+`bash -n scripts/pr-review/run-specialists.sh`.
 Offline CI: `.github/workflows/pr-review-roles-tests.yml`. Tests verify protocol,
 executors and workflow publication with fakes; they do not prove live model access.
 
@@ -210,12 +211,15 @@ The policy file contains only the four approved lockfile basenames and
 `reference-docs/`; no broader exclusion is activated.
 Preparation validates this ceiling before filtering either mixed or exclusions-only scope.
 
-From pinned BASE, set `HEAD_SHA`, `BASE_SHA` and `GH_REPO`:
+From pinned BASE, set `HEAD_SHA`, `BASE_SHA` and `GH_REPO` (or `GITHUB_REPOSITORY`):
 
-- `run-specialists.sh DIFF UNUSED WORK` prepares and coordinates roles.
-- `run_role.py --work WORK --tag TAG` executes a required role.
-- `synthesize_roles.py --work WORK --output REPORT` publishes deterministic output
+- `bash scripts/pr-review/run-specialists.sh DIFF UNUSED WORK` prepares and coordinates roles.
+- `python3 scripts/pr-review/run_role.py --work WORK --tag TAG` executes a required role.
+- `python3 scripts/pr-review/synthesize_roles.py --work WORK --output REPORT` publishes deterministic output
   or adjudicates valid candidates. The standalone Python commands expose `--help`.
+
+The generic preparer derives the diff from Git; `DIFF` and `UNUSED` are
+compatibility arguments.
 
 Codex retains security-ops' isolated HOME: only the runner's `.codex/config.toml`
 is copied, never auth/session files. Missing config does not restore real HOME.
@@ -240,16 +244,15 @@ failures. Annotated/triple-quoted credentials and sensitive call defaults are
 masked, including nested/multiline calls. Parsing never executes code; an unclosed
 call consumes the remaining evidence.
 
-Defaults/maxima: role timeout 300/900 seconds, total attempts 2/3, Kiro startup
-60/120 seconds. The chair retains legacy `CHAIR_TIMEOUT` (600 seconds) and
+Defaults/maxima: `PANEL_TIMEOUT` 300/900 seconds, `PANEL_RETRIES` 2/3 total attempts,
+and `KIRO_PREFLIGHT_TIMEOUT` 60/120 seconds. The chair reads defaults from retained
+`synthesize.sh`: `CHAIR_TIMEOUT` (600 seconds) and
 `PANEL_CELL_CAP` (20,000 UTF-8 bytes per validated role response). Oversize evidence
 blocks before a chair call without truncation. Explicit positive chair overrides
 are honored, optional project policies may impose maxima, and the absolute timeout
-ceiling is 1,500 seconds. No default turn count is invented. Transient throttle can
-use the configured fallback; hard quota/model failures remain visible and blocking.
-
-Run `python3 -m unittest discover -s scripts/pr-review -p 'test_*.py' -v` and
-`bash -n scripts/pr-review/run-specialists.sh`. Tests use fake CLIs, not live inference.
+ceiling is 1,500 seconds. No default turn count is invented. Role model failures
+remain terminal. Chair model errors or transient throttle can use the configured
+fallback; hard quota stops it. A failed final attempt publishes FAIL.
 
 Codex uses JSONL transport and its CLI-designated final-output file. Tool output
 and progress text are not reviews. Recovered transport notices remain visible;
