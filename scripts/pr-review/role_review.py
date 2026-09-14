@@ -783,7 +783,7 @@ def scrub(value, preserved=frozenset()):
     identifier = SENSITIVE_KEY.pattern
     quote = r"""\\*["']"""
     key = identifier + rf"(?:{quote})?\s*(?:(?::[^\r\n=]+)?=|:)\s*"
-    while match := re.search(key + r"(?P<call>[\w.]+\s*\()", value):
+    while match := re.search(key + r"(?P<call>(?:[\w.]+\s*)?\()", value):
         end = len(value)
         for close in re.finditer(r"\)", value[match.end():]):
             stop = match.end() + close.end()
@@ -809,12 +809,12 @@ def scrub(value, preserved=frozenset()):
         r"""https://hooks\.slack\.com/services/[^\s"'<>]+""",
         r"""(?im)^[ \t]*[+-]?[ \t]*(?:set-)?cookie["']?[ \t]*:[^\r\n]*""",
         r"""(?i:\bx-origin-verify)["']?\s*:\s*["']?[^\s"',;}\]]+""",
+        key + r"(?P<triple>\"{3}|'{3}).*?(?:(?P=triple)|\Z)",
         key + r"[^\r\n]*(?:\|\||\?\?|\bor\b)[^\r\n]*",
         key + r"[|>][-+]?[ \t]*\r?\n(?:[+-]?[ \t]+[^\r\n]*(?:\r?\n|\Z))+",
         rf"(?i:\b(?:header)?name)(?:{quote})?\s*[:=]\s*(?:{quote})?" + identifier
         + rf"(?:{quote})?[\s,]*[+-]?[ \t]*(?:{quote})?(?i:(?:header)?value)(?:{quote})?\s*[:=]\s*"
         + rf"(?:(?P<named>{quote}).*?(?P=named)|[^\s,}}\]]+)",
-        key + r"(?P<triple>\"{3}|'{3}).*?(?:(?P=triple)|\Z)",
         key + rf"(?P<quote>{quote}).*?(?P=quote)",
         key + r"""[^\s"',;}\]]+""",
     )
