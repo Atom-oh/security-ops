@@ -368,15 +368,17 @@ def excluded_only(provenance, policy_hash):
     )
 
 
+APPROVED = {"basenames": "package-lock.json yarn.lock pnpm-lock.yaml .terraform.lock.hcl".split(),
+            "prefixes": ["reference-docs/"]}
+
+
 def validate_policy(policy):
-    approved = {"basenames": "package-lock.json yarn.lock pnpm-lock.yaml .terraform.lock.hcl".split(),
-                "prefixes": ["reference-docs/"]}
     if (not isinstance(policy, dict) or type(policy.get("schema_version")) is not int
             or policy["schema_version"] != 1):
         raise Invalid("invalid_exclusions_policy")
     for field in ("basenames", "extensions", "directories", "prefixes", "path_regexes"):
         values = policy.get(field, [])
-        if not isinstance(values, list) or any(x not in approved.get(field, []) for x in values):
+        if not isinstance(values, list) or any(x not in APPROVED.get(field, []) for x in values):
             raise Invalid("invalid_exclusions_policy")
 
 
@@ -392,8 +394,8 @@ def policy_bytes(file):
         raise Invalid("invalid_exclusions_policy") from None
 
 
-def policy_covers(provenance, raw):
-    policy = strict_json(raw.decode("utf-8"))
+def policy_covers(provenance, raw=None):
+    policy = APPROVED if raw is None else strict_json(raw.decode("utf-8"))
     return all(Path(path).name in policy.get("basenames", [])
                or path.startswith(tuple(policy.get("prefixes", [])))
                for path in provenance["scope_paths"])
@@ -481,7 +483,8 @@ def prepare(args):
             preserved.update(validated)
         scope, excluded = provenance.get("scope_paths"), set(provenance.get("excluded_paths", []))
         if ((scope is not None and set(scope) != set(paths) | excluded)
-                or set(paths) & excluded or (excluded and scope is None)):
+                or set(paths) & excluded or (excluded and scope is None)
+                or not policy_covers({"scope_paths": excluded})):
             raise Invalid("invalid_input_provenance")
     except Invalid:
         failures.append("invalid_input_provenance")
@@ -1001,8 +1004,9 @@ def aggregate(args):
         lines.append("")
         provenance = summary["provenance"]
         if provenance.get("excluded_paths"):
-            lines += ["Excluded paths: " + canonical(provenance["excluded_paths"]),
-                      "Input policy SHA-256: " + canonical(provenance.get("input_policy_sha256")), ""]
+            lines += ["Excluded paths: " + canonical(provenance["excluded_paths"]), ""]
+        if plan and plan.get("exclusions_policy_sha256"):
+            lines += ["Input policy SHA-256: " + canonical(plan["exclusions_policy_sha256"]), ""]
         if failures:
             lines += ["Review blocked: required input or response validation failed.", "",
                       "Failure codes:"] + [f"- `{code}`" for code in sorted(set(failures))]
