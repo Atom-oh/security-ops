@@ -85,6 +85,33 @@ def selected_paths(base, paths):
     return [path for path in paths if path not in set(removed)], removed, hashlib.sha256(source.encode()).hexdigest()
 
 
+def redact_provider_diff(diff, base):
+    """Retain the BASE known-format policy and unified-diff line structure."""
+    if not diff:
+        return diff
+    library = DIRECTORY / "lib.sh"
+    expected = git_file(base, "scripts/pr-review/lib.sh")
+    if (expected is None or library.is_symlink() or not library.is_file()
+            or library.read_bytes() != expected.encode("utf-8")):
+        raise ValueError("Input scrubber differs from the trusted base")
+    chunks = re.split(r"(?m)(?=^diff --git )", diff)
+    result = []
+    for chunk in chunks:
+        metadata, separator, hunks = chunk.partition("\n@@")
+        if not separator:
+            result.append(chunk)
+            continue
+        # Paths and mode/rename metadata remain exact. The engine validates
+        # both complete views and their structure before issuing any request.
+        scrubbed = subprocess.run(
+            ["bash", "-c", 'source "$1"; scrub_known_credential_formats preserve-lines',
+             "input-scrub", str(library)],
+            input=("@@" + hunks).encode("utf-8"), capture_output=True, check=True,
+        ).stdout.decode("utf-8")
+        result.append(metadata + "\n" + scrubbed)
+    return "".join(result)
+
+
 def prepare(head, base, work, supplied_diff=None):
     if not all(re.fullmatch(r"[0-9a-f]{40}", sha) for sha in (head, base)):
         raise ValueError("Review requires immutable commit SHAs")
@@ -167,8 +194,12 @@ def prepare(head, base, work, supplied_diff=None):
             provenance["scoped_context"] = manifest
             cap = effective_cap
     work.mkdir(parents=True, exist_ok=True)
+    provider_diff = redact_provider_diff(diff, base)
+    provenance["provider_diff_sha256"] = hashlib.sha256(provider_diff.encode("utf-8")).hexdigest()
+    provenance["input_redaction"] = "trusted_base_known_formats_preserve_lines"
     (work / "project-context.md").write_bytes(context.encode("utf-8"))
     (work / "role-diff.txt").write_bytes(diff.encode("utf-8"))
+    (work / "provider-diff.txt").write_bytes(provider_diff.encode("utf-8"))
     (work / "role-paths.json").write_text(json.dumps(paths) + "\n")
     (work / "role-source.json").write_text(json.dumps(provenance, sort_keys=True) + "\n")
     opt_in = []
@@ -181,6 +212,7 @@ def prepare(head, base, work, supplied_diff=None):
         "--head", head, "--base", base, "--work", str(work),
         "--context", str(work / "project-context.md"),
         "--diff", str(work / "role-diff.txt"),
+        "--provider-diff", str(work / "provider-diff.txt"),
         "--paths", str(work / "role-paths.json"),
         "--context-cap", str(cap),
         "--provenance", str(work / "role-source.json"),

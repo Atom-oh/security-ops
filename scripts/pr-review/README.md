@@ -47,6 +47,14 @@ the collector checks both sides. Omit the file only for unambiguous patch paths.
 `--provenance` is a JSON file whose `head_sha`/`base_sha` match the CLI's lowercase
 40-hex Git revisions; `diff_sha256` hashes exact filtered diff bytes.
 
+The trusted preparer retains the BASE known-credential-format scrubber for
+provider inputs. `--provider-diff` supplies its masked view, bound by provenance
+`provider_diff_sha256`. The library checks identical paths, hunk structure and
+the supplied hash; the caller owns the transformation. Routing and original
+size limits still use unmodified `--diff`. In this mode the plan's
+`source_diff_sha256` identifies original filtered bytes, while plan
+`diff_sha256` and issued receipts bind the masked bytes actually delivered.
+
 Optional provenance fields are `scope_paths` (all original changed paths),
 `excluded_paths` (paths removed by approved input policy), `scope_exception`,
 `input_policy_sha256`, and `input_failures`. The reserved provenance `path_only`
@@ -107,7 +115,7 @@ reviewed policy and verifiable eligibility contract before enabling that mode.
 
 ## Coverage, lifecycle and publication
 
-Every required role receives the same complete filtered diff and path inventory.
+Every required role receives the same complete filtered, known-format-masked diff and path inventory.
 `roles/TAG.diff` is a per-role copy, not a slice; responsibilities differ, input
 scope does not. Codex/Claude are always required for reviewable source.
 Kiro can be inactive only for unambiguously frontend-only paths with presentation
@@ -183,8 +191,8 @@ Aggregation combines input, role and artifact failures in
 Aggregate codes may qualify a failure with its role tag. These host-generated
 fields are separate from the model response and caller provenance
 `input_failures`; the provenance regex does not define every host-generated code.
-Keep raw
-`roles/*.diff` and `requests/*.input/.prompt` private and out of publication.
+Keep `role-diff.txt`, `provider-diff.txt`, `roles/*.diff` and
+`requests/*.input/.prompt` private and out of publication.
 Executors must provide private directories, cleanup and a scrubbed artifact allowlist.
 Scrubbing must retain valid paths while removing credential values, including
 escaped JSON; reference the existing `lib.sh` credential formats and test them.

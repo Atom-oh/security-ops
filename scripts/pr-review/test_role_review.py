@@ -51,6 +51,33 @@ class RoleReviewTests(unittest.TestCase):
     self.cli('prepare', '--diff', self.diff, '--context', self.context, '--head', head, '--base', BASE, '--work', self.work, *extra, expected=expected)
     return self.plan()
 
+  def test_provider_view_requires_matching_hash_and_complete_unchanged_structure(self):
+    source = patch()
+    provider = self.root / "provider.diff"
+    provenance = self.root / "provenance.json"
+    for name, delivered, declared, expected in (
+      ("valid", patch(after="[REDACTED]"), None, 0),
+      ("hash", patch(after="[REDACTED]"), "0" * 64, 2),
+      ("path", patch(path="elsewhere.tsx"), None, 2),
+      ("count", patch().replace("@@ -1 +1 @@", "@@ -1 +1,2 @@"), None, 2),
+      ("missing", "", None, 2),
+    ):
+      with self.subTest(name=name):
+        self.case(name)
+        provider.write_text(delivered)
+        provenance.write_text(json.dumps({
+          "head_sha": HEAD, "base_sha": BASE,
+          "diff_sha256": hashlib.sha256(source.encode()).hexdigest(),
+          "provider_diff_sha256": declared or hashlib.sha256(delivered.encode()).hexdigest(),
+        }))
+        plan = self.prepare(source, expected=expected, extra=(
+          "--provider-diff", provider, "--provenance", provenance,
+        ))
+        self.assertEqual(plan["input_complete"], expected == 0)
+        if expected:
+          self.assertIn("invalid_provider_diff", plan["input_failures"])
+          self.aggregate(expected=2)
+
   def case(self, name):
     self.work = self.root / name
 

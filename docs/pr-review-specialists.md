@@ -28,6 +28,11 @@ base, fetches Git objects and generates a complete diff without executing head
 code. It reads reviewer instructions from the base Git object. Candidate context
 is checked for availability, size and generated-source freshness, then discarded.
 The shared context ceiling is 24,000 bytes; repositories may enforce a smaller one.
+The complete original diff controls routing, scope and size checks. Before any
+specialist or chair receives it, the trusted BASE known-format scrubber masks
+credential values while preserving paths and hunk structure. Provenance retains
+the original hash; request receipts bind the masked bytes delivered. This does
+not authorize truncation or reduce the original input budget.
 
 Every result confirms its role, HEAD and reviewed paths. Host metadata binds it
 to the prepared request and records the process status. Nonzero exits, malformed

@@ -122,10 +122,10 @@ class EndToEndRoleTests(unittest.TestCase):
     def git(self, *arguments):
         return subprocess.check_output(["git", *arguments], cwd=self.repo, text=True)
 
-    def run_pipeline(self, path):
+    def run_pipeline(self, path, content="export const result = 1;\n"):
         changed = self.repo / path
         changed.parent.mkdir(parents=True, exist_ok=True)
-        changed.write_text("export const result = 1;\n")
+        changed.write_text(content)
         self.git("add", ".")
         self.git("commit", "-qm", "change")
         self.environment["HEAD_SHA"] = self.git("rev-parse", "HEAD").strip()
@@ -141,6 +141,48 @@ class EndToEndRoleTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         calls = self.root / "calls.jsonl"
         return [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
+
+    def test_known_credentials_masked_before_every_provider_and_chair(self):
+        token = "ghp_" + "A" * 36
+        body = "B" * 48
+        (self.root / "major").touch()
+        calls = self.run_pipeline("infra/review.txt", (
+            f'sample = "{token}"\n-----BEGIN PRIVATE KEY-----\n{body}\n'
+            "-----END PRIVATE KEY-----\nPUBLIC_KEEP = 1\n"
+        ))
+        reviews = [c for c in calls if c["name"] != "kiro-cli"
+                   or not c["args"][1].startswith("Kiro startup safety check.")]
+        self.assertEqual(len(reviews), 5)
+        for call in reviews:
+            delivered = "\n".join(call["args"]) + "\n" + call["stdin"]
+            self.assertNotIn(token, delivered)
+            self.assertNotIn(body, delivered)
+            self.assertIn("PUBLIC_KEEP", delivered)
+            self.assertIn("REDACTED-GH-TOKEN", delivered)
+        plan = json.loads((self.work / "role-plan.json").read_text())
+        self.assertTrue(plan["input_complete"])
+        self.assertNotEqual(plan["diff_sha256"], plan["source_diff_sha256"])
+        self.assertEqual(plan["source_diff_sha256"], plan["provenance"]["diff_sha256"])
+        for tag in plan["roles"]:
+            receipt = json.loads((self.work / "slot" / f"{tag}-request.json").read_text())
+            data = (self.work / "requests" / f"{tag}.input").read_bytes()
+            self.assertEqual(receipt["input_sha256"], __import__("hashlib").sha256(data).hexdigest())
+            self.assertNotIn(token.encode(), data)
+
+    def test_routing_and_byte_limit_use_complete_raw_input_before_redaction(self):
+        token = "sk-proj-" + "A" * 24 + "-cloudwatch-" + "B" * 24
+        calls = self.run_pipeline("frontend/style.css", f'/* {token} */\n')
+        plan = json.loads((self.work / "role-plan.json").read_text())
+        self.assertTrue(all(role["required"] for role in plan["roles"].values()))
+        self.assertEqual(len(calls), 6)  # Four roles and two fixed Kiro canaries.
+        self.assertNotIn("cloudwatch", (self.work / "roles/codex.diff").read_text())
+
+    def test_oversize_raw_credentials_cannot_shrink_under_the_input_limit(self):
+        calls = self.run_pipeline("infra/review.txt", "ghp_" + "A" * 96000 + "\n")
+        plan = json.loads((self.work / "role-plan.json").read_text())
+        self.assertFalse(plan["input_complete"])
+        self.assertIn("diff_byte_limit", plan["input_failures"])
+        self.assertEqual(calls, [])
 
     def test_frontend_uses_two_reviews_and_no_chair(self):
         calls = self.run_pipeline("frontend/components/Button.tsx")

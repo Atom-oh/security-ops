@@ -74,6 +74,9 @@ BASE-policy eligibility and verification contract.
 Preserve provider bindings, secret/state custody, limits and budgets. Protocol
 documentation and active review output are English; retained legacy fixtures
 keep their earlier prompts. No Korean duplicate is required.
+Activation retains known-format credential masking before provider delivery.
+Raw scope, routing and input limits remain authoritative; the module contract
+distinguishes original-source hashes from masked request hashes.
 
 Offline tests cover scope completeness, exception rules, nonce/receipt
 binding, terminal failures, scrubbing and output ownership. Activation preserves
