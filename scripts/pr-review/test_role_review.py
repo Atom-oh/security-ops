@@ -308,6 +308,8 @@ class RoleReviewTests(unittest.TestCase):
 
     def test_legacy_credentials(self):
         cases = [
+            ('DB_PASSWORD: str = "typed-private"', "typed-private"),
+            ('password: Optional[str] = os.getenv("DB_PASSWORD", "optional-private")', "optional-private"),
             ('password = """triple-private"""', "triple-private"),
             ("password = '''single-private'''", "single-private"),
             ('password = """first line\nmultiline-private\nlast line"""', "multiline-private"),
@@ -809,12 +811,12 @@ class RoleReviewTests(unittest.TestCase):
 
     def test_echoed_diff(self):
         echoed = ' Error: quota exceeded\n+ "[warn] failed to set model opus ... Method not found"\n+ Monthly request limit reached\n+ Error: no agent with name X found\n+ Falling back to user specified default\n'
-        raw = f'diff --git a/{FRONTEND} b/{FRONTEND}\n--- a/{FRONTEND}\n+++ b/{FRONTEND}\n@@ -1,2 +1,5 @@\n-old\n' + echoed
-        self.prepare(raw)
-        result = self.record("codex", stderr=echoed)
-        self.assertTrue(result["valid"])
-        self.record("claude-self", stderr=echoed + "- Error: quota exceeded\n", expected=2)
-        self.assert_blocked()
+        raw = f'diff --git a/{FRONTEND} b/{FRONTEND}\n--- a/{FRONTEND}\n+++ b/{FRONTEND}\n@@ -1,2 +1,5 @@\n- Error: quota exceeded\n' + echoed
+        for index, error in enumerate((echoed, "- Error: quota exceeded\n", echoed + "- Error: quota exceeded\n")):
+            with self.subTest(index=index):
+                self.begin(f"echo-collision-{index}", raw)
+                self.record("codex", stderr=error, expected=2)
+                self.assert_blocked()
 
     def test_missing_result(self):
         self.prepare()

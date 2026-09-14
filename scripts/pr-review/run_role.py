@@ -16,7 +16,7 @@ import sys
 import tempfile
 import time
 
-from role_review import diagnostic_failure, diagnostic_text, issue_request, MAX_REQUEST_BYTES
+from role_review import diagnostic_failure, issue_request, MAX_REQUEST_BYTES
 
 
 DIRECTORY = Path(__file__).resolve().parent
@@ -279,7 +279,7 @@ def run(work, tag):
                         code, output, error = execute(
                             command, cwd, kiro_environment(cwd, environment), "", timeout
                         )
-                        error = diagnostic_text(controls(error), command[2])
+                        error = controls(error)
                         error = preserve_stdout_error(output, error)
                         if FAILURE.search(error) or diagnostic_failure(error):
                             code = code or 1
@@ -318,7 +318,7 @@ def run(work, tag):
                     command[2] = framed_prompt
                     delivered = payload
                 code, output, error = execute(command, cwd, environment, delivered, timeout)
-                error = diagnostic_text(controls(error), framed_prompt + "\n" + payload)
+                error = controls(error)
                 if tag == "codex":
                     output, event_error, complete = codex_response(output, final_output)
                     if event_error:
