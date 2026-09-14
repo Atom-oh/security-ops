@@ -1,0 +1,30 @@
+{
+  "head_sha": "4a06639af22c35f156e8674a2b10e0744591b67f",
+  "base_sha": "df7fa504471a997a34db93f275865eff78c2c74c",
+  "plan_digest": "5e29439c61b81976c5483c76fb6aad5327d030e7a73bf5675c6a8afd0c6bd434",
+  "input_sha256": "536c2ad33f8f3c606a7fa484bac92678acec7824a9bc746edb698ad35491a64f",
+  "retained_valid_roles": [
+    "codex",
+    "claude-self",
+    "kiro-sol"
+  ],
+  "original_runner": "aws-demo-platform-claude-arm-8qpzd-runner-ktwpq",
+  "prior_fable_failure": [
+    "malformed_json"
+  ],
+  "prior_fable_attempts": "Original executor <=2 review calls; interrupted borrowed-pod reissue <=2, exact counts unavailable; both retained in operator history.",
+  "files": {
+    "claude-self-request.json": "d330eff6430432c29a266bedb3aa940a0a47b3e78f521812e704d5ac649bdd2e",
+    "claude-self-result.json": "04a3f2e76e0846d4e57751f4113d9c2f52034c90314b14adb1234565bcbaac6d",
+    "claude-self-timing.json": "c2c968f95c16b182706889d7627e9c018dfcba7270debac02058560b0d7d3c4c",
+    "codex-request.json": "fb641b206433e16e85e23b4663900bbcd93bc5bad83f100bdc8efaa7afb4cbbb",
+    "codex-result.json": "dfcbf31d743a11fcbdf8f79fa74cc49b195a86278c794136e19e57c23b6a199a",
+    "codex-timing.json": "366de8b36310b4df3fc093bdde08fd00c50dfdb115adb69b74ebbc69cbf524e2",
+    "kiro-fable-request.json": "d956c69f24f4b43c29cf6f3292d552310876620509debef979ca8282d2fc965d",
+    "kiro-fable-result.json": "ada17fee0396e6310d405ca9930e300521ed32bfafa4e46989a940008d65cc5f",
+    "kiro-fable-timing.json": "6f873e3bcbf19a0a68b191f34fb18f4ef4d482043c0a215869aa98d82f275167",
+    "kiro-sol-request.json": "71249baf61f3b0d14c93b959f571b97717dfebcba32741cd4fbc58e5c0373a23",
+    "kiro-sol-result.json": "5af525a30f252c06207e84feff78560ffc24aaa42de8a1a33b61b6eb513c6163",
+    "kiro-sol-timing.json": "42736516872a50cbf4d6e56f1caa9d751c7309b7b47518efbde1dfe81487143c"
+  }
+}

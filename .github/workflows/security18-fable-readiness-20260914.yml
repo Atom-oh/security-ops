@@ -1,0 +1,52 @@
+name: Supplemental Security18 Fable readiness
+
+on:
+  push:
+    branches: [validation/security18-fable-20260914]
+
+permissions:
+  contents: read
+
+jobs:
+  fable-readiness:
+    runs-on: security-ops-claude-arm
+    timeout-minutes: 10
+    env:
+      CLAUDE_CODE_USE_BEDROCK: "1"
+      AWS_REGION: us-east-1
+      AWS_DEFAULT_REGION: us-east-1
+      GH_REPO: Atom-oh/security-ops
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - name: Checkout immutable reviewed BASE
+        uses: actions/checkout@v4
+        with:
+          ref: df7fa504471a997a34db93f275865eff78c2c74c
+          path: reviewed-base
+          persist-credentials: false
+
+      - name: Checkout supplemental glue and scrubbed retained evidence
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: validation-source
+          persist-credentials: false
+          sparse-checkout: .github/validation/security18-fable
+
+      - name: One bounded Fable recovery with frozen inputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 validation-source/.github/validation/security18-fable/run_validation.py \
+            "$GITHUB_WORKSPACE/reviewed-base" \
+            "$RUNNER_TEMP/security18-fable-private" \
+            "$RUNNER_TEMP/security18-fable-evidence"
+
+      - name: Preserve only scrubbed results and custody metadata
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: security18-fable-readiness-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/security18-fable-evidence/
+          if-no-files-found: error
