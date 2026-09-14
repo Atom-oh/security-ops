@@ -25,9 +25,9 @@ Seoul (`ap-northeast-2`).
 backend/      AgentCore container — app.py (router), pipeline/ (8 phases), agents/, tools/, sample-target/, Dockerfile (ARM64)
 frontend/     React+Vite SPA — src/{auth, api, pages, components, styles}
 infra/        Terraform — modules/{data, auth, web, waf, ecr, agentcore} + envs/seoul/
-scripts/      deploy.sh, build_push_backend.sh, build_frontend.sh
+scripts/      deploy.sh, build_push_backend.sh, build_frontend.sh; pr-review/ (run-panel.sh, synthesize.sh, lib.sh, agents/pr-review-notools.json — CI review panel)
 docs/         architecture, specs/, plans/, decisions/ (ADR), runbooks/, reference/, VERIFICATION.md
-tests/        run-all.sh aggregate gate (backend pytest + vite build + terraform validate)
+tests/        run-all.sh aggregate gate (backend pytest + vite build + terraform validate); pr-review-panel-stub.sh (review-panel contract, stubbed CLIs)
 reference-docs/  original design inputs (gitignored — third-party)
 ```
 

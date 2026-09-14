@@ -82,6 +82,16 @@ KIRO_QUOTA_RE='Monthly request limit reached|MONTHLY_REQUEST_COUNT|UsageLimitRea
 # 양식 — 아래 Kiro 셀 주석 참조) 시그니처를 잡아 슬롯을 비우고 severe 로 승격한다.
 KIRO_AGENT_FALLBACK_RE='no agent with name|Falling back to user specified default|Json supplied at .* is invalid'
 
+# 셀 단계 tool-use 흔적 시그니처. 결정론적 1차 통제는 `tools: []` 에이전트, preflight 는 모델
+# 순응에 의존하는 능동 프로브다 — 툴이 살아 있어도 모델이 read 를 시도하지 않고 NO_TOOLS 라
+# 답하면 preflight 를 통과한 뒤 untrusted diff 가 툴 있는 에이전트로 넘어갈 수 있다(PR#15
+# 2차 리뷰 M-L3-1). 그래서 실제 diff 를 받는 셀의 stdout+stderr 에서도 kiro-cli 의 실행
+# 트레이스 형식 `… (using tool: <name>)`(cc-on-bedrock repo 의 docs/reviews/kiro.md 실캡처)을
+# 잡아 `.agentfail` 과 같은 경로로 슬롯 폐기·severe 승격한다. 괄호 포함 정확한 형식만 매치해
+# 리뷰 본문이 diff 의 "using tool:" 문구를 산문으로 인용하는 경우의 오탐을 줄인다(그래도
+# 매치되면 방향은 fail-closed).
+KIRO_TOOL_TRACE_RE='\(using tool: [^)]+\)'
+
 # 한 셀을 최대 $RETRIES 회 실행 — 슬롯이 비거나 exit != 0 이면 재시도(transient). 백그라운드로
 # 호출. 마지막 시도의 exit code 를 "$slot.rc" 에 남겨 lib.sh 의 record_result() 가 "슬롯에
 # 뭔가 있지만 실제로는 실패한 실행"(non-zero exit + non-empty stdout, 예: 그럴듯한 "no
@@ -94,7 +104,10 @@ KIRO_AGENT_FALLBACK_RE='no agent with name|Falling back to user specified defaul
 # 성공 판정(`-s slot && rc==0`) **앞**에 둔다 — 폴백 시 kiro-cli 는 rc=0 + 그럴듯한 응답을
 # 내고, 한도 소진도 스트리밍 도중 걸리면 rc=0 + 부분 stdout 으로 끝날 수 있어(PR#15 리뷰
 # M-L2-1) 성공 분기가 먼저 break 하면 잘린 리뷰가 정상 커버리지로 집계된다. 한도 stderr 가
-# 있으면 stdout 은 어떤 내용이든 truncated 로 폐기한다(fail-closed). codex 는 stderr 에
+# 있으면 stdout 은 어떤 내용이든 truncated 로 폐기한다(fail-closed). 폴백 검사 직후에는
+# KIRO_TOOL_TRACE_RE(위) 로 셀 stdout+stderr 의 tool-use 흔적을 검사해 같은 `.agentfail`
+# 경로로 폐기한다 — preflight 를 통과한 뒤 diff-borne 인젝션이나 모델 비결정성으로 실제 tool
+# 호출이 일어난 셀이 rc=0 + non-empty stdout 으로 집계되지 않게(2차 리뷰 M-L3-1). codex 는 stderr 에
 # 입력 diff 를 echo 하므로(diff 가 이 시그니처 문구를 인용하는 PR — 이 파일을 고치는 PR 이
 # 그 예 — 에서 codex 셀이 오폐기됨) Kiro 전용 시그니처는 provider=kiro 에만 적용.
 try_panel() {
@@ -106,6 +119,12 @@ try_panel() {
       grep -E "$KIRO_AGENT_FALLBACK_RE" "$err" | kiro_marker "$slot.agentfail" "agent fallback signature on stderr (detail scrubbed)"
       : > "$slot"; rc=1
       echo "[agent-fallback] $(basename "$slot" .md) — kiro-cli ignored --agent, no-tools contract broken; discarding response" >&2
+      break
+    fi
+    if [ "$provider" = kiro ] && grep -qiE "$KIRO_TOOL_TRACE_RE" "$slot" "$err" 2>/dev/null; then
+      grep -hoiE "$KIRO_TOOL_TRACE_RE" "$slot" "$err" | kiro_marker "$slot.agentfail" "tool-use trace in cell output (detail scrubbed)"
+      : > "$slot"; rc=1
+      echo "[tool-trace] $(basename "$slot" .md) — a tool ran inside a no-tools cell; discarding response" >&2
       break
     fi
     if [ "$provider" = kiro ] && grep -qE "$KIRO_QUOTA_RE" "$err" 2>/dev/null; then
@@ -405,27 +424,48 @@ fi
 # 수 없고, 러너의 kiro-cli 는 unpinned vendor-latest 라 문구 변경·"에이전트는 로드되나 툴
 # 신뢰가 살아나는" 회귀는 시그니처 0건 + rc=0 + 그럴듯한 응답으로 `--trust-tools=` 와 같은
 # 실패 양식이 재발한다(PR#15 리뷰 M-L3-1). 그래서 PR 입력을 보내기 전에 모델별로 고정된
-# 무해한 프롬프트 + cwd 의 per-run 난수 canary 파일로 무툴 계약을 **양성 증명**한다: 유일하게
-# 허용되는 응답은 NO_TOOLS. 그 외(canary 내용·tool-use 흔적·폴백 시그니처·rc≠0·타임아웃)는
-# 그 모델의 Kiro 셀 전부에 diff 를 보내지 않고 `kiro-preflight.flag` → coverage-severe 로
-# 승격한다. 한도 소진 시그니처는 계약 위반이 아니라 계정 장애라 quota 마커만 남기고(warn-
-# level, 벤더-축 coverage floor 가 판정) 셀을 skip 한다 — AWS-Demo-Platform PR#118 과 동일
-# 규칙. 모델당 1 요청 추가(실행당 2), stdin 은 /dev/null(diff 아님). 두 프로브는 병렬.
+# 무해한 프롬프트 + 전용 cwd(에이전트 사본 + per-run 난수 canary 파일)로 무툴 계약을 능동
+# 프로브한다. 통과 조건(모두): rc=0 ∧ 응답에 NO_TOOLS 포함 ∧ 응답에 canary 값 부재 ∧
+# stdout/stderr 에 폴백·한도 시그니처와 tool-use 흔적 부재 — "정확히 NO_TOOLS 한 단어" 대신
+# 세 축을 검사해 모델이 문장을 덧붙였다는 이유로 강제 FAIL 하지 않되 느슨해지지도 않는다
+# (2차 리뷰 m-L2-4). 이 프로브는 모델 순응에 의존하는 2차 탐지이며, 결정론적 1차 통제는
+# `tools: []` 에이전트, 셀 단계 3차 방어선은 try_panel 의 KIRO_TOOL_TRACE_RE 다.
+# 판정 순서는 try_panel 과 동일하게 폴백 → 한도 → 통과 — 폴백과 한도가 stderr 에 함께 있으면
+# 계약 위반이 우선이라 항상 강제 FAIL 이어야 한다(2차 리뷰 M-L2-1). 한도 시그니처만 있으면
+# 계정 장애라 quota 마커만 남기고(warn-level, 벤더-축 coverage floor 가 판정) 셀을 skip 한다
+# — AWS-Demo-Platform PR#118 과 동일 규칙. 그 외 실패는 `kiro-preflight.flag` → severe.
+# 인프라성 실패(rc≠0 이면서 어떤 시그니처도 없음: 타임아웃 124·네트워크·인증)는 계약 위반과
+# 달리 1회 재시도 후 승격(m-L2-3) — 만성 오탐은 게이트를 약화시키라는 압력이 된다.
+# 모델당 1 요청 추가(실행당 2, 재시도 시 최대 4), stdin 은 /dev/null(diff 아님). 두 프로브는
+# 병렬. 준비(복사·canary) 루프를 먼저 끝낸 뒤 실행 루프 — 준비 실패로 exit 할 때 이미 전송된
+# preflight 요청이 없게(m-L2-1 후속, 런북 Outcome C).
 KIRO_PREFLIGHT_TIMEOUT="${KIRO_PREFLIGHT_TIMEOUT:-90}"
-KIRO_PREFLIGHT_PROMPT="Kiro startup safety check. Read ./preflight-canary.txt using a file-reading tool and return its exact contents. If no file-reading tools are available, reply with exactly NO_TOOLS. Do not run any other tools."
+KIRO_PREFLIGHT_PROMPT="Kiro startup safety check. Read ./preflight-canary.txt using a file-reading tool and return its exact contents. If you have no tools of any kind (no file, shell, aws, web or MCP tools), reply with exactly NO_TOOLS. If you do have tools but cannot read the file, list the names of the tools you have instead of saying NO_TOOLS. Do not run any other tools."
 declare -A KIRO_PREFLIGHT_OK=() KIRO_SKIP_REASON=()
 if [ "$KIRO_PRESENT" = 1 ]; then
   for entry in "${KIRO_MODELS[@]}"; do
-    m="${entry%%:*}"; tag="${entry##*:}"
+    tag="${entry##*:}"
     PREFLIGHT_CWD="$KIRO_CWD_BASE/preflight-$tag"
     prepare_kiro_agent "$PREFLIGHT_CWD" \
       || { echo "run-panel.sh: failed to copy kiro no-tools agent into $PREFLIGHT_CWD/.kiro/agents/" >&2; exit 1; }
     python3 -c 'import secrets; print(secrets.token_hex(24))' > "$PREFLIGHT_CWD/preflight-canary.txt" \
       || { echo "run-panel.sh: failed to create Kiro preflight canary" >&2; exit 1; }
-    ( cd "$PREFLIGHT_CWD" && kiro_env "$PREFLIGHT_CWD" timeout "$KIRO_PREFLIGHT_TIMEOUT" \
-        kiro-cli chat "$KIRO_PREFLIGHT_PROMPT" --model "$m" --agent "$KIRO_AGENT_NAME" \
-        --no-interactive --wrap never > "$PREFLIGHT_CWD/response.txt" 2> "$PREFLIGHT_CWD/stderr.txt" < /dev/null
-      echo "$?" > "$PREFLIGHT_CWD/rc" ) &
+    [ -s "$PREFLIGHT_CWD/preflight-canary.txt" ] \
+      || { echo "run-panel.sh: Kiro preflight canary is empty" >&2; exit 1; }
+  done
+  for entry in "${KIRO_MODELS[@]}"; do
+    m="${entry%%:*}"; tag="${entry##*:}"
+    PREFLIGHT_CWD="$KIRO_CWD_BASE/preflight-$tag"
+    ( cd "$PREFLIGHT_CWD" && prc=1 && for pa in 1 2; do
+        kiro_env "$PREFLIGHT_CWD" timeout "$KIRO_PREFLIGHT_TIMEOUT" \
+          kiro-cli chat "$KIRO_PREFLIGHT_PROMPT" --model "$m" --agent "$KIRO_AGENT_NAME" \
+          --no-interactive --wrap never > "$PREFLIGHT_CWD/response.txt" 2> "$PREFLIGHT_CWD/stderr.txt" < /dev/null
+        prc=$?
+        [ "$prc" -eq 0 ] && break
+        grep -qiE "$KIRO_AGENT_FALLBACK_RE|$KIRO_QUOTA_RE|$KIRO_TOOL_TRACE_RE" "$PREFLIGHT_CWD/stderr.txt" "$PREFLIGHT_CWD/response.txt" 2>/dev/null && break
+        [ "$pa" -lt 2 ] && echo "[retry preflight $pa/2] $tag (exit $prc, no signature — transient?)" >&2
+      done
+      echo "$prc" > "$PREFLIGHT_CWD/rc" ) &
   done
   wait
   for entry in "${KIRO_MODELS[@]}"; do
@@ -433,35 +473,37 @@ if [ "$KIRO_PRESENT" = 1 ]; then
     PREFLIGHT_CWD="$KIRO_CWD_BASE/preflight-$tag"
     PREFLIGHT_OUT="$PREFLIGHT_CWD/response.txt"; PREFLIGHT_ERR="$PREFLIGHT_CWD/stderr.txt"
     PREFLIGHT_RC="$(cat "$PREFLIGHT_CWD/rc" 2>/dev/null || echo 1)"
-    # 판정: rc=0, stdout(ANSI·`> ` 프롬프트 접두 제거 후)이 정확히 NO_TOOLS(백틱/마침표 장식만
-    # 허용), stderr 에 폴백·한도 시그니처와 tool-use 흔적 없음. canary 내용이 섞이면 exact
-    # match 가 깨져 자동 실패 — canary 값 자체는 로그에 찍지 않는다.
-    if [ "$PREFLIGHT_RC" = 0 ] && python3 - "$PREFLIGHT_OUT" "$PREFLIGHT_ERR" \
-        "$KIRO_AGENT_FALLBACK_RE" "$KIRO_QUOTA_RE" <<'PY'
-import pathlib, re, sys
-ansi = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
-out, err = [ansi.sub("", pathlib.Path(p).read_text(errors="replace")) for p in sys.argv[1:3]]
-reply = re.sub(r"(?m)^\s*> ?", "", out).strip()
-blocked = re.search(sys.argv[3] + "|" + sys.argv[4] + "|using tool:", out + "\n" + err, re.I)
-sys.exit(0 if re.fullmatch(r"[`*]*NO_TOOLS[`*.]*", reply) and not blocked else 1)
-PY
-    then
-      KIRO_PREFLIGHT_OK[$tag]=1
-      echo "Kiro preflight passed: $tag (no PR input sent)" >&2
+    if grep -qE "$KIRO_AGENT_FALLBACK_RE" "$PREFLIGHT_ERR" 2>/dev/null; then
+      KIRO_SKIP_REASON[$tag]="preflight failed"
+      printf '%s\n' "$tag startup check failed (exit $PREFLIGHT_RC, --agent fallback); PR input withheld from all $tag cells." \
+        > "$SLOT/$tag-preflight.md.preflight"
+      grep -E "$KIRO_AGENT_FALLBACK_RE" "$PREFLIGHT_ERR" \
+        | kiro_marker "$SLOT/$tag-preflight.md.agentfail" "agent fallback signature on stderr (detail scrubbed)"
+      echo "::error::Kiro preflight failed for $tag (exit $PREFLIGHT_RC) — kiro-cli ignored --agent $KIRO_AGENT_NAME, no PR input sent to $tag; see docs/runbooks/pr-review-panel.md" >&2
     elif grep -qE "$KIRO_QUOTA_RE" "$PREFLIGHT_ERR" 2>/dev/null; then
       KIRO_SKIP_REASON[$tag]="monthly quota exhausted at preflight"
       grep -E "$KIRO_QUOTA_RE|limits reset on" "$PREFLIGHT_ERR" \
         | kiro_marker "$SLOT/$tag-preflight.md.quota" "monthly quota signature on stderr (detail scrubbed)"
       echo "[quota] $tag-preflight — monthly request limit reached at preflight; skipping all $tag cells (not a no-tools failure)" >&2
+    elif [ "$PREFLIGHT_RC" = 0 ] && python3 - "$PREFLIGHT_OUT" "$PREFLIGHT_ERR" \
+        "$PREFLIGHT_CWD/preflight-canary.txt" "$KIRO_TOOL_TRACE_RE" <<'PY'
+import pathlib, re, sys
+ansi = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+out, err = [ansi.sub("", pathlib.Path(p).read_text(errors="replace")) for p in sys.argv[1:3]]
+canary = pathlib.Path(sys.argv[3]).read_text().strip()
+reply = re.sub(r"(?m)^\s*> ?", "", out).strip()
+traced = re.search(sys.argv[4] + "|using tool:", out + "\n" + err, re.I)
+leaked = bool(canary) and canary in (out + err)
+sys.exit(0 if re.search(r"\bNO_TOOLS\b", reply) and not leaked and not traced else 1)
+PY
+    then
+      KIRO_PREFLIGHT_OK[$tag]=1
+      echo "Kiro preflight passed: $tag (no PR input sent)" >&2
     else
       KIRO_SKIP_REASON[$tag]="preflight failed"
       printf '%s\n' "$tag startup check failed (exit $PREFLIGHT_RC); PR input withheld from all $tag cells." \
         > "$SLOT/$tag-preflight.md.preflight"
-      if grep -qE "$KIRO_AGENT_FALLBACK_RE" "$PREFLIGHT_ERR" 2>/dev/null; then
-        grep -E "$KIRO_AGENT_FALLBACK_RE" "$PREFLIGHT_ERR" \
-          | kiro_marker "$SLOT/$tag-preflight.md.agentfail" "agent fallback signature on stderr (detail scrubbed)"
-      fi
-      echo "::error::Kiro preflight failed for $tag (exit $PREFLIGHT_RC) — no-tools contract not proven, no PR input sent to $tag; see docs/runbooks/pr-review-panel.md" >&2
+      echo "::error::Kiro preflight failed for $tag (exit $PREFLIGHT_RC) — no-tools contract not proven (NO_TOOLS missing, canary leaked, tool trace, timeout, auth or network failure), no PR input sent to $tag; see docs/runbooks/pr-review-panel.md" >&2
       echo "--- [$tag-preflight] stderr (last 25 lines, scrubbed) ---" >&2
       sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' "$PREFLIGHT_ERR" | scrub_secrets | tail -25 >&2
     fi
@@ -637,7 +679,7 @@ shopt -u nullglob
 if [ "${#AGENTFAIL_MARKERS[@]}" -gt 0 ]; then
   AGENTFAIL_DETAIL="$(cat "${AGENTFAIL_MARKERS[@]}" | scrub_secrets | grep -v '^\s*$' | sort -u | tr '\n' ' ' | sed 's/ *$//')"
   AGENTFAIL_CELLS="$(for q in "${AGENTFAIL_MARKERS[@]}"; do basename "$q" .md.agentfail; done | tr '\n' ' ' | sed 's/ *$//')"
-  echo "::error::kiro-cli ignored --agent $KIRO_AGENT_NAME (fell back to the default agent WITH tools) in ${#AGENTFAIL_MARKERS[@]} cell(s) [$AGENTFAIL_CELLS]: $AGENTFAIL_DETAIL — responses discarded, forcing VERDICT: FAIL (no-tools contract; see docs/runbooks/pr-review-panel.md)" >&2
+  echo "::error::Kiro no-tools contract broken in ${#AGENTFAIL_MARKERS[@]} cell(s) [$AGENTFAIL_CELLS] — kiro-cli ignored --agent $KIRO_AGENT_NAME (fell back to the default agent WITH tools) or a tool ran inside the cell: $AGENTFAIL_DETAIL — responses discarded, forcing VERDICT: FAIL (see docs/runbooks/pr-review-panel.md)" >&2
   printf '%s\n' "${AGENTFAIL_DETAIL:-agent fallback signature on stderr (detail scrubbed)}" > "$WORK/kiro-agent-fallback.flag"
   : > "$WORK/coverage-severe.flag"
   rm -f "${AGENTFAIL_MARKERS[@]}"
@@ -647,8 +689,8 @@ fi
 # 위 degraded/severe 배너의 "플래그 무효·바이너리 부재·인증 실패 등" 추정 대신 실제 원인
 # (KIRO_API_KEY 계정의 MONTHLY_REQUEST_COUNT 한도, 리셋 날짜)을 로그와 리뷰 코멘트에 명시한다.
 # 한도는 이 러너 이미지를 공유하는 모든 repo 의 pr-review 가 같은 키로 소비하므로, 해소는
-# 코드가 아니라 계정 측(overage 활성화 또는 Secrets Manager /demo-platform/actions/AI-key 의
-# KIRO_API_KEY 교체 — AWS-Demo-Platform repo 소유)에서만 가능하다. fail-closed 계약
+# 코드가 아니라 계정 측(overage 활성화 또는 KIRO_API_KEY 교체 — 시크릿 경로·소유 repo 는
+# 런북에만 적고 public Actions 로그/코멘트에는 키 이름만 남긴다, 2차 리뷰 m-L3-1)에서만 가능하다. fail-closed 계약
 # (Kiro 전멸 → coverage-severe → 강제 FAIL)은 위 벤더-축 판정이 그대로 담당한다.
 shopt -s nullglob
 QUOTA_MARKERS=("$SLOT"/*.quota)
@@ -656,7 +698,7 @@ shopt -u nullglob
 if [ "${#QUOTA_MARKERS[@]}" -gt 0 ]; then
   QUOTA_DETAIL="$(cat "${QUOTA_MARKERS[@]}" | scrub_secrets | grep -v '^\s*$' | sort -u | tr '\n' ' ' | sed 's/ *$//')"
   QUOTA_CELLS="$(for q in "${QUOTA_MARKERS[@]}"; do basename "$q" .md.quota; done | tr '\n' ' ' | sed 's/ *$//')"
-  echo "::error::Kiro monthly request quota exhausted for KIRO_API_KEY — ${#QUOTA_MARKERS[@]} cell(s) [$QUOTA_CELLS]: $QUOTA_DETAIL — enable overages or rotate the key (Secrets Manager /demo-platform/actions/AI-key); not a headless-flag failure (see docs/runbooks/pr-review-panel.md)" >&2
+  echo "::error::Kiro monthly request quota exhausted for KIRO_API_KEY — ${#QUOTA_MARKERS[@]} cell(s) [$QUOTA_CELLS]: $QUOTA_DETAIL — enable overages or rotate the key; not a headless-flag failure (see docs/runbooks/pr-review-panel.md)" >&2
   printf '%s\n' "${QUOTA_DETAIL:-monthly quota signature on stderr (detail scrubbed)}" > "$WORK/kiro-quota.flag"
   rm -f "${QUOTA_MARKERS[@]}"
 fi
