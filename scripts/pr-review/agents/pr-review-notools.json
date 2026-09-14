@@ -1,0 +1,9 @@
+{
+  "name": "pr-review-notools",
+  "description": "PR-review panel cell (run-panel.sh): zero tools. The diff arrives inline in the prompt; nothing may be read, written, executed, or fetched. Validated against kiro-cli 2.11.1 (v2 engine).",
+  "tools": [],
+  "allowedTools": [],
+  "mcpServers": {},
+  "useLegacyMcpJson": false,
+  "resources": []
+}
