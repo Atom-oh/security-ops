@@ -46,14 +46,15 @@ class SynthesisTests(unittest.TestCase):
                 self.assertEqual(calls, 2)
                 self.assertTrue(text.endswith("VERDICT: PASS\n"))
 
-    def test_chair_filters_known_echo_but_keeps_real_prefixed_errors(self):
+    def test_chair_blocks_runtime_shaped_echo_collisions(self):
         echoed = " Error: quota exceeded\n Monthly request limit reached\n"
-        for extra in ("", "> [warn] failed to set model\n"):
-            with self.subTest(extra=extra):
-                reply = (0, "Checked the evidence.\nVERDICT: PASS\n", echoed + extra)
+        for error, valid in (("Harmless progress\n", True), (echoed, False),
+                             (echoed + "> [warn] failed to set model\n", False)):
+            with self.subTest(error=error):
+                reply = (0, "Checked the evidence.\nVERDICT: PASS\n", error)
                 calls, text = self.run_chair([reply, reply], diff=echoed)
-                self.assertEqual(calls, 2 if extra else 1)
-                self.assertTrue(text.endswith("VERDICT: FAIL\n" if extra else "VERDICT: PASS\n"))
+                self.assertEqual(calls, 1)
+                self.assertTrue(text.endswith("VERDICT: PASS\n" if valid else "VERDICT: FAIL\n"))
 
     def test_legacy_cell_byte_limit_blocks_without_truncation(self):
         slot = self.root / "slot"
