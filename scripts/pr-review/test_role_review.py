@@ -340,7 +340,11 @@ class RoleReviewTests(unittest.TestCase):
       ("x-origin-verify: origin-header-private", "origin-header-private"),
     ]
     cases += [(f'password = {"settings.PASSWORD" if op == "or" else "process.env.DB_PASSWORD"} {op} "fallback-private"\nPUBLIC_KEEP', "fallback-private") for op in ("||", "??", "or")]
-    cases += [(f'password = {start}old or\n"fallback-private"{end}\nPUBLIC_KEEP', "fallback-private") for start, end in (("(", ")"), ('"""', '"""'), ("'''", "'''"))]
+    cases += [(f'password = {start}old or\n"fallback-private"\n{end}\nPUBLIC_KEEP', "fallback-private") for start, end in (("(", ")"), ('"""', '"""'), ("'''", "'''"))]
+    cases += [('password = """old or\n"fallback-private""""\nUNCERTAIN_TAIL', "fallback-private")]
+    cases += [(f'password: "{op}\nfallback-private"\nPUBLIC_KEEP', "fallback-private") for op in ("||", "??", "or")]
+    cases += [(f'password = settings.PASSWORD{before}{op}{after}"fallback-private"\nPUBLIC_KEEP', "fallback-private") for op in ("||", "??", "or") for before, after in ((" ", "\n "), ("\n ", " "))]
+    cases += [(f'password = (old {op}\n"fallback-private")\nPUBLIC_KEEP', "fallback-private") for op in ("||", "??")]
     for index, (text, secret) in enumerate(cases):
       with self.subTest(kind=text.split("=", 1)[0][:24]):
         self.begin(f"decoded-pattern-{index}")
