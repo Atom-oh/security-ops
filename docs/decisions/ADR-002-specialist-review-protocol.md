@@ -2,12 +2,11 @@
 
 ## Status and context
 
-Accepted, 2026-09-13, as a design decision. Implementation and activation are
-separate reviewed changes; this policy installs neither. The legacy matrix in
-`run-panel.sh`, chair in `synthesize.sh`, helpers in `lib.sh` and
-`.github/workflows/pr-review.yml` remain active with their existing coverage floor.
-Repeated model/lens reviews motivate distinct specialist responsibilities while
-retaining independent evidence and fail-closed PR coverage validation.
+Accepted, 2026-09-13. Policy and protocol/executor installation landed separately.
+This activation selects `ROLE_REVIEW=1` in the operational workflow. It replaces
+the repeated legacy matrix and dropout floor with complete required-role coverage,
+and replaces unconditional synthesis with conditional adjudication. Existing
+provider bindings, custody, context, budgets and publication safeguards remain.
 The application's defensive scanner and its chaining gate are outside this decision.
 
 ## Decision
@@ -17,19 +16,20 @@ Use the fleet schema-1 tags in the
 normative mapping of tag, requested model/provider and responsibility.
 `kiro-fable` is a compatibility tag for Opus; the Fable model belongs to
 `claude-self`.
-At activation, legacy `kiro-opus` maps to specialist `kiro-fable` (same Opus model),
+On the active path, legacy `kiro-opus` maps to specialist `kiro-fable` (same Opus model),
 and legacy `kiro-gpt` maps to `kiro-sol` (Terra → Sol). The two specialist Kiro roles
 replace the two legacy Kiro rows; they do not run alongside duplicate Opus rows.
-Legacy scripts retain their names until that cutover. The final specialist tag set
+Legacy entrypoints remain for regression fixtures. The final specialist tag set
 is `codex`, `kiro-fable`, `kiro-sol`, `claude-self`, as listed in the module contract.
 Kiro aliases and Bedrock Runtime/Mantle IDs are distinct; application inference models and
-provider configuration are unchanged, and failed selection never permits fallback.
+provider configuration are unchanged. Required specialist selection failures cannot
+be hidden by fallback; the chair retains its explicit primary/fallback configuration.
 
 Require complete immutable-scope reports from every required role and independent
 OpenAI/Anthropic primary coverage. Every active role receives the same entire
 filtered change; per-role slicing is prohibited. Only reviewed BASE routing may
 deactivate Kiro for clearly frontend-only, signal-free changes under criteria
-fixed and reviewed in the library PR before activation; unknown or sensitive
+implemented in the reviewed library; unknown or sensitive
 paths keep both Kiro roles.
 Random nonce boundaries and invocation digests bind supplied
 input and responses, not model honesty. A deterministic PASS summary requires valid coverage and no blocking candidate
@@ -71,12 +71,15 @@ BASE-policy eligibility and verification contract.
 
 ## Consequences and verification
 
-Preserve provider bindings, secret/state custody, limits and budgets. New protocol
-documentation is English; automated output switches only at activation, leaving
-the legacy Korean/English prompts unchanged. No Korean duplicate is required.
+Preserve provider bindings, secret/state custody, limits and budgets. Protocol
+documentation and active review output are English; retained legacy fixtures
+keep their earlier prompts. No Korean duplicate is required.
+Activation retains known-format credential masking before provider delivery.
+Raw scope, routing and input limits remain authoritative; the module contract
+distinguishes original-source hashes from masked request hashes.
 
-The implementation must test scope completeness, exception rules, nonce/receipt
-binding, terminal failures, scrubbing and output ownership. Activation must review
-the executors, private artifact lifecycle, configured model access and exact-HEAD
-publication, and identify the legacy rules it replaces. Configuration and offline
+Offline tests cover scope completeness, exception rules, nonce/receipt
+binding, terminal failures, scrubbing and output ownership. Activation preserves
+private artifact custody and exact-HEAD publication. Configured model access
+requires separate native execution evidence. Configuration and offline
 tests are not proof of live availability or deployment.

@@ -49,10 +49,34 @@ class PreparationTests(unittest.TestCase):
                 return subprocess.CompletedProcess(args, 0)
             return run(args, **kwargs)
         with patch.object(prepare, "DIRECTORY", directory), \
+                patch.object(prepare, "redact_provider_diff", side_effect=lambda diff, base: diff), \
                 patch.object(prepare.subprocess, "run", side_effect=local_run), \
                 patch.dict(os.environ, {"GH_REPO": "example/repo"}):
             prepare.prepare(head, base, self.root / "work")
         return calls
+
+    def test_input_scrubber_preserves_paths_and_rejects_untrusted_replacement(self):
+        directory = self.root / "scripts/pr-review"
+        directory.mkdir(parents=True)
+        library = directory / "lib.sh"
+        library.write_bytes(MODULE.with_name("lib.sh").read_bytes())
+        self.git("add", ".")
+        self.git("commit", "-qm", "trusted input scrubber")
+        base = self.git("rev-parse", "HEAD").strip()
+        value = "ghp_" + "A" * 36
+        path = f"fixtures/{value}.txt"
+        raw = (f"diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n"
+               f"@@ -1 +1 @@\n-before\n+sample = '{value}'\n")
+        with patch.object(prepare, "DIRECTORY", directory):
+            delivered = prepare.redact_provider_diff(raw, base)
+            self.assertEqual(delivered.split("@@")[0], raw.split("@@")[0])
+            self.assertNotIn(value, delivered.split("@@")[-1])
+            library.write_text("exit 0\n")
+            with self.assertRaisesRegex(ValueError, "trusted base"):
+                prepare.redact_provider_diff(raw, base)
+            library.unlink()
+            with self.assertRaisesRegex(ValueError, "trusted base"):
+                prepare.redact_provider_diff(raw, base)
 
     def test_committed_context_hook_receives_selected_scope_and_lowers_cap(self):
         directory = self.root / "scripts/pr-review"

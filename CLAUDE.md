@@ -79,3 +79,17 @@ AWS_REGION=ap-northeast-2 ./scripts/deploy.sh
 When code changes alter architecture, commands, or conventions, update this file and
 `docs/architecture.md` in the same change. Module-level `CLAUDE.md` files document each top-level
 source directory; keep them in sync when a module's responsibility shifts.
+
+## Specialist PR review
+
+CI enables `ROLE_REVIEW=1`: one applicable responsibility per model instead of
+repeating every lens. See [the current review contract](docs/pr-review-specialists.md).
+Codex and Claude retain full change-boundary checks from independent model families;
+Kiro covers AWS and operational responsibilities when applicable. Trusted routing
+owns NOT_APPLICABLE. Failed or incomplete required output is never a clean review.
+The chair adjudicates substantive candidates; it cannot waive coverage failures.
+This section supersedes earlier matrix-count and permissive dropout descriptions.
+
+PR review instructions, guides, related ADRs and review output are English-only.
+This scoped policy supersedes older bilingual review-document templates; product
+localization is a separate contract.

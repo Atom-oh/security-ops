@@ -1,18 +1,19 @@
 name: AI Code Review
 
-# PR마다 lens×모델 매트릭스 패널(Codex + Kiro x2, L2~L5 각 lens 독립 에이전트, 3모델×4lens=
-# 12셀 — glm-5/kiro-glm 은 false-positive-prone 으로 로스터에서 제외됨)이 리뷰하고 Claude
-# 의장(primary/fallback)이 lens별로 종합해 코멘트로 게시(fail-closed VERDICT).
-# self-hosted 러너 IAM Instance Profile 로 Bedrock 호출.
-#   - pull_request_target base-ref 체크아웃: PR head 코드 미실행, diff 는 데이터로만
-#   - 매트릭스 fan-out: scripts/pr-review/run-panel.sh(3모델×4lens=12셀) → synthesize.sh
-#   - diff 는 per-run random-nonce 로 fence 되어 untrusted data 로만 취급됨(prompt injection 방지)
-#   - VERDICT: PASS|FAIL 마지막 줄 룰로 job exit code 결정 (fail-closed)
-#   - <!-- mythos-agent-pr-review --> marker 로 코멘트 upsert (PR 업데이트마다 새 코멘트 안 쌓임)
+# Trusted BASE scripts prepare complete specialist scope. PR changes and model
+# responses remain untrusted data; invalid required coverage blocks publication
+# as a success. Only substantive candidates require chair adjudication.
+# The legacy lens files below retain the existing calling shape and truncation gate.
 
 on:
   pull_request_target:
     types: [opened, synchronize]
+
+env:
+  ROLE_REVIEW: "1"
+  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+  GH_REPO: ${{ github.repository }}
 
 jobs:
   review:
@@ -48,6 +49,15 @@ jobs:
       # 따라서 base(머지 대상, 신뢰됨)를 체크아웃해 scripts/* + CLAUDE.md/AGENTS.md 를
       # 신뢰 컨텍스트로 쓰고, PR 변경분은 아래 `gh pr diff` 로 '데이터'로만 받는다(미실행).
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Prepare fresh review workspace
+        run: |
+          test ! -L /tmp/pr-review
+          rm -rf -- /tmp/pr-review
+          mkdir -p /tmp/pr-review
 
       - name: Verify Claude Code CLI present (pre-installed on runner)
         # security-ops-claude-arm 러너에는 @anthropic-ai/claude-code 가 pre-install 되어 있어야 한다.
@@ -175,18 +185,55 @@ jobs:
             echo "panel_truncated=1" >> "$GITHUB_ENV"
           fi
 
-      - name: Run panel + synthesize (lens×model matrix -> Claude chair)
+      - name: Prepare specialist scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/pr-review/slot
+          if ! python3 scripts/pr-review/prepare_roles.py --work /tmp/pr-review; then
+            touch /tmp/pr-review/slot/preparation-error.flag
+          fi
+
+      - name: Run specialists and conditionally adjudicate findings
         env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PANEL_TIMEOUT: "300"
         run: |
           set -euo pipefail
-          mkdir -p /tmp/pr-review
-          bash scripts/pr-review/run-panel.sh /tmp/pr-diff-fenced.txt /tmp/pr-review/lenses /tmp/pr-review
-          bash scripts/pr-review/synthesize.sh /tmp/pr-diff-fenced.txt /tmp/pr-review \
-            "$PR_NUMBER" "$PR_TITLE" /tmp/review.md
-          echo "panel_responded=$(tr '\n' ' ' < /tmp/pr-review/responded.txt 2>/dev/null)" >> "$GITHUB_ENV"
+          mkdir -p /tmp/pr-review/slot
+          if [ ! -f /tmp/pr-review/slot/preparation-error.flag ] &&
+             bash scripts/pr-review/run-panel.sh --prepared /tmp/pr-review &&
+             bash scripts/pr-review/synthesize.sh /tmp/pr-diff-fenced.txt /tmp/pr-review \
+               "$PR_NUMBER" "$PR_TITLE" /tmp/review.md; then
+            echo "Specialist result prepared for the publication gate"
+          else
+            # Keep preparation/execution failures publishable, without provider fallback.
+            touch /tmp/pr-review/slot/execution-error.flag
+            printf '%s\n\n%s\n' "Required review execution failed; coverage is incomplete." \
+              "VERDICT: FAIL" > /tmp/review.md
+            printf 'chair_used=Review execution failed\nchair_failed=1\n' >> "$GITHUB_ENV"
+          fi
+          if [ -f /tmp/pr-review/responded.txt ]; then
+            echo "panel_responded=$(tr '\n' ' ' < /tmp/pr-review/responded.txt)" >> "$GITHUB_ENV"
+          fi
+
+      - name: Preserve specialist scope and execution evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: specialist-review-${{ github.event.pull_request.head.sha }}-${{ github.run_attempt }}
+          path: |
+            /tmp/pr-review/slot/*-result.json
+            /tmp/pr-review/slot/*-request.json
+            /tmp/pr-review/slot/*-attempts.json
+            /tmp/pr-review/slot/*-timing.json
+            /tmp/pr-review/slot/*.flag
+            /tmp/pr-review/role-plan.json
+            /tmp/pr-review/role-summary.json
+            /tmp/pr-review/role-source.json
+          if-no-files-found: error
 
       - name: Check for blocking issues
         id: gate
@@ -219,8 +266,15 @@ jobs:
           REPO: ${{ github.repository }}
           GATE_RESULT: ${{ steps.gate.outputs.result }}
         run: |
+          CURRENT_HEAD="$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.head.sha')"
+          if [ "$CURRENT_HEAD" != "$HEAD_SHA" ]; then
+            echo "::error::PR head changed; this review belongs to an older commit"
+            exit 1
+          fi
           MARKER="<!-- mythos-agent-pr-review -->"
-          if [ "$GATE_RESULT" = "fail" ]; then
+          if [ "$GATE_RESULT" = "fail" ] && [ "${chair_failed:-0}" = "1" ]; then
+            STATUS_BADGE="**Status: BLOCKED** — required review execution or coverage failed"
+          elif [ "$GATE_RESULT" = "fail" ]; then
             STATUS_BADGE="**Status: BLOCKED** — CRITICAL/MAJOR issues must be resolved before merge"
           else
             STATUS_BADGE="**Status: PASSED** — No blocking issues found"
@@ -229,9 +283,10 @@ jobs:
           sed '$ { /^VERDICT:/d }' /tmp/review.md > /tmp/review-clean.md
           {
             echo "$MARKER"
-            echo "## 🤖 AI Code Review (${chair_used:-Claude Fable 5} chair · lens×model matrix)"
+            echo "## AI Code Review — specialists"
+            echo "_Synthesis: ${chair_used:-pending}_"
             echo ""
-            echo "_Panel: Claude(chair) · ${panel_responded:-solo}_"
+            echo "_Validated specialists: ${panel_responded:-none}_"
             [ "${panel_truncated:-0}" = "1" ] && echo "_⚠️ diff truncated to first ${max_lines:-12000} lines — review is partial._"
             echo ""
             echo "$STATUS_BADGE"

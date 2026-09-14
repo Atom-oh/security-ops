@@ -1,10 +1,16 @@
 # Specialist review protocol
 
-Installed [protocol](role_review.py): ADR-002 exclusions; rename/copy keeps Kiro.
-Markdown reports verified policy hashes only.
-The legacy review pipeline remains active; executor integration and activation
-require separate review. [ADR-002](../../docs/decisions/ADR-002-specialist-review-protocol.md)
-records the decision. This library performs no Git operations or provider calls.
+CI selects `ROLE_REVIEW=1`: trusted preparation feeds specialist executors, then
+validated aggregation and conditional adjudication. The protocol library itself
+performs no Git operations or provider calls. See [the project contract](../../docs/pr-review-specialists.md)
+and [ADR-002](../../docs/decisions/ADR-002-specialist-review-protocol.md).
+
+Declared scope must equal reviewed plus excluded paths, without overlap.
+Every exclusion, including mixed scope, must match ADR-002's retained allowlist.
+BASE collectors own Git provenance; an explicit policy anchor remains mandatory
+for exclusions-only zero-role completion. Markdown prints validated policy hashes
+only; unverified collector hashes remain provenance, not verification claims.
+Rename/copy metadata keeps both Kiro roles required, even for a frontend destination.
 
 | Tag | Requested model / provider namespace | Responsibility |
 | --- | --- | --- |
@@ -14,17 +20,18 @@ records the decision. This library performs no Git operations or provider calls.
 | claude-self | `global.anthropic.claude-fable-5-1` / Bedrock Runtime | Auth, data, API and ADR |
 
 Tags match the fleet's [schema-1 protocol](https://github.com/Atom-oh/AWS-Demo-Platform/blob/eca34549267b6bb71e7d3bc4f9184d7f94b83d00/scripts/pr-review/role_review.py).
-`kiro-fable` is its compatibility identifier for the Opus AWS role. Activation
+`kiro-fable` is its compatibility identifier for the Opus AWS role. The active path
 replaces legacy `kiro-opus` with `kiro-fable` and legacy `kiro-gpt` with `kiro-sol`;
-only those two Kiro roles run in the specialist path. Legacy script names remain
-until cutover. This table defines the planned binding; the library's `ROLES`
-table must implement it explicitly; never infer a model from a tag. Local Codex on
+only those two Kiro roles run in the specialist path. Legacy entrypoints remain for
+regression fixtures. This table matches the library's `ROLES`; never infer a model
+from a tag. Local Codex on
 Mantle uses `openai.gpt-6-astra`, a different namespace. The old Mantle regional
-Sol observation does not establish Kiro alias availability. No automatic fallback.
+Sol observation does not establish Kiro alias availability. Specialist selection
+failures cannot be hidden by automatic fallback.
 
-## Planned commands
+## Commands
 
-After installation, `python3 scripts/pr-review/role_review.py COMMAND --help`
+`python3 scripts/pr-review/role_review.py COMMAND --help`
 lists the exact flags. Use a fresh private work directory for each complete diff.
 
 | Command | Contract |
@@ -39,6 +46,14 @@ the **filtered review diff**, e.g. `["src/api.ts"]`. Rename destinations are use
 the collector checks both sides. Omit the file only for unambiguous patch paths.
 `--provenance` is a JSON file whose `head_sha`/`base_sha` match the CLI's lowercase
 40-hex Git revisions; `diff_sha256` hashes exact filtered diff bytes.
+
+The trusted preparer retains the BASE known-credential-format scrubber for
+provider inputs. `--provider-diff` supplies its masked view, bound by provenance
+`provider_diff_sha256`. The library checks identical paths, hunk structure and
+the supplied hash; the caller owns the transformation. Routing and original
+size limits still use unmodified `--diff`. In this mode the plan's
+`source_diff_sha256` identifies original filtered bytes, while plan
+`diff_sha256` and issued receipts bind the masked bytes actually delivered.
 
 Optional provenance fields are `scope_paths` (all original changed paths),
 `excluded_paths` (paths removed by approved input policy), `scope_exception`,
@@ -76,12 +91,11 @@ Set provenance `scope_exception` to `configured_exclusions_only` and
 `input_policy_sha256` to the exact policy file's SHA-256. These are different
 inventories, not a claim that the original PR has no changes.
 
-The schema-1 policy has optional nonempty-string arrays: `basenames` matches the
-final component exactly; `extensions` matches the final suffix; `directories`
-matches a parent component; `prefixes` uses literal starts-with; `path_regexes`
-uses Python regex search (anchors must be explicit). Invalid regexes block.
-These are trusted BASE configuration, not PR-supplied expressions. Every claimed
-path must match a rule. Its copied `exclusions-policy.json` bytes and rules are
+The schema-1 policy accepts approved `basenames` and `prefixes` arrays: basenames
+match the final component, and prefixes match the literal path start. The reserved
+`extensions`, `directories` and `path_regexes` arrays must be absent or empty.
+These are trusted BASE settings; every excluded path must match an approved rule.
+The copied `exclusions-policy.json` bytes and rules are
 rechecked on aggregation. This may yield NOT_APPLICABLE/PASS with no model calls;
 the report lists excluded paths and the policy hash. A generic collector may use
 this only with its reviewed BASE policy and explicit opt-in; an untrusted caller
@@ -90,7 +104,7 @@ cannot authorize exclusions. Unknown scope, source omissions and collector failu
 For this rollout the approved exclusions are exactly the existing workflow's
 `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `.terraform.lock.hcl` basenames
 and `reference-docs/` prefix. No extension, directory or regex rule is approved.
-Changing that set requires a separate BASE-policy review; this schema description
+Changing that set requires a code and BASE-policy review; this schema description
 does not approve catch-all rules or new source omissions. Lockfile exclusions are
 an explicit retained limitation, not a claim that those files lack security impact.
 
@@ -101,7 +115,7 @@ reviewed policy and verifiable eligibility contract before enabling that mode.
 
 ## Coverage, lifecycle and publication
 
-Every required role receives the same complete filtered diff and path inventory.
+Every required role receives the same complete filtered, known-format-masked diff and path inventory.
 `roles/TAG.diff` is a per-role copy, not a slice; responsibilities differ, input
 scope does not. Codex/Claude are always required for reviewable source.
 Kiro can be inactive only for unambiguously frontend-only paths with presentation
@@ -177,8 +191,8 @@ Aggregation combines input, role and artifact failures in
 Aggregate codes may qualify a failure with its role tag. These host-generated
 fields are separate from the model response and caller provenance
 `input_failures`; the provenance regex does not define every host-generated code.
-Keep raw
-`roles/*.diff` and `requests/*.input/.prompt` private and out of publication.
+Keep `role-diff.txt`, `provider-diff.txt`, `roles/*.diff` and
+`requests/*.input/.prompt` private and out of publication.
 Executors must provide private directories, cleanup and a scrubbed artifact allowlist.
 Scrubbing must retain valid paths while removing credential values, including
 escaped JSON; reference the existing `lib.sh` credential formats and test them.
@@ -190,15 +204,14 @@ lower this), and less than 128 KiB per framed request including overhead. Any
 limit failure blocks; these are not a promise that simultaneous maxima fit.
 No chunk coordinator or combining partial PASS results. Preserve project budgets.
 
-After installation run `python3 -m unittest discover -s scripts/pr-review -p test_role_review.py`.
-Planned offline CI: `.github/workflows/pr-review-roles-tests.yml`. Executor/activation
-changes must add their own tests and verify exact-HEAD publication, provider access,
-limits and source custody. Offline tests do not prove live model execution.
+Run `python3 -m unittest discover -s scripts/pr-review -p 'test_*.py' -v` and
+`bash -n scripts/pr-review/run-specialists.sh`.
+Offline CI: `.github/workflows/pr-review-roles-tests.yml`. Tests verify protocol,
+executors and workflow publication with fakes; they do not prove live model access.
 
-## Installed executors; activation remains separate
+## Executors and project limits
 
-The provider helpers are installed but the operational workflow still uses the
-legacy matrix until PR #18. `prepare_roles.py` runs from immutable BASE, obtains
+`prepare_roles.py` runs from immutable BASE, obtains
 merge-base/HEAD objects as data, applies the exact BASE `role-input-scope.json`,
 and validates BASE/candidate context. It uses AGENTS when present, otherwise
 CLAUDE, with the byte cap and generated-source checks. Only BASE text instructs.
@@ -206,12 +219,21 @@ The policy file contains only the four approved lockfile basenames and
 `reference-docs/`; no broader exclusion is activated.
 Preparation validates this ceiling before filtering either mixed or exclusions-only scope.
 
-From pinned BASE, set `HEAD_SHA`, `BASE_SHA` and `GH_REPO`:
+From pinned BASE, set `HEAD_SHA`, `BASE_SHA` and `GH_REPO` (or `GITHUB_REPOSITORY`):
 
-- `run-specialists.sh DIFF UNUSED WORK` prepares and coordinates roles.
-- `run_role.py --work WORK --tag TAG` executes a required role.
-- `synthesize_roles.py --work WORK --output REPORT` publishes deterministic output
+- CI first runs `python3 scripts/pr-review/prepare_roles.py --work WORK` in its
+  credentialed preparation step, then ends that process.
+- The separate model step uses `bash scripts/pr-review/run-specialists.sh --prepared WORK`
+  without GitHub tokens in its environment. It rechecks plan fingerprints,
+  HEAD/BASE and the BASE checkout, without preparing again or clearing current flags.
+- `bash scripts/pr-review/run-specialists.sh DIFF UNUSED WORK` prepares and coordinates roles.
+- `python3 scripts/pr-review/run_role.py --work WORK --tag TAG` executes a required role.
+- `python3 scripts/pr-review/synthesize_roles.py --work WORK --output REPORT` publishes deterministic output
   or adjudicates valid candidates. The standalone Python commands expose `--help`.
+
+The generic preparer derives the diff from Git; `DIFF` and `UNUSED` remain
+compatibility arguments for the combined local/fixture entrypoint. CI uses the
+separate phases so credentialed preparation is not a model process ancestor.
 
 Codex retains security-ops' isolated HOME: only the runner's `.codex/config.toml`
 is copied, never auth/session files. Missing config does not restore real HOME.
@@ -236,13 +258,16 @@ failures. Annotated/triple-quoted credentials and sensitive call defaults are
 masked, including nested/multiline calls. Parsing never executes code; an unclosed
 call consumes the remaining evidence.
 
-Defaults/maxima: role timeout 300/900 seconds, total attempts 2/3, Kiro startup
-60/120 seconds. The chair retains legacy `CHAIR_TIMEOUT` (600 seconds) and
+Defaults/maxima: `PANEL_TIMEOUT` 300/900 seconds, `PANEL_RETRIES` 2/3 total attempts,
+and `KIRO_PREFLIGHT_TIMEOUT` 60/120 seconds. The chair reads defaults from retained
+`synthesize.sh`: `CHAIR_TIMEOUT` (600 seconds) and
 `PANEL_CELL_CAP` (20,000 UTF-8 bytes per validated role response). Oversize evidence
 blocks before a chair call without truncation. Explicit positive chair overrides
 are honored, optional project policies may impose maxima, and the absolute timeout
-ceiling is 1,500 seconds. No default turn count is invented. Transient throttle can
-use the configured fallback; hard quota/model failures remain visible and blocking.
+ceiling is 1,500 seconds. No default turn count is invented. Role model failures
+remain terminal. Chair model errors or transient throttle can use the configured
+fallback; hard quota stops it. A failed final attempt publishes FAIL.
 
-Run `python3 -m unittest discover -s scripts/pr-review -p 'test_*.py' -v` and
-`bash -n scripts/pr-review/run-specialists.sh`. Tests use fake CLIs, not live inference.
+Codex uses JSONL transport and its CLI-designated final-output file. Tool output
+and progress text are not reviews. Recovered transport notices remain visible;
+terminal provider errors still block.

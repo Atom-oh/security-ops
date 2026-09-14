@@ -282,6 +282,23 @@ def routing(paths, diff):
   }
 
 
+def diff_structure(text):
+  """Compare exact metadata and hunk counts/prefixes without credential values."""
+  result, in_hunk = [], False
+  for line in text.splitlines(keepends=True):
+    if line.startswith("diff --git "):
+      in_hunk = False
+    if line.startswith("@@ "):
+      in_hunk = True
+      match = re.match(r"@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@", line)
+      result.append(match.group() if match else line)
+    elif in_hunk and line[:1] in ("+", "-", " "):
+      result.append(line[0])
+    else:
+      result.append(line)
+  return result
+
+
 def prompt(tag, role, head, base, context):
   return (
     f"Review tag: {tag}\nRole: {role['role']} — {role['description']}\n"
@@ -396,6 +413,7 @@ def prepare(args):
   except (OSError, UnicodeError):
     raw, diff = b"", ""
     failures.append("diff_unavailable_or_not_utf8")
+  source_bytes = len(raw)
   try:
     context = text_file(args.context)
   except Invalid:
@@ -471,14 +489,31 @@ def prepare(args):
     failures.append("invalid_input_provenance")
     provenance = {}
   provenance = scrub(provenance, frozenset(preserved))
+  # Routing and completeness/budget checks always consume the unmodified source.
+  routes = routing(paths, diff)
+  source_digest = digest(raw)
+  if getattr(args, "provider_diff", None):
+    try:
+      delivered = Path(args.provider_diff).read_bytes()
+      provider_text = delivered.decode("utf-8")
+      if (digest(delivered) != provenance.get("provider_diff_sha256")
+          or diff_structure(provider_text) != diff_structure(diff)
+          or (diff_paths(provider_text, paths) if paths else []) != paths
+          or len(delivered) > MAX_DIFF_BYTES):
+        raise Invalid("invalid_provider_diff")
+      raw, diff = delivered, provider_text
+    except (OSError, UnicodeError, Invalid):
+      failures.append("invalid_provider_diff")
   plan = {
     "schema_version": 1, "head_sha": args.head, "base_sha": args.base,
     "diff_sha256": digest(raw), "context_sha256": digest(context.encode()),
-    "diff_bytes": len(raw), "diff_lines": lines, "context_cap": args.context_cap,
+    "diff_bytes": source_bytes,
+    "diff_lines": lines, "context_cap": args.context_cap,
     "paths": paths, "roles": {}, "provenance": provenance,
     "exclusions_policy_sha256": policy_hash,
   }
-  routes = routing(paths, diff)
+  if getattr(args, "provider_diff", None):
+    plan["source_diff_sha256"] = source_digest
   if policy_hash:
     routes = {tag: (False, "approved_exclusions_only") for tag in ROLES}
   for tag, (slug, family, model, description) in ROLES.items():
@@ -1089,6 +1124,9 @@ def main(argv=None):
     prep.add_argument("--" + name, required=True)
   prep.add_argument("--context-cap", type=context_cap, default=MAX_CONTEXT_BYTES)
   prep.add_argument("--paths", help="JSON array of complete repository-relative changed paths")
+  prep.add_argument("--provider-diff", help=(
+    "Trusted caller's known-format-masked complete diff; provenance must bind its "
+    "provider_diff_sha256. Original --diff still controls routing and size limits."))
   prep.add_argument("--allow-metadata-only", action="store_true",
                       help="Reserved; metadata-only deletion is unsupported")
   prep.add_argument("--allow-exclusions-only", action="store_true",

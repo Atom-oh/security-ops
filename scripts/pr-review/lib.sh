@@ -86,6 +86,14 @@ scrub_known_credential_formats() {
       skip = 1; buf = $0 "\n"; next
     }
     skip && /^[ +-]?-----END [A-Z ]*PRIVATE KEY-----/ {
+      # Specialist input keeps every diff line/prefix so hunk counts stay valid.
+      if (mode == "preserve-lines") {
+        count = split(buf, buffered, "\n")
+        for (i = 1; i < count; i++) {
+          marker = buffered[i] ~ /^[ +-]/ ? substr(buffered[i], 1, 1) : ""
+          print marker "[REDACTED-PRIVATE-KEY]"
+        }
+      }
       marker = ""; if ($0 ~ /^[ +-]/) marker = substr($0, 1, 1)
       print marker "[REDACTED-PRIVATE-KEY]"; skip = 0; buf = ""; next
     }

@@ -1,16 +1,9 @@
-# PR review module
+# Specialist review module
 
-The active pipeline is `.github/workflows/pr-review.yml`: `run-panel.sh` runs
-its legacy matrix, `synthesize.sh` chairs it, and `lib.sh` supplies shared helpers.
-Their current limits, safety controls and Korean/English output remain authoritative.
-
-[README.md](README.md) records the planned specialist interfaces and offline tests;
-[ADR-002](../../docs/decisions/ADR-002-specialist-review-protocol.md) owns the decision.
-New documentation uses English. Protocol output switches to English only at the
-separate activation. Run the documented tests after the library lands. Preserve
-source custody, configured providers, budgets and the active coverage policy.
-
-The offline protocol and its tests are now installed; provider activation remains separate.
-
-Executor helpers and their offline tests are installed. The operational workflow
-stays legacy until activation; README defines command, isolation and limit contracts.
+[README.md](README.md), [the project contract](../../docs/pr-review-specialists.md)
+and [ADR-002](../../docs/decisions/ADR-002-specialist-review-protocol.md) define
+this module. CI selects `ROLE_REVIEW=1`; legacy entrypoints remain for fixtures.
+Preserve BASE/head provenance, the exact approved exclusions, full required-role
+coverage, nonce/receipt binding, secret custody and existing invocation budgets.
+Missing coverage never becomes PASS. Instructions, docs and active output are
+English. Run the README's offline checks; model access needs native evidence.

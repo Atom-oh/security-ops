@@ -1,0 +1,116 @@
+# Specialist PR review
+
+With `ROLE_REVIEW=1`, CI's `run-panel.sh`/`synthesize.sh` dispatch to specialists.
+Their legacy matrix branches remain for regression fixtures.
+
+The [module roster](../scripts/pr-review/README.md) defines the four models,
+provider namespaces and responsibilities.
+
+The shared `kiro-fable` tag identifies the Opus slot. Kiro catalog aliases differ
+from Bedrock inference-profile IDs. These are configured model identities, not
+attestation of the provider's internal routing or weights.
+
+## Routing and evidence
+
+Trusted code determines which roles apply. Codex and Claude review the full change
+boundary, retaining independent OpenAI/Anthropic checks for sensitive changes.
+Kiro roles run for applicable AWS and operational changes, including relevant
+documentation. Unfamiliar paths route conservatively. Only deterministic routing
+may record NOT_APPLICABLE; provider failures never do.
+
+`prepare_roles.py` verifies the pinned base checkout, resolves the immutable merge
+base, fetches Git objects and generates a complete diff without executing head
+code. It reads reviewer instructions from the base Git object. Candidate context
+is checked for availability, size and generated-source freshness, then discarded.
+The shared context ceiling is 24,000 bytes; repositories may enforce a smaller one.
+The complete original diff controls routing, scope and size checks. Before any
+specialist or chair receives it, the trusted BASE known-format scrubber masks
+credential values while preserving paths and hunk structure. Provenance retains
+the original hash; request receipts bind the masked bytes delivered. This does
+not authorize truncation or reduce the original input budget.
+
+Every result confirms its role, HEAD and reviewed paths. Host metadata binds it
+to the prepared request and records the process status. Nonzero exits, malformed
+or empty reports, missing paths, invalid fingerprints, model selection errors,
+quota exhaustion and failed required roles block coverage. A JSON shape is
+evidence of protocol completion, not proof that the model found every defect.
+
+The common protocol accepts a complete diff within 3,000 lines and 95,000 UTF-8
+bytes. It blocks oversized input without awarding credit for a prefix. This
+repository has no specialist chunk coordinator; do not raise limits to obtain a pass.
+
+## Execution and synthesis
+
+CI prepares scope in a GitHub-client step that ends before model execution.
+The separate model/chair step has no GitHub token; it verifies the prepared
+plan's fingerprints and HEAD/BASE binding without fetching or preparing again.
+Preparation failure still produces a visible FAIL report and starts no provider.
+
+Each applicable model receives one specialist request. Both Kiro roles use fresh
+HOME/cwd directories and an explicit empty tool catalog with no MCP resources or
+hooks. Each active Kiro job first receives a fixed canary check without PR data;
+only an exact successful no-tools response permits the actual review. Its child
+environment excludes AWS and GitHub credentials. Errors remain visible; no
+automatic quota or billing changes are made.
+
+Codex retains its read-only sandbox and configured Bedrock provider. Claude's
+specialist has no tools. The chair has bounded local read tools and no GitHub
+token. Review output is scrubbed before becoming a public artifact.
+
+Complete, valid results with no Critical/Major candidate or uncertainty receive
+a deterministic summary. Other valid results require chair adjudication. A
+coverage failure receives a deterministic failure; a chair cannot waive it.
+Minor/Info findings remain in the report.
+
+With all four roles active, the ordinary path uses four review calls and two
+Kiro startup checks. Adjudication adds one chair call; retries and fallback add
+calls only when needed. This reduces duplicate requests, but is not a measured
+wall-clock speedup. Per-role timing artifacts support before/after measurement.
+
+## Maintenance and release
+
+Run `python3 -m unittest discover -s scripts/pr-review -p 'test_*.py' -v`
+and the repository's existing review tests. Offline fake CLIs validate routing,
+scope, subprocess status and safety boundaries without spending model credits.
+They do not establish successful live model execution.
+
+Native `pull_request_target` uses base scripts, so a workflow-changing PR must
+also have offline checks for the candidate implementation. Review the latest HEAD,
+resolve real Critical/Major findings, satisfy required CI and branch rules, and
+verify the integration path before merge. Missing review or quota failure is not
+a clean result. Model limits and required gates remain in force.
+
+## Origin verification (2026-09-14)
+
+[CI evidence](https://github.com/Atom-oh/security-ops/actions/runs/34829636169)
+confirmed this repo is public and fetched BASE `df7fa50`/HEAD `1a1097e` from its
+HTTPS origin with fresh HOME, system/global Git config disabled, empty
+credential helpers/extraheaders and prompts disabled. BASE preparation
+produced complete input: 17 paths, 94,688 diff bytes, 4,155 BASE-context bytes,
+zero model calls. This proves Git/preparation only, not model or later-HEAD coverage.
+Git uses public access; `GH_TOKEN` authenticates the preparation step's `gh` API.
+A private origin would require separately reviewed Git authentication.
+
+## Approved source scope
+
+`role-input-scope.json` retains four lockfile basenames (`package-lock.json`,
+`yarn.lock`, `pnpm-lock.yaml`, `.terraform.lock.hcl`) and `reference-docs/`.
+There is no general generated-asset exclusion. The trusted base copy classifies immutable Git paths before
+requests are prepared. Provenance records every excluded path and both raw and
+approved diff hashes. Renames are expanded into deletion/addition records so a
+source path cannot disappear through an artifact rename. A verified exclusions-
+only change is explicitly NOT_APPLICABLE and invokes no model; missing inputs,
+unknown exclusions and truncated required source remain blocked. The policy does
+not authorize excluding additional source merely to obtain a pass.
+
+Approved exclusions-only input explicitly supplies `--allow-exclusions-only` and
+a private `--policy` file copied from Git BASE. The engine checks its byte hash
+and retains an anchor through aggregation; arbitrary provenance cannot opt in.
+
+The workflow clears previous workspace artifacts before input collection; current
+collector/preflight failure flags remain blocking. Uploaded evidence is restricted
+to scrubbed results, receipts, attempts, timings, flags and plan/summary/source
+metadata, named for the HEAD and run attempt. Private context, requests and diffs
+are excluded. Preparation/execution exceptions produce a static FAIL report and
+failure flag so publication remains visible. Comments identify validated specialists
+and actual synthesis mode, and reject a changed HEAD before posting.
