@@ -281,7 +281,7 @@ def routing(paths, diff):
         ) and Path(p).suffix.lower() in
         {".tsx", ".jsx", ".css", ".scss", ".sass", ".less", ".html", ".svg"}
         for p in paths
-    )
+    ) and not re.search(r"^(?:rename|copy) from ", diff, re.M)
     aws = bool(AWS_SIGNAL.search(diff))
     deployment = bool(DEPLOY_SIGNAL.search(diff))
     return {
@@ -446,10 +446,7 @@ def prepare(args):
     material, policy_hash = None, None
     try:
         manifest = strict_json(text_file(args.paths)) if args.paths else None
-        metadata_only = provenance.get("path_only", [])
-        if not isinstance(metadata_only, list) or any(not isinstance(x, str) for x in metadata_only):
-            raise Invalid("invalid_input_provenance")
-        if metadata_only:
+        if provenance.get("path_only", []) != []:
             raise Invalid("invalid_input_provenance")
         if (args.allow_exclusions_only or args.policy
                 or provenance.get("scope_exception") == "configured_exclusions_only"):

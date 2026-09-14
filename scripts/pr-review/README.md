@@ -1,6 +1,6 @@
 # Specialist review protocol
 
-Installed [protocol](role_review.py): every exclusion must match ADR-002.
+Installed [protocol](role_review.py): ADR-002 exclusions; rename/copy requires Kiro.
 BASE collectors own Git provenance. Markdown prints validated policy hashes only.
 Nonempty extension/directory/regex selector arrays are rejected here.
 The legacy review pipeline remains active; executor integration and activation
