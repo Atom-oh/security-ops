@@ -46,6 +46,11 @@ repository has no specialist chunk coordinator; do not raise limits to obtain a 
 
 ## Execution and synthesis
 
+CI prepares scope in a GitHub-client step that ends before model execution.
+The separate model/chair step has no GitHub token; it verifies the prepared
+plan's fingerprints and HEAD/BASE binding without fetching or preparing again.
+Preparation failure still produces a visible FAIL report and starts no provider.
+
 Each applicable model receives one specialist request. Both Kiro roles use fresh
 HOME/cwd directories and an explicit empty tool catalog with no MCP resources or
 hooks. Each active Kiro job first receives a fixed canary check without PR data;

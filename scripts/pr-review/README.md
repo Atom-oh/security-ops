@@ -221,13 +221,19 @@ Preparation validates this ceiling before filtering either mixed or exclusions-o
 
 From pinned BASE, set `HEAD_SHA`, `BASE_SHA` and `GH_REPO` (or `GITHUB_REPOSITORY`):
 
+- CI first runs `python3 scripts/pr-review/prepare_roles.py --work WORK` in its
+  credentialed preparation step, then ends that process.
+- The separate model step uses `bash scripts/pr-review/run-specialists.sh --prepared WORK`
+  without GitHub tokens in its environment. It rechecks plan fingerprints,
+  HEAD/BASE and the BASE checkout, without preparing again or clearing current flags.
 - `bash scripts/pr-review/run-specialists.sh DIFF UNUSED WORK` prepares and coordinates roles.
 - `python3 scripts/pr-review/run_role.py --work WORK --tag TAG` executes a required role.
 - `python3 scripts/pr-review/synthesize_roles.py --work WORK --output REPORT` publishes deterministic output
   or adjudicates valid candidates. The standalone Python commands expose `--help`.
 
-The generic preparer derives the diff from Git; `DIFF` and `UNUSED` are
-compatibility arguments.
+The generic preparer derives the diff from Git; `DIFF` and `UNUSED` remain
+compatibility arguments for the combined local/fixture entrypoint. CI uses the
+separate phases so credentialed preparation is not a model process ancestor.
 
 Codex retains security-ops' isolated HOME: only the runner's `.codex/config.toml`
 is copied, never auth/session files. Missing config does not restore real HOME.

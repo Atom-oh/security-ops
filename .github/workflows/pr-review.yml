@@ -185,16 +185,26 @@ jobs:
             echo "panel_truncated=1" >> "$GITHUB_ENV"
           fi
 
-      - name: Run specialists and conditionally adjudicate findings
+      - name: Prepare specialist scope
         env:
           GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/pr-review/slot
+          if ! python3 scripts/pr-review/prepare_roles.py --work /tmp/pr-review; then
+            touch /tmp/pr-review/slot/preparation-error.flag
+          fi
+
+      - name: Run specialists and conditionally adjudicate findings
+        env:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_TITLE: ${{ github.event.pull_request.title }}
           PANEL_TIMEOUT: "300"
         run: |
           set -euo pipefail
           mkdir -p /tmp/pr-review/slot
-          if bash scripts/pr-review/run-panel.sh /tmp/pr-diff-fenced.txt /tmp/pr-review/lenses /tmp/pr-review &&
+          if [ ! -f /tmp/pr-review/slot/preparation-error.flag ] &&
+             bash scripts/pr-review/run-panel.sh --prepared /tmp/pr-review &&
              bash scripts/pr-review/synthesize.sh /tmp/pr-diff-fenced.txt /tmp/pr-review \
                "$PR_NUMBER" "$PR_TITLE" /tmp/review.md; then
             echo "Specialist result prepared for the publication gate"

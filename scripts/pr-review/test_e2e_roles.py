@@ -11,16 +11,19 @@ import unittest
 
 SOURCE = Path(__file__).resolve().parent
 FAKE = r'''#!/usr/bin/env python3
-import json,pathlib,sys
+import json,os,pathlib,sys
 root = pathlib.Path(ROOT)
 argv = sys.argv[1:]
 name = pathlib.Path(sys.argv[0]).name
 if name == "gh":
+    with (root / "gh-calls.jsonl").open("a") as stream:
+        stream.write(json.dumps({"token_present":bool(os.environ.get("GH_TOKEN"))}) + "\n")
     print((root / "base-sha").read_text().strip())
     raise SystemExit(0)
 stdin = sys.stdin.read()
 with (root / "calls.jsonl").open("a") as stream:
-    stream.write(json.dumps({"name": name, "args": argv, "stdin": stdin}) + "\n")
+    stream.write(json.dumps({"name": name, "args": argv, "stdin": stdin,
+                            "token_present":bool(os.environ.get("GH_TOKEN"))}) + "\n")
 if name == "kiro-cli" and argv[1].startswith("Kiro startup safety check."):
     assert stdin == ""
     print("NO_TOOLS")
@@ -122,7 +125,7 @@ class EndToEndRoleTests(unittest.TestCase):
     def git(self, *arguments):
         return subprocess.check_output(["git", *arguments], cwd=self.repo, text=True)
 
-    def run_pipeline(self, path, content="export const result = 1;\n"):
+    def commit_candidate(self, path, content="export const result = 1;\n"):
         changed = self.repo / path
         changed.parent.mkdir(parents=True, exist_ok=True)
         changed.write_text(content)
@@ -130,6 +133,9 @@ class EndToEndRoleTests(unittest.TestCase):
         self.git("commit", "-qm", "change")
         self.environment["HEAD_SHA"] = self.git("rev-parse", "HEAD").strip()
         self.git("checkout", "-q", "--detach", self.base)
+
+    def run_pipeline(self, path, content="export const result = 1;\n"):
+        self.commit_candidate(path, content)
         result = subprocess.run([
             "bash", "scripts/pr-review/run-panel.sh", "unused", "unused", str(self.work),
         ], cwd=self.repo, env=self.environment, capture_output=True, text=True, timeout=30)
@@ -141,6 +147,67 @@ class EndToEndRoleTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         calls = self.root / "calls.jsonl"
         return [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
+
+    def test_prepared_execution_keeps_github_in_the_finished_preparation_phase(self):
+        self.commit_candidate("backend/api.py")
+        self.environment["GH_TOKEN"] = "synthetic-preparation-only-value"
+        result = subprocess.run([
+            "python3", "scripts/pr-review/prepare_roles.py", "--work", str(self.work),
+        ], cwd=self.repo, env=self.environment, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        prepared = (self.work / "role-plan.json").read_bytes()
+        self.assertFalse((self.root / "calls.jsonl").exists())
+        self.environment.pop("GH_TOKEN")
+        (self.root / "major").touch()
+        result = subprocess.run([
+            "bash", "scripts/pr-review/run-panel.sh", "--prepared", str(self.work),
+        ], cwd=self.repo, env=self.environment, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        result = subprocess.run([
+            "bash", "scripts/pr-review/synthesize.sh", "unused", str(self.work),
+            "18", "Offline test", str(self.work / "review.md"),
+        ], cwd=self.repo, env=self.environment, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.work / "role-plan.json").read_bytes(), prepared)
+        gh_calls = [json.loads(line) for line in (self.root / "gh-calls.jsonl").read_text().splitlines()]
+        self.assertEqual(gh_calls, [{"token_present": True}])
+        calls = [json.loads(line) for line in (self.root / "calls.jsonl").read_text().splitlines()]
+        self.assertEqual(len(calls), 7)  # Four roles, two canaries, one chair.
+        self.assertTrue(all(not call["token_present"] for call in calls))
+        self.assertTrue((self.work / "review.md").read_text().endswith("VERDICT: FAIL\n"))
+
+    def test_prepared_execution_rejects_wrong_revision_or_changed_fingerprint(self):
+        self.commit_candidate("backend/api.py")
+        subprocess.run(["python3", "scripts/pr-review/prepare_roles.py", "--work", str(self.work)],
+                       cwd=self.repo, env=self.environment, check=True, capture_output=True)
+        for name in ("HEAD_SHA", "BASE_SHA", "fingerprint"):
+            with self.subTest(name=name):
+                environment = dict(self.environment)
+                if name == "fingerprint":
+                    with (self.work / "roles/codex.diff").open("a") as output:
+                        output.write("changed\n")
+                else:
+                    environment[name] = "c" * 40
+                result = subprocess.run([
+                    "bash", "scripts/pr-review/run-panel.sh", "--prepared", str(self.work),
+                ], cwd=self.repo, env=environment, capture_output=True, text=True, timeout=30)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse((self.root / "calls.jsonl").exists())
+
+    def test_prepared_execution_preserves_current_input_failure_flags(self):
+        self.commit_candidate("frontend/style.css")
+        subprocess.run(["python3", "scripts/pr-review/prepare_roles.py", "--work", str(self.work)],
+                       cwd=self.repo, env=self.environment, check=True, capture_output=True)
+        flag = self.work / "slot/current-source-omission.flag"
+        flag.touch()
+        result = subprocess.run([
+            "bash", "scripts/pr-review/run-panel.sh", "--prepared", str(self.work),
+        ], cwd=self.repo, env=self.environment, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(flag.exists())
+        summary = json.loads((self.work / "role-summary.json").read_text())
+        self.assertEqual(summary["mode"], "blocked")
+        self.assertIn("upstream_omission_flag", summary["failure_codes"])
 
     def test_known_credentials_masked_before_every_provider_and_chair(self):
         token = "ghp_" + "A" * 36

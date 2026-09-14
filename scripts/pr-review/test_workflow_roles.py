@@ -68,11 +68,13 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotRegex(prefix, r"(?m)^\s+(?:GH_TOKEN|GITHUB_TOKEN):")
         expected = {
             "Get PR diff (with project-specific filters)",
-            "Run specialists and conditionally adjudicate findings",
+            "Prepare specialist scope",
             "Post review comment (upsert)",
         }
         found = {name for name, block in steps().items() if "GH_TOKEN:" in block}
         self.assertEqual(found, expected)
+        self.assertNotIn("prepare_roles.py", script("Run specialists and conditionally adjudicate findings"))
+        self.assertIn("--prepared", script("Run specialists and conditionally adjudicate findings"))
 
     def test_artifacts_keep_retry_receipts_without_private_inputs(self):
         block = steps()["Preserve specialist scope and execution evidence"]
@@ -133,6 +135,23 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue((self.root / "review.md").read_text().endswith("VERDICT: FAIL\n"))
         self.assertTrue((self.work / "slot/execution-error.flag").exists())
         self.assertIn("chair_failed=1", (self.root / "env").read_text())
+        self.assertEqual(self.execute("Check for blocking issues").returncode, 0)
+        self.assertIn("result=fail", (self.root / "outputs").read_text())
+
+    def test_separate_preparation_failure_never_enters_provider_step(self):
+        directory = self.root / "scripts/pr-review"
+        directory.mkdir(parents=True)
+        (directory / "prepare_roles.py").write_text("raise SystemExit(2)\n")
+        (directory / "run-panel.sh").write_text("touch unexpected-provider\nexit 0\n")
+        (directory / "synthesize.sh").write_text("touch unexpected-chair\nexit 0\n")
+        self.environment["PR_TITLE"] = "A test"
+        self.assertEqual(self.execute("Prepare specialist scope").returncode, 0)
+        self.assertTrue((self.work / "slot/preparation-error.flag").exists())
+        result = self.execute("Run specialists and conditionally adjudicate findings")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.root / "unexpected-provider").exists())
+        self.assertFalse((self.root / "unexpected-chair").exists())
+        self.assertTrue((self.root / "review.md").read_text().endswith("VERDICT: FAIL\n"))
         self.assertEqual(self.execute("Check for blocking issues").returncode, 0)
         self.assertIn("result=fail", (self.root / "outputs").read_text())
 
