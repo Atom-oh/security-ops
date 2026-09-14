@@ -11,3 +11,6 @@ separate activation. Run the documented tests after the library lands. Preserve
 source custody, configured providers, budgets and the active coverage policy.
 
 The offline protocol and its tests are now installed; provider activation remains separate.
+
+Executor helpers and their offline tests are installed. The operational workflow
+stays legacy until activation; README defines command, isolation and limit contracts.
