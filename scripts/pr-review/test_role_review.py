@@ -303,6 +303,12 @@ class RoleReviewTests(unittest.TestCase):
         manifest = self.root / "paths.json"
         manifest.write_text(json.dumps([FRONTEND]))
         self.prepare(extra=("--paths", manifest))
+        for marker in ("Binary files a/x and b/x differ", "GIT binary patch"):
+            with self.subTest(marker=marker):
+                raw = f"diff --git a/{FRONTEND} b/{FRONTEND}\r\n{marker}\r\n"
+                plan = self.prepare(raw, extra=("--paths", manifest), expected=2)
+                self.assertEqual(plan["diff_sha256"], self.provenance(raw)["diff_sha256"])
+                self.assert_blocked()
         manifest.write_text(json.dumps(["wrong.tsx"]))
         self.prepare(extra=("--paths", manifest), expected=2)
         self.assert_blocked()
@@ -510,7 +516,7 @@ class RoleReviewTests(unittest.TestCase):
         raw = "diff --git a/empty b/empty\nnew file mode 100644\nindex 0000000..e69de29\n"
         self.assertTrue(self.prepare(raw)["input_complete"])
 
-    def test_reprepare_discards_results(self):
+    def test_reprepare_cleanup(self):
         self.prepare()
         self.finish()
         self.prepare()
@@ -528,7 +534,7 @@ class RoleReviewTests(unittest.TestCase):
         self.assertIn("model_selection_diagnostic", history[0]["failure_codes"])
 
 
-    def test_corrupt_history_blocks(self):
+    def test_corrupt_history(self):
         self.prepare()
         self.finish()
         (self.work / "slot/codex-attempts.json").write_text("{broken")
@@ -810,7 +816,7 @@ class RoleReviewTests(unittest.TestCase):
                 result = self.record("codex", raw=wrapper(json.dumps(self.response("codex"))))
                 self.assertTrue(result["valid"])
 
-    def test_invalid_json_forms_rejected(self):
+    def test_invalid_json(self):
         for raw in ("", "glob found no files", "{}", "[]", "```json\n{}\n```\nPASS",
                     '{"head_sha":"x","head_sha":"y"}'):
             with self.subTest(raw=raw):
@@ -831,7 +837,7 @@ class RoleReviewTests(unittest.TestCase):
                 self.record("codex", self.response("codex", **update), expected=2)
                 self.assert_blocked()
 
-    def test_finding_schema_validation(self):
+    def test_finding_schema(self):
         good = {"severity": "MAJOR", "path": FRONTEND, "condition": "When clicked",
                 "evidence": "The changed handler raises."}
         for key, bad in (("severity", "PASS"), ("path", "other.py"), ("condition", ""), ("evidence", "")):
@@ -859,7 +865,7 @@ class RoleReviewTests(unittest.TestCase):
                     if file.is_file():
                         self.assertNotIn("do-not-publish-this", file.read_text())
 
-    def test_echoed_prompt_not_diagnostic(self):
+    def test_echoed_prompt(self):
         self.prepare()
         result = self.record("codex", stderr=(
             "Review quota handling, fallback logic and model-selection tests.\n"
@@ -867,7 +873,7 @@ class RoleReviewTests(unittest.TestCase):
         ))
         self.assertTrue(result["valid"])
 
-    def test_kiro_diagnostics_rejected(self):
+    def test_kiro_diagnostics(self):
         diagnostics = (
             "[warn] failed to set model opus ... Method not found",
             "Monthly request limit reached",
@@ -880,7 +886,7 @@ class RoleReviewTests(unittest.TestCase):
                 self.record("codex", stderr=diagnostic, expected=2)
                 self.assert_blocked()
 
-    def test_echoed_diff_diagnostics_ignored(self):
+    def test_echoed_diff(self):
         self.prepare()
         result = self.record("codex", stderr=(
             '+ "[warn] failed to set model opus ... Method not found"\n'
@@ -918,7 +924,7 @@ class RoleReviewTests(unittest.TestCase):
                 (self.work / f"slot/{name}-result.json").write_bytes(shutil_source.read_bytes())
                 self.assert_blocked()
 
-    def test_corrupt_metadata_blocks(self):
+    def test_corrupt_metadata(self):
         self.prepare()
         for tag in ("codex", "claude-self"):
             self.record(tag)
