@@ -6,9 +6,10 @@ performs no Git operations or provider calls. See [the project contract](../../d
 and [ADR-002](../../docs/decisions/ADR-002-specialist-review-protocol.md).
 
 Declared scope must equal reviewed plus excluded paths, without overlap.
-The BASE collector owns mixed-scope exclusion authorization; the explicit policy
-anchor remains mandatory for exclusions-only zero-role completion.
-`validate_policy` enforces ADR-002's approved rule ceiling.
+Every exclusion, including mixed scope, must match ADR-002's retained allowlist.
+BASE collectors own Git provenance; an explicit policy anchor remains mandatory
+for exclusions-only zero-role completion. Markdown prints validated policy hashes
+only; unverified collector hashes remain provenance, not verification claims.
 
 | Tag | Requested model / provider namespace | Responsibility |
 | --- | --- | --- |
