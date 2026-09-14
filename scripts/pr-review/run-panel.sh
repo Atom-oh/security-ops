@@ -85,12 +85,53 @@ KIRO_AGENT_FALLBACK_RE='no agent with name|Falling back to user specified defaul
 # 셀 단계 tool-use 흔적 시그니처. 결정론적 1차 통제는 `tools: []` 에이전트, preflight 는 모델
 # 순응에 의존하는 능동 프로브다 — 툴이 살아 있어도 모델이 read 를 시도하지 않고 NO_TOOLS 라
 # 답하면 preflight 를 통과한 뒤 untrusted diff 가 툴 있는 에이전트로 넘어갈 수 있다(PR#15
-# 2차 리뷰 M-L3-1). 그래서 실제 diff 를 받는 셀의 stdout+stderr 에서도 kiro-cli 의 실행
-# 트레이스 형식 `… (using tool: <name>)`(cc-on-bedrock repo 의 docs/reviews/kiro.md 실캡처)을
-# 잡아 `.agentfail` 과 같은 경로로 슬롯 폐기·severe 승격한다. 괄호 포함 정확한 형식만 매치해
-# 리뷰 본문이 diff 의 "using tool:" 문구를 산문으로 인용하는 경우의 오탐을 줄인다(그래도
-# 매치되면 방향은 fail-closed).
+# 2차 리뷰 M-L3-1). 그래서 실제 diff 를 받는 셀에서도 kiro-cli 의 실행 트레이스 형식
+# `… (using tool: <name>)`(cc-on-bedrock repo 의 docs/reviews/kiro.md 실캡처)을 잡아
+# `.agentfail` 과 같은 경로로 슬롯 폐기·severe 승격한다.
+# 셀 단계에서는 **stderr 만** 검사한다(3차 리뷰 L2-3): 셀 stdout 은 모델의 리뷰 본문이고, 이
+# 스크립트·런북·스텁·CHANGELOG 를 건드리는 모든 PR 의 diff 가 이 리터럴을 담으므로 리뷰어가
+# 그 줄을 인용만 해도 슬롯이 폐기돼 작성자가 해소할 수 없는 만성 강제 FAIL 이 된다 — 만성
+# 오탐은 게이트를 약화시키라는 압력이다. kiro-cli 의 실행 트레이스는 stderr 로 나가므로
+# (quota 시그니처를 stderr 로 좁힌 것과 같은 이유) stderr 검사가 탐지력을 잃지 않는다. 대소문자
+# 구분(트레이스는 고정 소문자) + ANSI SGR 정규화 사본에 매치(kiro_sig_hit) — 괄호 안에 색상
+# 코드가 끼어도 놓치지 않는다. preflight 단계는 프롬프트가 고정이고 diff 가 없어 stdout+stderr
+# 를 그대로 검사하며, 느슨한 `using tool:` 변형도 함께 잡는다(KIRO_PREFLIGHT_TRACE_RE).
 KIRO_TOOL_TRACE_RE='\(using tool: [^)]+\)'
+KIRO_PREFLIGHT_TRACE_RE="$KIRO_TOOL_TRACE_RE|using tool:"
+
+# 시그니처 검사 헬퍼 — 파일들을 이어붙여 ANSI CSI 시퀀스를 벗긴 사본에 대소문자 구분으로
+# ERE 매치. 파일 인자가 없으면(preflight 가 한 번도 실행되지 않은 경우) stdin 을 읽지 않고
+# "매치 없음"이 아닌 실패(rc=1)로 끝난다 — 호출자는 rc≠0 경로에서 fail-closed 로 처리한다.
+# `grep -q` 를 쓰지 않는다: 첫 매치에서 grep 이 종료하면 앞단 cat/sed 가 SIGPIPE(141) 로 죽고
+# `pipefail` 아래서 파이프라인이 "매치 없음"처럼 실패해 fail-open 이 된다 — grep 이 입력을 끝까지
+# 소비하도록 >/dev/null 로 버린다.
+#   kiro_sig_hit <ere> <file...>      → rc 0 이면 매치
+#   kiro_sig_lines <ere> <file...>    → 매치한 줄 전체 출력(마커용 — 리셋 날짜 등 문맥 보존)
+#   kiro_sig_detail <ere> <file...>   → 매치 문자열만 출력(마커용 — 트레이스 조각)
+#   kiro_canary_hit <canary-file> <file...> → canary 값(고정 문자열)이 어디든 있으면 rc 0
+strip_ansi() { sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g'; }
+kiro_sig_hit() {
+  local re="$1"; shift
+  [ "$#" -gt 0 ] || return 1
+  cat -- "$@" 2>/dev/null | strip_ansi | grep -E -- "$re" >/dev/null
+}
+kiro_sig_lines() {
+  local re="$1"; shift
+  [ "$#" -gt 0 ] || return 1
+  cat -- "$@" 2>/dev/null | strip_ansi | grep -E -- "$re"
+}
+kiro_sig_detail() {
+  local re="$1"; shift
+  [ "$#" -gt 0 ] || return 1
+  cat -- "$@" 2>/dev/null | strip_ansi | grep -oE -- "$re"
+}
+kiro_canary_hit() {
+  local canary_file="$1" canary; shift
+  [ "$#" -gt 0 ] || return 1
+  canary="$(cat "$canary_file" 2>/dev/null | tr -d '\n')"
+  [ -n "$canary" ] || return 1
+  cat -- "$@" 2>/dev/null | strip_ansi | grep -F -- "$canary" >/dev/null
+}
 
 # 한 셀을 최대 $RETRIES 회 실행 — 슬롯이 비거나 exit != 0 이면 재시도(transient). 백그라운드로
 # 호출. 마지막 시도의 exit code 를 "$slot.rc" 에 남겨 lib.sh 의 record_result() 가 "슬롯에
@@ -105,9 +146,11 @@ KIRO_TOOL_TRACE_RE='\(using tool: [^)]+\)'
 # 내고, 한도 소진도 스트리밍 도중 걸리면 rc=0 + 부분 stdout 으로 끝날 수 있어(PR#15 리뷰
 # M-L2-1) 성공 분기가 먼저 break 하면 잘린 리뷰가 정상 커버리지로 집계된다. 한도 stderr 가
 # 있으면 stdout 은 어떤 내용이든 truncated 로 폐기한다(fail-closed). 폴백 검사 직후에는
-# KIRO_TOOL_TRACE_RE(위) 로 셀 stdout+stderr 의 tool-use 흔적을 검사해 같은 `.agentfail`
+# KIRO_TOOL_TRACE_RE(위) 로 셀 **stderr** 의 tool-use 흔적을 검사해 같은 `.agentfail`
 # 경로로 폐기한다 — preflight 를 통과한 뒤 diff-borne 인젝션이나 모델 비결정성으로 실제 tool
-# 호출이 일어난 셀이 rc=0 + non-empty stdout 으로 집계되지 않게(2차 리뷰 M-L3-1). codex 는 stderr 에
+# 호출이 일어난 셀이 rc=0 + non-empty stdout 으로 집계되지 않게(2차 리뷰 M-L3-1). stdout(=리뷰
+# 본문)은 검사하지 않는다 — diff 가 이 리터럴을 인용하면 리뷰가 그 줄을 인용만 해도 강제 FAIL
+# 이 되는 만성 오탐이라(3차 리뷰 L2-3, KIRO_TOOL_TRACE_RE 주석 참조). codex 는 stderr 에
 # 입력 diff 를 echo 하므로(diff 가 이 시그니처 문구를 인용하는 PR — 이 파일을 고치는 PR 이
 # 그 예 — 에서 codex 셀이 오폐기됨) Kiro 전용 시그니처는 provider=kiro 에만 적용.
 try_panel() {
@@ -121,10 +164,10 @@ try_panel() {
       echo "[agent-fallback] $(basename "$slot" .md) — kiro-cli ignored --agent, no-tools contract broken; discarding response" >&2
       break
     fi
-    if [ "$provider" = kiro ] && grep -qiE "$KIRO_TOOL_TRACE_RE" "$slot" "$err" 2>/dev/null; then
-      grep -hoiE "$KIRO_TOOL_TRACE_RE" "$slot" "$err" | kiro_marker "$slot.agentfail" "tool-use trace in cell output (detail scrubbed)"
+    if [ "$provider" = kiro ] && kiro_sig_hit "$KIRO_TOOL_TRACE_RE" "$err"; then
+      kiro_sig_detail "$KIRO_TOOL_TRACE_RE" "$err" | kiro_marker "$slot.agentfail" "tool-use trace on cell stderr (detail scrubbed)"
       : > "$slot"; rc=1
-      echo "[tool-trace] $(basename "$slot" .md) — a tool ran inside a no-tools cell; discarding response" >&2
+      echo "[tool-trace] $(basename "$slot" .md) — a tool ran inside a no-tools cell (trace on stderr); discarding response" >&2
       break
     fi
     if [ "$provider" = kiro ] && grep -qE "$KIRO_QUOTA_RE" "$err" 2>/dev/null; then
@@ -430,12 +473,19 @@ fi
 # 세 축을 검사해 모델이 문장을 덧붙였다는 이유로 강제 FAIL 하지 않되 느슨해지지도 않는다
 # (2차 리뷰 m-L2-4). 이 프로브는 모델 순응에 의존하는 2차 탐지이며, 결정론적 1차 통제는
 # `tools: []` 에이전트, 셀 단계 3차 방어선은 try_panel 의 KIRO_TOOL_TRACE_RE 다.
-# 판정 순서는 try_panel 과 동일하게 폴백 → 한도 → 통과 — 폴백과 한도가 stderr 에 함께 있으면
-# 계약 위반이 우선이라 항상 강제 FAIL 이어야 한다(2차 리뷰 M-L2-1). 한도 시그니처만 있으면
-# 계정 장애라 quota 마커만 남기고(warn-level, 벤더-축 coverage floor 가 판정) 셀을 skip 한다
-# — AWS-Demo-Platform PR#118 과 동일 규칙. 그 외 실패는 `kiro-preflight.flag` → severe.
-# 인프라성 실패(rc≠0 이면서 어떤 시그니처도 없음: 타임아웃 124·네트워크·인증)는 계약 위반과
-# 달리 1회 재시도 후 승격(m-L2-3) — 만성 오탐은 게이트를 약화시키라는 압력이 된다.
+# 판정 순서는 try_panel 과 동일하게 폴백 → tool 흔적/canary 유출 → 한도 → 통과(3차 리뷰
+# L2-1) — 계약 위반 신호(폴백·트레이스·canary)가 한도 시그니처와 같은 출력에 있으면 계약
+# 위반이 우선이라 항상 강제 FAIL 이어야 한다(2차 리뷰 M-L2-1). 한도 시그니처만 있으면 계정
+# 장애라 quota 마커만 남기고(warn-level, 벤더-축 coverage floor 가 판정) 셀을 skip 한다 — AWS-Demo-Platform
+# PR#118 과 동일 규칙. 그 외 실패는 `kiro-preflight.flag` → severe. 폴백 시그니처는 stderr 와
+# stdout 을 함께 본다 — preflight stdout 은 고정 프롬프트의 응답이라 diff 인용 오탐이 없다.
+# 인프라성 실패(rc≠0 이면서 어떤 시그니처도 없음: 타임아웃 124·네트워크·인증)만 1회 재시도 후
+# 승격(m-L2-3) — 만성 오탐은 게이트를 약화시키라는 압력이 된다. 계약 위반 증거(폴백·한도
+# 시그니처, tool 흔적, canary 값)가 한 번이라도 관측되면 rc 와 무관하게 즉시 종료하고 재시도
+# 하지 않는다(3차 리뷰 L2-2 — 재시도가 유출 증거를 덮어쓰고 2차 시도의 NO_TOOLS 로 통과하는
+# 구멍). 시도별 출력은 `response.<n>.txt`/`stderr.<n>.txt` 로 보존되고, 판정은 모든 시도의
+# 합집합에서 계약 위반을 찾은 뒤 마지막 시도로 통과 여부를 본다 — 툴 능력이 한 번 실증된
+# 러너에는 diff 를 보내지 않는다.
 # 모델당 1 요청 추가(실행당 2, 재시도 시 최대 4), stdin 은 /dev/null(diff 아님). 두 프로브는
 # 병렬. 준비(복사·canary) 루프를 먼저 끝낸 뒤 실행 루프 — 준비 실패로 exit 할 때 이미 전송된
 # preflight 요청이 없게(m-L2-1 후속, 런북 Outcome C).
@@ -457,12 +507,19 @@ if [ "$KIRO_PRESENT" = 1 ]; then
     m="${entry%%:*}"; tag="${entry##*:}"
     PREFLIGHT_CWD="$KIRO_CWD_BASE/preflight-$tag"
     ( cd "$PREFLIGHT_CWD" && prc=1 && for pa in 1 2; do
+        # 시도별 파일 — 재시도가 앞 시도의 유출 증거를 덮어쓰지 않는다(L2-2).
         kiro_env "$PREFLIGHT_CWD" timeout "$KIRO_PREFLIGHT_TIMEOUT" \
           kiro-cli chat "$KIRO_PREFLIGHT_PROMPT" --model "$m" --agent "$KIRO_AGENT_NAME" \
-          --no-interactive --wrap never > "$PREFLIGHT_CWD/response.txt" 2> "$PREFLIGHT_CWD/stderr.txt" < /dev/null
+          --no-interactive --wrap never > "$PREFLIGHT_CWD/response.$pa.txt" 2> "$PREFLIGHT_CWD/stderr.$pa.txt" < /dev/null
         prc=$?
+        echo "$pa" > "$PREFLIGHT_CWD/attempt"
         [ "$prc" -eq 0 ] && break
-        grep -qiE "$KIRO_AGENT_FALLBACK_RE|$KIRO_QUOTA_RE|$KIRO_TOOL_TRACE_RE" "$PREFLIGHT_CWD/stderr.txt" "$PREFLIGHT_CWD/response.txt" 2>/dev/null && break
+        # 계약 위반 증거는 rc 와 무관하게 종결 — 재시도 금지(L2-2). 순서는 아래 판정과 무관
+        # (여기서는 "재시도할지"만 결정).
+        kiro_sig_hit "$KIRO_AGENT_FALLBACK_RE|$KIRO_QUOTA_RE|$KIRO_PREFLIGHT_TRACE_RE" \
+          "$PREFLIGHT_CWD/stderr.$pa.txt" "$PREFLIGHT_CWD/response.$pa.txt" && break
+        kiro_canary_hit "$PREFLIGHT_CWD/preflight-canary.txt" \
+          "$PREFLIGHT_CWD/stderr.$pa.txt" "$PREFLIGHT_CWD/response.$pa.txt" && break
         [ "$pa" -lt 2 ] && echo "[retry preflight $pa/2] $tag (exit $prc, no signature — transient?)" >&2
       done
       echo "$prc" > "$PREFLIGHT_CWD/rc" ) &
@@ -471,30 +528,66 @@ if [ "$KIRO_PRESENT" = 1 ]; then
   for entry in "${KIRO_MODELS[@]}"; do
     tag="${entry##*:}"
     PREFLIGHT_CWD="$KIRO_CWD_BASE/preflight-$tag"
-    PREFLIGHT_OUT="$PREFLIGHT_CWD/response.txt"; PREFLIGHT_ERR="$PREFLIGHT_CWD/stderr.txt"
     PREFLIGHT_RC="$(cat "$PREFLIGHT_CWD/rc" 2>/dev/null || echo 1)"
-    if grep -qE "$KIRO_AGENT_FALLBACK_RE" "$PREFLIGHT_ERR" 2>/dev/null; then
+    PREFLIGHT_ATTEMPT="$(cat "$PREFLIGHT_CWD/attempt" 2>/dev/null || echo 1)"
+    # 마지막 시도(통과 판정 대상)와 모든 시도(계약 위반 탐색 대상). 파일이 하나도 없으면
+    # (kiro-cli 가 한 번도 실행되지 않음) 배열이 비고 헬퍼는 rc 1 → 아래 else 분기(fail-closed).
+    PREFLIGHT_OUT="$PREFLIGHT_CWD/response.$PREFLIGHT_ATTEMPT.txt"
+    PREFLIGHT_ERR="$PREFLIGHT_CWD/stderr.$PREFLIGHT_ATTEMPT.txt"
+    shopt -s nullglob
+    PREFLIGHT_ALL_OUT=("$PREFLIGHT_CWD"/response.[0-9]*.txt)
+    PREFLIGHT_ALL_ERR=("$PREFLIGHT_CWD"/stderr.[0-9]*.txt)
+    shopt -u nullglob
+    PREFLIGHT_ALL=("${PREFLIGHT_ALL_OUT[@]}" "${PREFLIGHT_ALL_ERR[@]}")
+    PREFLIGHT_CANARY_FILE="$PREFLIGHT_CWD/preflight-canary.txt"
+    PREFLIGHT_CANARY="$(tr -d '\n' < "$PREFLIGHT_CANARY_FILE" 2>/dev/null)"
+    # canary 값은 per-run 난수라 사후 노출의 보안 영향은 없지만 "로그/마커에 절대 쓰지 않는다"
+    # 계약을 stdout·stderr 양쪽에 일관 적용(3차 리뷰 L3 MINOR). 값은 hex 라 sed 안전.
+    scrub_canary() { if [ -n "$PREFLIGHT_CANARY" ]; then sed "s/$PREFLIGHT_CANARY/[CANARY]/g"; else cat; fi; }
+    if kiro_sig_hit "$KIRO_AGENT_FALLBACK_RE" "${PREFLIGHT_ALL[@]}"; then
       KIRO_SKIP_REASON[$tag]="preflight failed"
       printf '%s\n' "$tag startup check failed (exit $PREFLIGHT_RC, --agent fallback); PR input withheld from all $tag cells." \
         > "$SLOT/$tag-preflight.md.preflight"
-      grep -E "$KIRO_AGENT_FALLBACK_RE" "$PREFLIGHT_ERR" \
-        | kiro_marker "$SLOT/$tag-preflight.md.agentfail" "agent fallback signature on stderr (detail scrubbed)"
+      kiro_sig_lines "$KIRO_AGENT_FALLBACK_RE" "${PREFLIGHT_ALL[@]}" \
+        | kiro_marker "$SLOT/$tag-preflight.md.agentfail" "agent fallback signature at preflight (detail scrubbed)"
       echo "::error::Kiro preflight failed for $tag (exit $PREFLIGHT_RC) — kiro-cli ignored --agent $KIRO_AGENT_NAME, no PR input sent to $tag; see docs/runbooks/pr-review-panel.md" >&2
-    elif grep -qE "$KIRO_QUOTA_RE" "$PREFLIGHT_ERR" 2>/dev/null; then
+    elif kiro_sig_hit "$KIRO_PREFLIGHT_TRACE_RE" "${PREFLIGHT_ALL[@]}" \
+        || kiro_canary_hit "$PREFLIGHT_CANARY_FILE" "${PREFLIGHT_ALL[@]}"; then
+      # 계약 위반(툴이 실제로 살아 있음) — 한도 시그니처가 함께 있어도 quota 로 강등하지 않는다
+      # (L2-1). `.agentfail` 마커도 남겨 🔓 배너로 "미증명"이 아닌 "위반"임을 드러낸다.
+      # canary 값은 어떤 로그/마커에도 쓰지 않는다.
+      KIRO_SKIP_REASON[$tag]="preflight failed"
+      if kiro_sig_hit "$KIRO_PREFLIGHT_TRACE_RE" "${PREFLIGHT_ALL[@]}"; then
+        PREFLIGHT_WHY="tool-use trace"
+        kiro_sig_detail "$KIRO_PREFLIGHT_TRACE_RE" "${PREFLIGHT_ALL[@]}" | scrub_canary \
+          | kiro_marker "$SLOT/$tag-preflight.md.agentfail" "tool-use trace at preflight (detail scrubbed)"
+      else
+        PREFLIGHT_WHY="canary disclosed"
+        printf '' | kiro_marker "$SLOT/$tag-preflight.md.agentfail" "preflight canary disclosed by the no-tools agent (value withheld)"
+      fi
+      printf '%s\n' "$tag startup check failed (exit $PREFLIGHT_RC, $PREFLIGHT_WHY); PR input withheld from all $tag cells." \
+        > "$SLOT/$tag-preflight.md.preflight"
+      echo "::error::Kiro preflight failed for $tag (exit $PREFLIGHT_RC) — $PREFLIGHT_WHY: a tool ran inside the no-tools agent, no PR input sent to $tag; see docs/runbooks/pr-review-panel.md" >&2
+    elif kiro_sig_hit "$KIRO_QUOTA_RE" "${PREFLIGHT_ALL_ERR[@]}"; then
       KIRO_SKIP_REASON[$tag]="monthly quota exhausted at preflight"
-      grep -E "$KIRO_QUOTA_RE|limits reset on" "$PREFLIGHT_ERR" \
+      kiro_sig_lines "$KIRO_QUOTA_RE|limits reset on" "${PREFLIGHT_ALL_ERR[@]}" \
         | kiro_marker "$SLOT/$tag-preflight.md.quota" "monthly quota signature on stderr (detail scrubbed)"
       echo "[quota] $tag-preflight — monthly request limit reached at preflight; skipping all $tag cells (not a no-tools failure)" >&2
-    elif [ "$PREFLIGHT_RC" = 0 ] && python3 - "$PREFLIGHT_OUT" "$PREFLIGHT_ERR" \
-        "$PREFLIGHT_CWD/preflight-canary.txt" "$KIRO_TOOL_TRACE_RE" <<'PY'
+    elif [ "$PREFLIGHT_RC" = 0 ] && [ -f "$PREFLIGHT_OUT" ] && python3 - "$PREFLIGHT_OUT" "$PREFLIGHT_ERR" \
+        "$PREFLIGHT_CANARY_FILE" <<'PY'
 import pathlib, re, sys
+# 통과 판정: 정규화(ANSI 제거, `> ` 인용 접두 제거, 공백 트림)한 응답이 NO_TOOLS 로 **시작**해야
+# 한다 — 부분 매치(`\bNO_TOOLS\b`)는 "I cannot say NO_TOOLS; I have read and shell tools" 같은
+# 부정문도 통과시킨다(3차 리뷰 L3 MINOR). 덧붙인 문장("NO_TOOLS — I have no tools …")은 허용.
+# canary 부재는 위 bash 분기가 이미 판정했지만 여기서도 한 번 더 본다(defense-in-depth).
 ansi = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 out, err = [ansi.sub("", pathlib.Path(p).read_text(errors="replace")) for p in sys.argv[1:3]]
 canary = pathlib.Path(sys.argv[3]).read_text().strip()
+if not canary:
+    sys.exit(1)
 reply = re.sub(r"(?m)^\s*> ?", "", out).strip()
-traced = re.search(sys.argv[4] + "|using tool:", out + "\n" + err, re.I)
-leaked = bool(canary) and canary in (out + err)
-sys.exit(0 if re.search(r"\bNO_TOOLS\b", reply) and not leaked and not traced else 1)
+leaked = canary in (out + err)
+sys.exit(0 if re.match(r"NO_TOOLS\b", reply) and not leaked else 1)
 PY
     then
       KIRO_PREFLIGHT_OK[$tag]=1
@@ -503,9 +596,9 @@ PY
       KIRO_SKIP_REASON[$tag]="preflight failed"
       printf '%s\n' "$tag startup check failed (exit $PREFLIGHT_RC); PR input withheld from all $tag cells." \
         > "$SLOT/$tag-preflight.md.preflight"
-      echo "::error::Kiro preflight failed for $tag (exit $PREFLIGHT_RC) — no-tools contract not proven (NO_TOOLS missing, canary leaked, tool trace, timeout, auth or network failure), no PR input sent to $tag; see docs/runbooks/pr-review-panel.md" >&2
-      echo "--- [$tag-preflight] stderr (last 25 lines, scrubbed) ---" >&2
-      sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' "$PREFLIGHT_ERR" | scrub_secrets | tail -25 >&2
+      echo "::error::Kiro preflight failed for $tag (exit $PREFLIGHT_RC) — no-tools contract not proven (reply does not start with NO_TOOLS, timeout, auth or network failure), no PR input sent to $tag; see docs/runbooks/pr-review-panel.md" >&2
+      echo "--- [$tag-preflight] stderr (attempt $PREFLIGHT_ATTEMPT, last 25 lines, scrubbed) ---" >&2
+      [ -f "$PREFLIGHT_ERR" ] && strip_ansi < "$PREFLIGHT_ERR" | scrub_secrets | scrub_canary | tail -25 >&2
     fi
   done
 fi

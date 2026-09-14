@@ -18,8 +18,11 @@ AGENT="$ROOT/scripts/pr-review/agents/pr-review-notools.json"
 PASS=0; FAIL=0
 ok()   { PASS=$((PASS + 1)); echo "  ok   - $1"; }
 bad()  { FAIL=$((FAIL + 1)); echo "  FAIL - $1"; [ -n "${2:-}" ] && printf '%s\n' "$2" | sed 's/^/         /' | head -20; }
-assert_match()    { if printf '%s' "$3" | grep -qE -- "$2"; then ok "$1"; else bad "$1" "$3"; fi; }
-assert_no_match() { if printf '%s' "$3" | grep -qE -- "$2"; then bad "$1" "$3"; else ok "$1"; fi; }
+# `grep -q` 는 첫 매치에서 종료해 큰 입력의 printf 가 SIGPIPE(141)로 죽고, pipefail 아래서
+# 파이프라인 전체가 실패로 보인다(입력이 파이프 버퍼를 넘기면 발생 — run-panel.sh 가 커지며
+# 실제로 static 단언이 오탐 FAIL 했다). grep 이 입력을 끝까지 소비하도록 -q 대신 >/dev/null.
+assert_match()    { if printf '%s' "$3" | grep -E -- "$2" >/dev/null; then ok "$1"; else bad "$1" "$3"; fi; }
+assert_no_match() { if printf '%s' "$3" | grep -E -- "$2" >/dev/null; then bad "$1" "$3"; else ok "$1"; fi; }
 assert_file()     { if [ -f "$2" ]; then ok "$1"; else bad "$1" "missing: $2"; fi; }
 assert_no_file()  { if [ -f "$2" ]; then bad "$1" "unexpected: $2"; else ok "$1"; fi; }
 assert_eq()       { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "expected '$2', got '$3'"; fi; }
@@ -43,6 +46,14 @@ assert_match "run-panel.sh detects the Kiro monthly quota signature (v3/JSON)" '
 assert_match "run-panel.sh detects the --agent fallback signature" 'no agent with name' "$PANEL_SRC"
 assert_match "run-panel.sh runs a canary preflight before sending the diff to Kiro" 'preflight-canary\.txt' "$PANEL_SRC"
 assert_match "run-panel.sh checks cells for a tool-use trace" 'KIRO_TOOL_TRACE_RE' "$PANEL_SRC"
+assert_match "run-panel.sh cell trace check reads stderr only (ANSI-normalized, case-sensitive helper)" \
+  'kiro_sig_hit "\$KIRO_TOOL_TRACE_RE" "\$err"' "$PANEL_SRC"
+assert_no_match "run-panel.sh cell trace check does not scan the review body (stdout)" \
+  'TOOL_TRACE_RE" "\$slot"' "$PANEL_SRC"
+assert_no_match "run-panel.sh applies no case-insensitive grep to the tool-trace signature" \
+  'grep -[a-zA-Z]*i[a-zA-Z]* .*TOOL_TRACE_RE' "$PANEL_SRC"
+assert_no_match "run-panel.sh signature helpers never use grep -q behind a pipe (SIGPIPE under pipefail is fail-open)" \
+  '\| grep -q' "$(printf '%s' "$PANEL_SRC" | sed -n '/^kiro_sig_hit()/,/^kiro_canary_hit()/p;/^kiro_canary_hit()/,/^}/p')"
 assert_match "run-panel.sh quota check precedes the success break (partial stdout is not counted)" \
   'KIRO_QUOTA_RE" "\$err".*\[ -s "\$slot" \] && \[ "\$rc" -eq 0 \] && break' "$(printf '%s' "$PANEL_SRC" | sed -n '/^try_panel()/,/^}/p' | tr '\n' ' ')"
 SYNTH_SRC="$(grep -v '^\s*#' "$SYNTH")"
@@ -198,8 +209,26 @@ assert_no_match "canary contents are never logged" "$CANARY" "$OUT"
 assert_eq "canary leak: no PR input reached Kiro" "0" "$(find "$T_STUB/work/kiro-cwd" -path '*-L2/argv.txt' 2>/dev/null | wc -l | tr -d ' ')"
 assert_file "canary leak leaves kiro-preflight.flag" "$T_STUB/work/kiro-preflight.flag"
 assert_file "canary leak forces coverage-severe" "$T_STUB/work/coverage-severe.flag"
-assert_no_file "canary leak without the signature is not an agent-fallback flag" "$T_STUB/work/kiro-agent-fallback.flag"
+assert_file "canary leak is a contract break: kiro-agent-fallback.flag (🔓) is raised too" "$T_STUB/work/kiro-agent-fallback.flag"
+assert_match "canary leak names the cause without the value" '::error::Kiro no-tools contract broken.*preflight canary disclosed by the no-tools agent \(value withheld\)' "$OUT"
+assert_no_match "canary value is absent from the agent-fallback flag" "$CANARY" "$(cat "$T_STUB/work/kiro-agent-fallback.flag")"
 assert_no_match "canary leak (rc=0) is not retried as transient" '\[retry preflight' "$OUT"
+assert_no_file "canary leak is not a quota failure" "$T_STUB/work/kiro-quota.flag"
+
+# (c3b) 폴백 시그니처가 preflight **stdout** 에만 나타남(stderr 깨끗, rc=0, NO_TOOLS 동반) → 여전히 폴백으로
+# 분류(preflight stdout 은 고정 프롬프트 응답이라 함께 검사).
+write_kiro <<'EOF'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "kiro-cli stub"; exit 0; }
+printf '%s\n' "$*" > "$HOME/argv.txt"
+case "${2:-}" in *"startup safety check"*) echo "Error: no agent with name pr-review-notools found. Falling back to user specified default"; echo "> NO_TOOLS"; exit 0;; esac
+echo "> no findings"
+EOF
+OUT="$(run_panel)"
+assert_match "fallback signature on preflight stdout is classified as --agent fallback" '::error::Kiro preflight failed for kiro-opus \(exit 0\) — kiro-cli ignored --agent' "$OUT"
+assert_file "fallback on preflight stdout leaves kiro-agent-fallback.flag" "$T_STUB/work/kiro-agent-fallback.flag"
+assert_file "fallback on preflight stdout forces coverage-severe" "$T_STUB/work/coverage-severe.flag"
+assert_eq "fallback on preflight stdout: no PR input reached Kiro" "0" "$(find "$T_STUB/work/kiro-cwd" -path '*-L2/argv.txt' 2>/dev/null | wc -l | tr -d ' ')"
 
 # (c4) 폴백 + 한도 시그니처가 preflight stderr 에 함께 있음 → 계약 위반이 우선(강제 FAIL), warn-level quota 로 강등되지 않음.
 write_kiro <<'EOF'
@@ -217,22 +246,40 @@ assert_file "fallback+quota leaves kiro-agent-fallback.flag" "$T_STUB/work/kiro-
 assert_file "fallback+quota forces coverage-severe" "$T_STUB/work/coverage-severe.flag"
 assert_no_file "fallback+quota is not downgraded to a quota flag" "$T_STUB/work/kiro-quota.flag"
 
-# (c5) preflight 통과 후 셀 출력에 tool-use 흔적(폴백 시그니처 없음, rc=0) → 응답 폐기, fallback 플래그, severe.
+# (c5) preflight 통과 후 셀 **stderr** 에 tool-use 흔적(폴백 시그니처 없음, rc=0, 괄호 안에 ANSI SGR 포함)
+# → 응답 폐기, fallback 플래그, severe. kiro-cli 는 실행 트레이스를 stderr 로 내므로 그곳만 검사한다.
 write_kiro <<'EOF'
 #!/bin/bash
 [ "${1:-}" = "--version" ] && { echo "kiro-cli stub"; exit 0; }
 printf '%s\n' "$*" > "$HOME/argv.txt"
 case "${2:-}" in *"startup safety check"*) echo "> NO_TOOLS"; exit 0;; esac
-printf 'I will read the file: \x1b[38;5;141m./x\x1b[0m\x1b[38;5;244m (using tool: read)\x1b[0m\n - Completed in 0.1s\n> no findings\n'
+printf 'I will read the file: \x1b[38;5;141m./x\x1b[0m\x1b[38;5;244m (using tool: \x1b[1mread\x1b[0m)\x1b[0m\n - Completed in 0.1s\n' >&2
+echo "> no findings"
 exit 0
 EOF
 OUT="$(run_panel)"
-assert_match "tool trace inside a cell logs [tool-trace]" '\[tool-trace\] kiro-opus-L2' "$OUT"
+assert_match "tool trace on cell stderr logs [tool-trace]" '\[tool-trace\] kiro-opus-L2' "$OUT"
 assert_no_match "tool-traced responses are not counted" 'Panel responded.*kiro-' "$OUT"
-assert_match "tool trace is reported as a no-tools contract break" '::error::Kiro no-tools contract broken.*using tool: read' "$OUT"
+assert_match "tool trace is reported as a no-tools contract break (ANSI inside the parentheses is normalized away)" '::error::Kiro no-tools contract broken.*\(using tool: read\)' "$OUT"
 assert_file "tool trace leaves kiro-agent-fallback.flag" "$T_STUB/work/kiro-agent-fallback.flag"
 assert_file "tool trace forces coverage-severe" "$T_STUB/work/coverage-severe.flag"
 assert_no_file "tool trace after a passing preflight is not a preflight failure" "$T_STUB/work/kiro-preflight.flag"
+
+# (c5b) 리뷰 본문(stdout)이 `(using tool: read)` 를 산문으로 인용 — diff 가 이 리터럴을 담는 PR(이 파일을 고치는
+# PR 이 그 예)에서 리뷰어가 인용만 해도 강제 FAIL 되는 만성 오탐이 없어야 한다(3차 리뷰 L2-3). stderr 는 깨끗.
+write_kiro <<'EOF'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "kiro-cli stub"; exit 0; }
+printf '%s\n' "$*" > "$HOME/argv.txt"
+case "${2:-}" in *"startup safety check"*) echo "> NO_TOOLS"; exit 0;; esac
+echo "> MINOR: the runbook documents the trace format \"(using tool: read)\" but the stub only exercises the parser."
+exit 0
+EOF
+OUT="$(run_panel)"
+assert_match "review body quoting (using tool: read) is still counted" 'Panel responded \(3 / 3 cells\)' "$OUT"
+assert_no_match "review body quoting the trace literal is not logged as a tool trace" '\[tool-trace\]' "$OUT"
+assert_eq "review body quoting the trace literal leaves no flags" "0" "$(find "$T_STUB/work" -maxdepth 1 -name '*.flag' | wc -l | tr -d ' ')"
+assert_match "the quoted review body survives in the slot" 'using tool: read' "$(cat "$T_STUB/work/slot/kiro-opus-L2.md")"
 
 # (c6) preflight 인프라성 실패(rc=124 타임아웃, 시그니처 없음) → 1회 재시도 후 승격(strict, 통과 아님).
 write_kiro <<'EOF'
@@ -249,6 +296,85 @@ assert_match "persistent transient failure still fails preflight" '::error::Kiro
 assert_file "persistent transient failure leaves kiro-preflight.flag" "$T_STUB/work/kiro-preflight.flag"
 assert_file "persistent transient failure forces coverage-severe" "$T_STUB/work/coverage-severe.flag"
 assert_no_file "transient failure is not an agent fallback" "$T_STUB/work/kiro-agent-fallback.flag"
+
+# (c7) canary 유출 + 한도 시그니처가 preflight 출력에 함께 있음(rc=0) → 계약 위반이 우선(강제 FAIL, 🛑+🔓),
+# warn-level quota 로 강등되지 않음(3차 리뷰 L2-1). 폴백 시그니처는 없음.
+write_kiro <<'EOF'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "kiro-cli stub"; exit 0; }
+printf '%s\n' "$*" > "$HOME/argv.txt"
+case "${2:-}" in *"startup safety check"*) echo "> $(cat ./preflight-canary.txt)"; printf 'Monthly request limit reached\n' >&2; exit 0;; esac
+echo "> no findings"
+EOF
+OUT="$(run_panel)"
+CANARY="$(cat "$T_STUB/work/kiro-cwd/preflight-kiro-opus/preflight-canary.txt")"
+assert_match "canary+quota at preflight is classified as a contract break, not quota" '::error::Kiro preflight failed for kiro-opus \(exit 0\) — canary disclosed' "$OUT"
+assert_no_match "canary+quota does not log the [quota] skip reason" '\[quota\] kiro-opus-preflight|monthly quota exhausted at preflight' "$OUT"
+assert_no_match "canary+quota never logs the canary value" "$CANARY" "$OUT"
+assert_file "canary+quota leaves kiro-preflight.flag" "$T_STUB/work/kiro-preflight.flag"
+assert_file "canary+quota leaves kiro-agent-fallback.flag" "$T_STUB/work/kiro-agent-fallback.flag"
+assert_file "canary+quota forces coverage-severe" "$T_STUB/work/coverage-severe.flag"
+assert_no_file "canary+quota is not downgraded to a quota flag" "$T_STUB/work/kiro-quota.flag"
+assert_eq "canary+quota: no PR input reached Kiro" "0" "$(find "$T_STUB/work/kiro-cwd" -path '*-L2/argv.txt' 2>/dev/null | wc -l | tr -d ' ')"
+
+# (c8) tool 흔적(stderr) + 한도 시그니처가 preflight stderr 에 함께 있음, stdout 은 NO_TOOLS(rc=0)
+# → 계약 위반이 우선(강제 FAIL), quota 강등 없음, 통과 아님.
+write_kiro <<'EOF'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "kiro-cli stub"; exit 0; }
+printf '%s\n' "$*" > "$HOME/argv.txt"
+case "${2:-}" in *"startup safety check"*) printf '\x1b[38;5;244m./preflight-canary.txt (using tool: read)\x1b[0m\nMonthly request limit reached\n' >&2; echo "> NO_TOOLS"; exit 0;; esac
+echo "> no findings"
+EOF
+OUT="$(run_panel)"
+assert_match "trace+quota at preflight is classified as a contract break, not quota" '::error::Kiro preflight failed for kiro-opus \(exit 0\) — tool-use trace' "$OUT"
+assert_match "trace+quota reports the scrubbed trace in the contract-break error" '::error::Kiro no-tools contract broken.*\(using tool: read\)' "$OUT"
+assert_no_match "trace+quota does not pass preflight despite NO_TOOLS" 'Kiro preflight passed' "$OUT"
+assert_file "trace+quota leaves kiro-preflight.flag" "$T_STUB/work/kiro-preflight.flag"
+assert_file "trace+quota leaves kiro-agent-fallback.flag" "$T_STUB/work/kiro-agent-fallback.flag"
+assert_no_file "trace+quota is not downgraded to a quota flag" "$T_STUB/work/kiro-quota.flag"
+
+# (c9) 1차 시도가 canary 를 유출하고 rc=124 로 끝남(응답 후 hang), 2차 시도라면 NO_TOOLS 를 돌려줄 스텁
+# → 재시도되지 않고(계약 위반은 종결), 1차 증거 파일이 보존되며, preflight 실패(3차 리뷰 L2-2).
+write_kiro <<'EOF'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "kiro-cli stub"; exit 0; }
+printf '%s\n' "$*" > "$HOME/argv.txt"
+n=$(( $(cat "$HOME/calls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$HOME/calls"
+case "${2:-}" in *"startup safety check"*)
+  if [ "$n" -eq 1 ]; then echo "> $(cat ./preflight-canary.txt)"; echo "hung after reply" >&2; exit 124; fi
+  echo "> NO_TOOLS"; exit 0;; esac
+echo "> no findings"
+EOF
+OUT="$(run_panel)"
+CANARY="$(cat "$T_STUB/work/kiro-cwd/preflight-kiro-opus/preflight-canary.txt")"
+assert_no_match "canary leak with rc=124 is terminal — not retried" '\[retry preflight' "$OUT"
+assert_eq "canary leak with rc=124: kiro-cli was invoked exactly once for that model" "1" "$(cat "$T_STUB/work/kiro-cwd/preflight-kiro-opus/calls")"
+assert_match "canary leak with rc=124 fails preflight as a contract break" '::error::Kiro preflight failed for kiro-opus \(exit 124\) — canary disclosed' "$OUT"
+assert_match "first-attempt evidence file is preserved and holds the canary" "$CANARY" "$(cat "$T_STUB/work/kiro-cwd/preflight-kiro-opus/response.1.txt")"
+assert_no_file "no second attempt overwrote the evidence" "$T_STUB/work/kiro-cwd/preflight-kiro-opus/response.2.txt"
+assert_no_match "canary value is never logged (rc=124 path)" "$CANARY" "$OUT"
+assert_file "canary leak with rc=124 leaves kiro-preflight.flag" "$T_STUB/work/kiro-preflight.flag"
+assert_file "canary leak with rc=124 forces coverage-severe" "$T_STUB/work/coverage-severe.flag"
+assert_eq "canary leak with rc=124: no PR input reached Kiro" "0" "$(find "$T_STUB/work/kiro-cwd" -path '*-L2/argv.txt' 2>/dev/null | wc -l | tr -d ' ')"
+
+# (c10) 부정문으로 sentinel 인용("I cannot say NO_TOOLS; …", rc=0, canary·트레이스 없음) → 통과 아님(선두 앵커),
+# 계약 *미증명*(🛑)이지 위반(🔓)은 아님, 재시도 없음.
+write_kiro <<'EOF'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "kiro-cli stub"; exit 0; }
+printf '%s\n' "$*" > "$HOME/argv.txt"
+case "${2:-}" in *"startup safety check"*) echo "> I cannot say NO_TOOLS; I have read and shell tools but the file could not be opened."; exit 0;; esac
+echo "> no findings"
+EOF
+OUT="$(run_panel)"
+assert_match "negated NO_TOOLS reply fails preflight" '::error::Kiro preflight failed for kiro-gpt \(exit 0\) — no-tools contract not proven \(reply does not start with NO_TOOLS' "$OUT"
+assert_no_match "negated NO_TOOLS reply never passes" 'Kiro preflight passed' "$OUT"
+assert_no_match "negated NO_TOOLS reply (rc=0) is not retried" '\[retry preflight' "$OUT"
+assert_file "negated NO_TOOLS reply leaves kiro-preflight.flag" "$T_STUB/work/kiro-preflight.flag"
+assert_file "negated NO_TOOLS reply forces coverage-severe" "$T_STUB/work/coverage-severe.flag"
+assert_no_file "negated NO_TOOLS reply is unproven, not an agent-fallback flag" "$T_STUB/work/kiro-agent-fallback.flag"
+assert_eq "negated NO_TOOLS reply: no PR input reached Kiro" "0" "$(find "$T_STUB/work/kiro-cwd" -path '*-L2/argv.txt' 2>/dev/null | wc -l | tr -d ' ')"
 
 # (d) 정상 응답: preflight NO_TOOLS → 플래그 없음, 에이전트 파일이 셀 cwd 에 복사됨, 호출 플래그 계약.
 write_kiro <<'EOF'

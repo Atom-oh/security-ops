@@ -17,16 +17,31 @@ own:
    validated by `run-panel.sh` before any model call (Outcome C).
 2. **Preflight probe** (per Kiro model, before any PR input): a fixed prompt
    (`KIRO_PREFLIGHT_PROMPT` in `run-panel.sh`) runs in a dedicated
-   `preflight-<tag>/` cwd that contains only the agent copy and a per-run random
-   `preflight-canary.txt`. The probe passes only when rc is 0 **and** the reply contains
-   `NO_TOOLS` **and** the canary value appears nowhere in stdout/stderr **and** there is no
-   fallback/quota signature or tool-use trace. It relies on the model following the prompt,
-   so it is an *active probe*, not a proof. It costs one request per Kiro model per run
-   (two per run; an rc≠0 failure with no signature — timeout, network, auth — is retried
-   once). `KIRO_PREFLIGHT_TIMEOUT` (default 90 s) bounds each attempt.
-3. **Cell-stage trace check** — every Kiro cell's stdout and stderr are scanned for
-   kiro-cli's tool execution trace `… (using tool: <name>)`; a match discards the response
-   and forces FAIL exactly like an `--agent` fallback.
+   `preflight-<tag>/` cwd that, at dispatch time, contains only the agent copy and a
+   per-run random `preflight-canary.txt` (the probe's own `response.<n>.txt` /
+   `stderr.<n>.txt` / `rc` / `attempt` files are written there afterwards). The probe
+   passes only when rc is 0 **and** the normalized reply (ANSI stripped, `> ` quote prefix
+   removed, whitespace trimmed) **starts with** `NO_TOOLS` — a trailing sentence is fine, a
+   negated quotation such as "I cannot say NO_TOOLS; I have read and shell tools" is not
+   **and** the canary value appears nowhere in stdout/stderr **and** there is no
+   fallback/quota signature or tool-use trace in any attempt. It relies on the model
+   following the prompt, so it is an *active probe*, not a proof. It costs one request per
+   Kiro model per run (two per run when kiro-cli is present, none when it is absent; up to
+   four if both probes retry). Only an rc≠0 failure with **no** signature and no canary —
+   timeout, network, auth — is retried once; any fallback/quota signature, tool trace or
+   canary disclosure is terminal, never retried, and each attempt's output is kept in its
+   own `response.<n>.txt`/`stderr.<n>.txt` so a retry cannot overwrite the evidence.
+   `KIRO_PREFLIGHT_TIMEOUT` (default 90 s) bounds each attempt.
+3. **Cell-stage trace check** — every Kiro cell's **stderr** is scanned, after ANSI
+   normalization and case-sensitively, for kiro-cli's tool execution trace
+   `… (using tool: <name>)`; a match discards the response and forces FAIL exactly like an
+   `--agent` fallback. Cell stdout (the review body) is deliberately **not** scanned: the
+   diff of any PR touching this runbook, `run-panel.sh`, the stub or the CHANGELOG contains
+   that literal, and a reviewer quoting the line would otherwise force FAIL with no way for
+   the author to resolve it — a chronic false positive that pressures the gate. kiro-cli
+   prints the execution trace on stderr (the capture this format comes from is in another
+   repository; this repository's stub pins only the parser), so the stderr scope keeps the
+   detection while removing the false positive.
 
 Once a diff has reached a tool-enabled agent it cannot be recalled, so layers 1–2 keep the
 diff away from an unproven runner and layer 3 catches what slips through them.
@@ -41,18 +56,26 @@ Signatures (`run-panel.sh`):
   into the banner when present — it accompanies the v2 message; a v3-style match may carry no
   reset date.
 - agent fallback: `no agent with name`, `Falling back to user specified default`,
-  `Json supplied at … is invalid`.
-- tool trace (cell stdout+stderr, preflight stdout+stderr): `(using tool: <name>)`.
+  `Json supplied at … is invalid` (cell stderr; preflight stdout **and** stderr — the
+  preflight reply is a fixed-prompt answer, so there is no diff-quotation false positive).
+- tool trace: `(using tool: <name>)` on cell stderr (`KIRO_TOOL_TRACE_RE`); at preflight the
+  looser `using tool:` is also accepted on stdout+stderr (`KIRO_PREFLIGHT_TRACE_RE`) because
+  no PR content is present there. Both are matched case-sensitively on an ANSI-stripped copy.
+- canary: the per-run value of `preflight-canary.txt` anywhere in preflight stdout/stderr
+  (any attempt). It is never written to logs, markers or banners (`[CANARY]` in the
+  scrubbed stderr dump).
 
-Classification order is fallback → quota → success at preflight and fallback → tool trace →
-quota → success in cells, so output that carries both a contract-break and a quota signature
-is a contract break (forced FAIL), never a warn-level quota.
+Classification order is the same at preflight and in cells: fallback → tool trace / canary
+disclosure → quota → success. A contract-break signal (fallback, trace, canary) that appears
+together with a quota signature is therefore always a contract break (`🛑` + `🔓`, forced
+FAIL), never a warn-level quota; a quota signature alone is quota (warn-level); the success
+test runs last.
 
 ## Symptom A — `🚫 Kiro 월간 요청 한도 소진`
 
 Log: `::error::Kiro monthly request quota exhausted for KIRO_API_KEY — …` (the log and the
-banner name only the environment variable; the secret's location is documented here, not in
-public CI output). When the quota is already exhausted at preflight, the cells are skipped up
+banner name only the environment variable; the secret's location is documented in
+AWS-Demo-Platform's runbook, not in this public repository or in CI output). When the quota is already exhausted at preflight, the cells are skipped up
 front (`[quota] kiro-…-preflight`, `[skip] kiro-…/L2 (monthly quota exhausted at preflight)`).
 When it is hit mid-run, the affected cell logs `[quota] kiro-…-L2` once, is not retried, and
 any partial stdout is discarded as truncated; Kiro cells that already succeeded are kept.
@@ -62,17 +85,19 @@ outcome, but a single-model or partial exhaustion stays warn-level (pre-existing
 design).
 
 Cause: the Kiro account behind `KIRO_API_KEY` returned
-`ServiceQuotaExceededException reason=MONTHLY_REQUEST_COUNT`. The key lives in
-Secrets Manager `/demo-platform/actions/AI-key` (owned by the AWS-Demo-Platform
-repository, ExternalSecret `ai-panel-keys`) and is shared by every repository whose PR
-review runs on the `actions-runner-claude` image, so one busy month across all of them
-exhausts it for all of them. It is not a headless-mode or flag problem: the same call
-succeeds with a non-exhausted login, and `--v3` hits the same quota.
+`ServiceQuotaExceededException reason=MONTHLY_REQUEST_COUNT`. The key is the shared Kiro
+key secret documented in AWS-Demo-Platform's runbook (that repository owns the secret and
+the runner image); it is shared by every repository whose PR review runs on the
+`actions-runner-claude` image, so one busy month across all of them exhausts it for all of
+them. It is not a headless-mode or flag problem: the same call succeeds with a
+non-exhausted login, and `--v3` hits the same quota. This public runbook intentionally
+names only the environment variable, matching what the `::error::` line and the banner
+print.
 
 Fix (account-side only — nothing in this repository can lift it):
 1. Enable overages on the Kiro account that owns the key, **or** issue a key from an
-   account with remaining quota and update `KIRO_API_KEY` in
-   `/demo-platform/actions/AI-key` (ESO refreshes the runner secret; new runner pods
+   account with remaining quota and rotate the shared Kiro key secret as described in
+   AWS-Demo-Platform's runbook (the runner secret is refreshed from it; new runner pods
    pick it up).
 2. Re-run the failed `AI Code Review` workflow (or push to the PR). The banner disappears
    when Kiro cells respond again.
@@ -82,19 +107,19 @@ Verify locally without spending CI minutes. Never echo the key, never put it on 
 line (`/proc/<pid>/cmdline`, `ps` — so no `env -i … KIRO_API_KEY="$K"`) and keep it out of
 shell history — export it inside a subshell and let kiro-cli read it from the environment.
 Do this only on a single-user machine: an exported key is readable from
-`/proc/<pid>/environ` for the process lifetime, so never on a shared runner shell. This is a
-pure quota probe with no untrusted input, so it deliberately runs without the no-tools agent
-(the temp dir has no agent file; `--agent` would only trigger the fallback message):
+`/proc/<pid>/environ` for the process lifetime, so never on a shared runner shell. Run the
+probe with the same no-tools agent the panel uses (same temp-dir + `--agent` pattern as
+Symptom B) so the diagnosis never normalizes a tool-enabled run:
 ```bash
 ( set +o history
-  export KIRO_API_KEY="$(aws secretsmanager get-secret-value --secret-id /demo-platform/actions/AI-key \
-      --region ap-northeast-2 --query SecretString --output text | jq -r .KIRO_API_KEY)"
-  d=$(mktemp -d); cd "$d" && HOME="$d" \
-    kiro-cli chat "Reply PONG." --model gpt-5.6-terra --no-interactive --wrap never )
+  export KIRO_API_KEY="$(…read the shared Kiro key secret as AWS-Demo-Platform's runbook describes…)"
+  d=$(mktemp -d); mkdir -p "$d/.kiro/agents"
+  cp scripts/pr-review/agents/pr-review-notools.json "$d/.kiro/agents/"
+  cd "$d" && HOME="$d" kiro-cli chat "Reply PONG." --model gpt-5.6-terra \
+    --agent pr-review-notools --no-interactive --wrap never )
 # exhausted → stderr "Monthly request limit reached", empty stdout, exit 0
+# (a "no agent with name" line on stderr would be Symptom B, not quota)
 ```
-(`ap-northeast-2` is where this particular secret lives; it is not the panel's Bedrock
-region.)
 
 ## Symptom B — `🛑 Kiro 사전 점검 실패` / `🔓 Kiro 무툴 계약 위반`
 
@@ -114,11 +139,14 @@ cause here — the copy is byte-identical to the validated source. Remaining cau
   `aws` calls (`🔓` banner);
 - a version that loads the agent but keeps tools enabled without any signature — the
   preflight reply then contains the canary or a `(using tool: …)` trace instead of
-  `NO_TOOLS`, or a cell's output carries the trace (`🛑` and/or `🔓` banner);
-- the model not answering `NO_TOOLS` at all, or an infrastructure failure at preflight —
-  authentication error, network error, `timeout` (exit 124) — that persisted through the
-  single retry (`🛑` banner, `exit N` in the log). These are not contract breaches but the
-  contract is unproven, so the diff is still withheld (fail-closed).
+  `NO_TOOLS` (`🛑` **and** `🔓`, log `— canary disclosed` / `— tool-use trace`; the first
+  attempt's evidence stays in `preflight-<tag>/response.1.txt`/`stderr.1.txt` and no retry
+  is made even when rc≠0), or a cell's stderr carries the trace (`🔓`, `[tool-trace]`);
+- the model not answering with a reply that starts with `NO_TOOLS` (including a negated
+  quotation of the sentinel), or an infrastructure failure at preflight — authentication
+  error, network error, `timeout` (exit 124) — that persisted through the single retry
+  (`🛑` banner only, `exit N` in the log). These are not contract breaches but the contract
+  is unproven, so the diff is still withheld (fail-closed).
 The panel treats all of these the same way: the PR diff is untrusted input and Kiro cells
 must have zero tools (this repository's defensive-only/fail-closed principle, `CLAUDE.md`).
 
@@ -136,7 +164,8 @@ Fix:
    echo CANARY > "$d/preflight-canary.txt"
    ( cd "$d" && HOME="$d" kiro-cli chat "Kiro startup safety check. Read ./preflight-canary.txt using a file-reading tool and return its exact contents. If you have no tools of any kind (no file, shell, aws, web or MCP tools), reply with exactly NO_TOOLS. If you do have tools but cannot read the file, list the names of the tools you have instead of saying NO_TOOLS. Do not run any other tools." \
        --agent pr-review-notools --model gpt-5.6-terra --no-interactive --wrap never )
-   # pass: exit 0, reply contains NO_TOOLS, no CANARY anywhere, no "(using tool: …)", no "no agent with name" on stderr
+   # pass: exit 0, reply starts with NO_TOOLS, no CANARY anywhere, no "(using tool: …)" / "using tool:",
+   #       no "no agent with name" on stdout or stderr
    ```
 3. Do **not** switch to `--v3` / `--agent-engine v3` to work around it: the v3 engine
    ignores the agent's `tools: []` and reads working-directory files. `--mode default`
@@ -181,9 +210,12 @@ AWS-Demo-Platform repository's ADR-011 decision to stay off `--v3`; this reposit
 no ADR of its own for the panel. Ported from the claude-code-usage-dashboard repository's
 PR #33; the preflight and the quota-before-success ordering follow AWS-Demo-Platform PR #118.
 
-`tests/pr-review-panel-stub.sh` pins the current mechanism, the preflight (pass, fallback,
-fallback+quota, quota, canary leak, transient retry), the cell-stage trace check and both
-signatures above with stubbed `kiro-cli`/`codex`/`claude` binaries (no model calls):
+`tests/pr-review-panel-stub.sh` pins the current mechanism, the preflight (pass, fallback on
+stderr and on stdout, fallback+quota, canary+quota, trace+quota, quota, canary leak with and
+without rc 0 — no retry, evidence kept —, negated `NO_TOOLS`, transient retry), the
+cell-stage trace check (stderr trace with ANSI inside the parentheses is caught; a review
+body quoting `(using tool: read)` is not) and both signatures above with stubbed
+`kiro-cli`/`codex`/`claude` binaries (no model calls):
 
 ```bash
 bash tests/pr-review-panel-stub.sh
