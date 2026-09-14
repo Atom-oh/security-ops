@@ -348,7 +348,9 @@ class RoleReviewTests(unittest.TestCase):
     cases += [(text, "fallback-private") for text in (
       'password=prior||"default"; api_key=\n"fallback-private"; PUBLIC_KEEP',
       'password: "first\nfallback-private token=value or last"\nPUBLIC_KEEP',
-      'password=prior||"fallback-private"; PUBLIC_KEEP')]
+      'password=prior||"fallback-private"; PUBLIC_KEEP',
+      'The new secret: name="PASSWORD", value="fallback-private"\nPUBLIC_KEEP',
+      '''curl -d "password="'fallback-private'"&user=demo" https://example.invalid''')]
     for index, (text, secret) in enumerate(cases):
       with self.subTest(kind=text.split("=", 1)[0][:24]):
         self.begin(f"decoded-pattern-{index}")
