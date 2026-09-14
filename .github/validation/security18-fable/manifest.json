@@ -12,7 +12,7 @@
   "prior_fable_failure": [
     "malformed_json"
   ],
-  "prior_fable_attempts": "Original executor <=2 review calls; interrupted borrowed-pod reissue <=2, exact counts unavailable; both retained in operator history.",
+  "prior_fable_attempts": "One completed earlier executor with <=2 review calls, an earlier lost multi-role executor with <=2, one interrupted Fable-only executor with <=2, and supplemental34821746089 with exactly1. Unknown counts are not reset or claimed as zero.",
   "files": {
     "claude-self-request.json": "d330eff6430432c29a266bedb3aa940a0a47b3e78f521812e704d5ac649bdd2e",
     "claude-self-result.json": "04a3f2e76e0846d4e57751f4113d9c2f52034c90314b14adb1234565bcbaac6d",
@@ -20,11 +20,50 @@
     "codex-request.json": "fb641b206433e16e85e23b4663900bbcd93bc5bad83f100bdc8efaa7afb4cbbb",
     "codex-result.json": "dfcbf31d743a11fcbdf8f79fa74cc49b195a86278c794136e19e57c23b6a199a",
     "codex-timing.json": "366de8b36310b4df3fc093bdde08fd00c50dfdb115adb69b74ebbc69cbf524e2",
-    "kiro-fable-request.json": "d956c69f24f4b43c29cf6f3292d552310876620509debef979ca8282d2fc965d",
-    "kiro-fable-result.json": "ada17fee0396e6310d405ca9930e300521ed32bfafa4e46989a940008d65cc5f",
-    "kiro-fable-timing.json": "6f873e3bcbf19a0a68b191f34fb18f4ef4d482043c0a215869aa98d82f275167",
+    "kiro-fable-request.json": "f177128cec5c9b8e75d1bac8f66573b5594c22f8a8cd24e2a2e47fca6cab965c",
+    "kiro-fable-result.json": "439a50858eb90c3630cc3c68129de7b3c2c6c00c00bf62ded3d2d35734a86d47",
+    "kiro-fable-timing.json": "57d7c9225e7b2afb6935757fb80c899705e015152cb8509082507bb63a171b6e",
     "kiro-sol-request.json": "71249baf61f3b0d14c93b959f571b97717dfebcba32741cd4fbc58e5c0373a23",
     "kiro-sol-result.json": "5af525a30f252c06207e84feff78560ffc24aaa42de8a1a33b61b6eb513c6163",
-    "kiro-sol-timing.json": "42736516872a50cbf4d6e56f1caa9d751c7309b7b47518efbde1dfe81487143c"
-  }
+    "kiro-sol-timing.json": "42736516872a50cbf4d6e56f1caa9d751c7309b7b47518efbde1dfe81487143c",
+    "kiro-fable-attempts.json": "0d38d7677e352fa6848465bbc084ebcc3af56fcd87870111702cc3a098cfa919"
+  },
+  "prior_supplemental_runs": [
+    {
+      "run_id": 34821746089,
+      "validation_commit": "cfb8ad1691b8be34df7974f5c12fc2640284fe77",
+      "new_review_invocations": 1,
+      "failure_codes": [
+        "malformed_json"
+      ],
+      "invocation_nonce": "6a559f69cfaee8b4a142ab2c38a75d20"
+    }
+  ],
+  "prior_operator_history": [
+    {
+      "pod": "aws-demo-platform-claude-arm-8qpzd-runner-flfr7",
+      "outcome": "Pod ended before driver launch",
+      "review_calls": 0
+    },
+    {
+      "pod": "nfm-dashboard-claude-arm-d6rkl-runner-7d5jw",
+      "outcome": "Four executors launched, pod ended; no validated output recovered",
+      "review_calls": "unknown, <=2 per role"
+    },
+    {
+      "pod": "aws-demo-platform-claude-arm-8qpzd-runner-ktwpq",
+      "outcome": "Three retained valid roles; Fable malformed JSON",
+      "review_calls": "unknown, <=2 per role"
+    },
+    {
+      "pod": "aws-demo-platform-claude-arm-8qpzd-runner-2jlx9",
+      "outcome": "Fable-only recovery interrupted by pod loss; no returned result",
+      "review_calls": "unknown, <=2 Fable calls"
+    },
+    {
+      "run_id": 34821746089,
+      "outcome": "Fable-only supplemental completed; malformed JSON",
+      "review_calls": 1
+    }
+  ]
 }

@@ -49,7 +49,8 @@ def restore(work, engine):
 def export(work, public):
     """Copy only the established public evidence allowlist, never raw logs/input."""
     public.mkdir(parents=True, exist_ok=True)
-    for pattern in ("*-result.json", "*-request.json", "*-timing.json", "*-attempts.json"):
+    for pattern in ("*-result.json", "*-request.json", "*-timing.json",
+                    "*-attempts.json", "*-parse-metadata.json"):
         for source in (work / "slot").glob(pattern):
             if not source.is_symlink() and source.is_file():
                 json.loads(source.read_text())
@@ -90,6 +91,8 @@ def main():
         "retained_valid_roles": MANIFEST["retained_valid_roles"],
         "original_runner": MANIFEST["original_runner"],
         "prior_fable_attempts": MANIFEST["prior_fable_attempts"],
+        "prior_supplemental_runs": MANIFEST.get("prior_supplemental_runs", []),
+        "prior_operator_history": MANIFEST.get("prior_operator_history", []),
         "new_fable_attempt_limit": 1,
         "role_timeout_seconds": 300,
         "kiro_preflight_timeout_seconds": 60,
@@ -111,11 +114,13 @@ def main():
         if initial.returncode != 2 or summary["failure_codes"] != ["malformed_json:kiro-fable"]:
             raise ValueError("Retained coverage has an unexpected failure")
         export(work, public / "before-recovery")
-        # The driver invokes only reviewed BASE run_role.py --tag kiro-fable.
+        # The wrapper only observes the record boundary; BASE files stay unchanged.
         code = subprocess.run(
             [sys.executable, str(DIRECTORY / "live_base_driver.py"),
              "--source", str(source), "--work", str(work), "--only", "kiro-fable"],
             cwd=source, env=environment).returncode
+        if not (work / "slot/kiro-fable-parse-metadata.json").is_file():
+            raise ValueError("Safe parse metadata was not captured")
         if (work / "live-validation.json").exists():
             completed = json.loads((work / "live-validation.json").read_text())
             binding["readiness_complete"] = bool(code == 0 and completed["readiness_complete"])

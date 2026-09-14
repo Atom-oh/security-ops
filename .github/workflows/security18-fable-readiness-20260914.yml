@@ -33,7 +33,15 @@ jobs:
           persist-credentials: false
           sparse-checkout: .github/validation/security18-fable
 
-      - name: One bounded Fable recovery with frozen inputs
+      - name: Verify metadata-only wrapper without models
+        run: |
+          set -euo pipefail
+          REVIEWED_BASE_ROOT="$GITHUB_WORKSPACE/reviewed-base" \
+            python3 -m unittest discover \
+              -s validation-source/.github/validation/security18-fable \
+              -p 'test_record_diagnostic.py' -v
+
+      - name: One bounded Fable diagnostic with frozen inputs
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

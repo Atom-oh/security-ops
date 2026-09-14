@@ -114,7 +114,8 @@ try:
         handle = (work / f"validation-{tag}.log").open("w")
         handles.append(handle)
         children[tag] = subprocess.Popen([
-            sys.executable, str(scripts / "run_role.py"),
+            sys.executable, str(Path(__file__).with_name("record_diagnostic.py")),
+            "--source", str(source),
             "--work", str(work), "--tag", tag,
         ], cwd=source, env=environment, stdout=handle, stderr=subprocess.STDOUT)
         print(f"{tag}: launched reviewed BASE executor", flush=True)
@@ -131,7 +132,8 @@ try:
                 result = json.loads(result_file.read_text())
                 print(json.dumps({"tag": tag, "valid": result["valid"],
                                   "failure_codes": result["failure_codes"]}), flush=True)
-                for suffix in ("-result.json", "-timing.json", "-request.json", "-attempts.json"):
+                for suffix in ("-result.json", "-timing.json", "-request.json",
+                               "-attempts.json", "-parse-metadata.json"):
                     emit_file(tag, suffix)
         if len(exits) < len(children):
             time.sleep(0.1)
