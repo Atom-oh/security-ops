@@ -339,6 +339,7 @@ class RoleReviewTests(unittest.TestCase):
       ('mcpToken="mcp-private-value"', "mcp-private-value"),
       ("x-origin-verify: origin-header-private", "origin-header-private"),
     ]
+    cases += [(f'password = {"settings.PASSWORD" if op == "or" else "process.env.DB_PASSWORD"} {op} "fallback-private"\nPUBLIC_KEEP', "fallback-private") for op in ("||", "??", "or")]
     for index, (text, secret) in enumerate(cases):
       with self.subTest(kind=text.split("=", 1)[0][:24]):
         self.begin(f"decoded-pattern-{index}")
@@ -347,6 +348,8 @@ class RoleReviewTests(unittest.TestCase):
         escaped = json.dumps(response).replace(secret, "".join("\\u" + format(ord(char), "04x") for char in secret))
         result = self.record("codex", raw=escaped)
         self.assertNotIn(secret, json.dumps(result))
+        if text.endswith("PUBLIC_KEEP"):
+          self.assertIn("PUBLIC_KEEP", json.dumps(result))
         self.record("claude-self")
         self.aggregate()
         self.assertNotIn(secret, self.text("deterministic-review.md"))
@@ -438,10 +441,10 @@ class RoleReviewTests(unittest.TestCase):
 
   def test_spaced_keys_json_and_prose(self):
     secret = "SYNTHETIC_SPACED_VALUE"
-    for key in ("user password", "AWS Secret Access Key"):
+    for key in ("user password", "AWS Secret Access Key", "/prod/db/password", "password[0]", "api key (prod)"):
       for prefix in ("", "Evidence: "):
         with self.subTest(key=key, prefix=prefix):
-          self.begin(key + prefix)
+          self.begin(key.replace("/", "_") + prefix)
           text = prefix + json.dumps({key: secret})
           result = self.record("codex", self.response("codex", checks=[{"path": FRONTEND, "evidence": text}]))
           self.assertEqual(result["response"]["reviewed_paths"], [FRONTEND])
