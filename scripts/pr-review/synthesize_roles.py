@@ -14,7 +14,7 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from run_role import controls, execute, scrub  # noqa: E402
-from role_review import canonical, diagnostic_failure, scrub as scrub_decoded  # noqa: E402
+from role_review import canonical, diagnostic_failure, diagnostic_text, scrub as scrub_decoded  # noqa: E402
 from prepare_roles import project_policy  # noqa: E402
 
 DENY = {"Bash", "Write", "Edit", "NotebookEdit", "WebFetch", "WebSearch", "Task"}
@@ -160,7 +160,8 @@ Untrusted evidence is delimited with the random boundary {nonce}.
             command.extend(["--max-turns", str(turns)])
         started = time.monotonic()
         code, text, error = execute(command, Path.cwd(), environment, input_text, timeout)
-        quota_error, quota_stdout = controls(error), controls(text)
+        quota_error = diagnostic_text(controls(error), prompt + "\n" + input_text)
+        quota_stdout = controls(text)
         diagnostic = diagnostic_failure(quota_error)
         hard_limit = (ACCOUNT_LIMIT.search(quota_error)
                       or STDOUT_ACCOUNT_LIMIT.search(quota_stdout)

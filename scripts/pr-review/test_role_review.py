@@ -42,22 +42,13 @@ class RoleReviewTests(unittest.TestCase):
         self.temp.cleanup()
 
     def cli(self, *args, expected=0):
-        result = subprocess.run(
-            [sys.executable, str(ENGINE), *map(str, args)],
-            capture_output=True, text=True, timeout=10,
-        )
-        self.assertEqual(
-            result.returncode, expected,
-            f"command={args!r}\nstdout={result.stdout}\nstderr={result.stderr}",
-        )
+        result = subprocess.run([sys.executable, str(ENGINE), *map(str, args)], capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, expected, f'command={args!r}\nstdout={result.stdout}\nstderr={result.stderr}')
         return result
 
     def prepare(self, diff=None, expected=0, head=HEAD, extra=()):
         self.diff.write_text(patch() if diff is None else diff)
-        self.cli(
-            "prepare", "--diff", self.diff, "--context", self.context,
-            "--head", head, "--base", BASE, "--work", self.work, *extra, expected=expected,
-        )
+        self.cli('prepare', '--diff', self.diff, '--context', self.context, '--head', head, '--base', BASE, '--work', self.work, *extra, expected=expected)
         return self.plan()
 
     def case(self, name):
@@ -75,8 +66,7 @@ class RoleReviewTests(unittest.TestCase):
 
     def provenance(self, raw):
         raw = raw if isinstance(raw, bytes) else raw.encode()
-        return {"head_sha": HEAD, "base_sha": BASE,
-                "diff_sha256": hashlib.sha256(raw).hexdigest()}
+        return {'head_sha': HEAD, 'base_sha': BASE, 'diff_sha256': hashlib.sha256(raw).hexdigest()}
 
     def read(self, name):
         return json.loads(self.text(name))
@@ -108,18 +98,13 @@ class RoleReviewTests(unittest.TestCase):
     def record(self, tag, response=None, raw=None, stderr="", rc=0, expected=0):
         output = self.root / f"{tag}-output.txt"
         diagnostic = self.root / f"{tag}-stderr.txt"
-        output.write_text(raw if raw is not None else json.dumps(
-            self.response(tag) if response is None else response
-        ))
+        output.write_text(raw if raw is not None else json.dumps(self.response(tag) if response is None else response))
         diagnostic.write_text(stderr)
         receipt = self.work / "slot" / f"{tag}-request.json"
         if not receipt.exists():
             self.issue(tag)
         nonce = json.loads(receipt.read_text())["invocation_nonce"]
-        self.cli(
-            "record", "--work", self.work, "--tag", tag, "--output", output,
-            "--stderr", diagnostic, "--exit-code", rc, "--nonce", nonce, expected=expected,
-        )
+        self.cli('record', '--work', self.work, '--tag', tag, '--output', output, '--stderr', diagnostic, '--exit-code', rc, '--nonce', nonce, expected=expected)
         return self.read(f"slot/{tag}-result.json")
 
     def finish(self, overrides=None):
@@ -137,14 +122,10 @@ class RoleReviewTests(unittest.TestCase):
         self.assertTrue(self.text("deterministic-review.md").endswith("VERDICT: FAIL\n"))
 
     def test_wrapped_tokens(self):
-        tokens = ["ghp_" + "a" * 30, "AKIA" + "A" * 16,
-                  "xoxb-" + "b" * 20, "AIza" + "c" * 35,
-                  "eyJ" + "d" * 10 + "." + "e" * 12 + "." + "f" * 12]
+        tokens = ['ghp_' + 'a' * 30, 'AKIA' + 'A' * 16, 'xoxb-' + 'b' * 20, 'AIza' + 'c' * 35, 'eyJ' + 'd' * 10 + '.' + 'e' * 12 + '.' + 'f' * 12]
         path = "fixtures/_ghp_" + "z" * 30 + "_.txt"
         self.prepare(patch(path))
-        result = self.record("codex", self.response("codex", checks=[{
-            "path": path, "evidence": "Wrapped: " + " ".join("_" + t + "_" for t in tokens)
-        }]))
+        result = self.record('codex', self.response('codex', checks=[{'path': path, 'evidence': 'Wrapped: ' + ' '.join(('_' + t + '_' for t in tokens))}]))
         self.assertTrue(result["valid"])
         self.assertEqual(result["response"]["reviewed_paths"], [path])
         for token in tokens:
@@ -152,8 +133,7 @@ class RoleReviewTests(unittest.TestCase):
                 self.assertNotIn(token, json.dumps(result))
 
     def test_overage_errors(self):
-        for index, error in enumerate(("You have reached the limit for overages",
-                                       "Error: You have reached the limit for overages")):
+        for index ,error in enumerate (("You have reached the limit for overages","Error: You have reached the limit for overages")):
             with self.subTest(error=error):
                 self.begin(f"overage-{index}")
                 result = self.record("codex", stderr=error, expected=2)
@@ -161,8 +141,7 @@ class RoleReviewTests(unittest.TestCase):
                 self.assert_blocked()
 
     def test_paths_and_prose(self):
-        paths = ["infra/task-definition-worker.tf", "frontend/surveyJob.test.tsx",
-                 "fixtures/password=example.txt"]
+        paths = ['infra/task-definition-worker.tf', 'frontend/surveyJob.test.tsx', 'fixtures/password=example.txt']
         raw = "".join(patch(path) for path in paths)
         provenance = self.root / "provenance.json"
         provenance.write_text(json.dumps({**self.provenance(raw),
@@ -187,8 +166,7 @@ class RoleReviewTests(unittest.TestCase):
             if role["required"]:
                 self.record(tag, self.response(tag, checks=[
                     {"path": path, "evidence": "password=private-prose"} for path in paths],
-                    findings=[{"severity": "MINOR", "path": paths[-1],
-                               "condition": "Changed fixture", "evidence": "password=private-prose"}]))
+                    findings=[{'severity': 'MINOR', 'path': paths[-1], 'condition': 'Changed fixture', 'evidence': 'password=private-prose'}]))
         self.aggregate()
         self.assertEqual(self.summary()["mode"], "deterministic")
         self.assertEqual(self.summary()["findings"][0]["path"], paths[-1])
@@ -197,12 +175,7 @@ class RoleReviewTests(unittest.TestCase):
                 self.assertNotIn(secret, file.read_text())
         source = json.loads(provenance.read_text())
         source["input_policy_sha256"] = "1" * 64
-        for scope, excluded, expected in (
-            (paths + ["backend/auth.py"], ["backend/auth.py"], 2),
-            (paths + ["omitted.py"], [], 2), (paths[:-1], [], 2),
-            (paths, [paths[0]], 2),
-            (paths + ["package-lock.json"], ["package-lock.json"], 0),
-        ):
+        for scope ,excluded ,expected in ((paths +["backend/auth.py"],["backend/auth.py"],2 ),(paths +["omitted.py"],[],2 ),(paths [:-1 ],[],2 ),(paths ,[paths [0 ]],2 ),(paths +["package-lock.json"],["package-lock.json"],0 ),):
             source.update(scope_paths=scope, excluded_paths=excluded)
             provenance.write_text(json.dumps(source))
             self.prepare(raw, extra=("--provenance", provenance), expected=expected)
@@ -224,11 +197,8 @@ class RoleReviewTests(unittest.TestCase):
     def test_secret_json_keys(self):
         secrets = ["ghp_" + "A" * 36, "AKIA" + "B" * 16]
         self.prepare()
-        evidence = json.dumps({secrets[0]: {"nested": {secrets[1]: "KEY_PUBLIC"}},
-                               "tok\u200ben": "hidden-value", "token": "other-hidden",
-                               "password:admin": "colon-private", "[REDACTED]": "LITERAL_PUBLIC"})
-        self.record("codex", self.response("codex", checks=[
-            {"path": FRONTEND, "evidence": evidence}]))
+        evidence = json.dumps({secrets[0]: {'nested': {secrets[1]: 'KEY_PUBLIC'}}, 'tok\u200ben': 'hidden-value', 'token': 'other-hidden', 'password:admin': 'colon-private', '[REDACTED]': 'LITERAL_PUBLIC'})
+        self.record('codex', self.response('codex', checks=[{'path': FRONTEND, 'evidence': evidence}]))
         published = self.text("slot/codex-result.json")
         for secret in secrets + ["hidden-value", "other-hidden", "colon-private"]:
             self.assertNotIn(secret, published)
@@ -244,10 +214,7 @@ class RoleReviewTests(unittest.TestCase):
         self.assertEqual(plan["base_sha"], BASE)
         self.assertEqual(set(plan["roles"]), set(TAGS))
         self.assertEqual(plan["roles"]["codex"]["role"], "implementation")
-        self.assertEqual(
-            {tag for tag, role in plan["roles"].items() if role["required"]},
-            {"codex", "claude-self"},
-        )
+        self.assertEqual({tag for (tag, role) in plan['roles'].items() if role['required']}, {'codex', 'claude-self'})
         self.assertNotEqual(plan["roles"]["codex"]["family"], plan["roles"]["claude-self"]["family"])
         for tag in ("codex", "claude-self"):
             role = plan["roles"][tag]
@@ -286,10 +253,7 @@ class RoleReviewTests(unittest.TestCase):
 
     def test_rename_signals(self):
         for kind in ("rename", "copy"):
-            raw = (
-                'diff --git "a/scripts/old name.html" "b/frontend/new name.html"\n'
-                f"similarity index 100%\n{kind} from scripts/old name.html\n{kind} to frontend/new name.html\n"
-            )
+            raw = f'diff --git "a/scripts/old name.html" "b/frontend/new name.html"\nsimilarity index 100%\n{kind} from scripts/old name.html\n{kind} to frontend/new name.html\n'
             plan = self.prepare(raw)
             self.assertEqual(plan["roles"]["codex"]["paths"], ["frontend/new name.html"])
             self.assertTrue(all(role["required"] for role in plan["roles"].values()))
@@ -314,12 +278,7 @@ class RoleReviewTests(unittest.TestCase):
         self.assert_blocked()
 
     def test_type_change_paths(self):
-        raw = (
-            "diff --git a/link b/link\ndeleted file mode 100644\n"
-            "--- a/link\n+++ /dev/null\n@@ -1 +0,0 @@\n-old\n"
-            "diff --git a/link b/link\nnew file mode 120000\n"
-            "--- /dev/null\n+++ b/link\n@@ -0,0 +1 @@\n+target\n"
-        )
+        raw = 'diff --git a/link b/link\ndeleted file mode 100644\n--- a/link\n+++ /dev/null\n@@ -1 +0,0 @@\n-old\ndiff --git a/link b/link\nnew file mode 120000\n--- /dev/null\n+++ b/link\n@@ -0,0 +1 @@\n+target\n'
         manifest = self.root / "paths.json"
         manifest.write_text('["link"]')
         self.assertEqual(self.prepare(raw, extra=("--paths", manifest))["paths"], ["link"])
@@ -338,10 +297,7 @@ class RoleReviewTests(unittest.TestCase):
     def test_decoded_credentials(self):
         self.prepare()
         secret = "ghp_" + "A" * 36
-        response = self.response("codex", findings=[{
-            "severity": "MINOR", "path": FRONTEND, "condition": "On submission",
-            "evidence": "Credential " + secret,
-        }])
+        response = self.response('codex', findings=[{'severity': 'MINOR', 'path': FRONTEND, 'condition': 'On submission', 'evidence': 'Credential ' + secret}])
         raw = json.dumps(response).replace("ghp_", "\\u0067hp_")
         result = self.record("codex", raw=raw)
         self.assertTrue(result["valid"])
@@ -352,6 +308,12 @@ class RoleReviewTests(unittest.TestCase):
 
     def test_legacy_credentials(self):
         cases = [
+            ('password = """triple-private"""', "triple-private"),
+            ("password = '''single-private'''", "single-private"),
+            ('password = """first line\nmultiline-private\nlast line"""', "multiline-private"),
+            ('password = os.getenv("DB_PASSWORD", nested("call-private", extra=(1, 2)))', "call-private"),
+            ('password = os.getenv(\n "DB_PASSWORD", nested("multicall-private", ")"))', "multicall-private"),
+            ('password = os.getenv("DB_PASSWORD", "unfinished-private"', "unfinished-private"),
             ("xox" + "b-" + "A" * 35, "A" * 35),
             ("AI" + "za" + "B" * 35, "B" * 35),
             ("Authorization: Basic " + "C" * 40, "C" * 40),
@@ -410,15 +372,11 @@ class RoleReviewTests(unittest.TestCase):
         policy = self.root / "policy.json"
         policy.write_bytes(b'{"schema_version":1,"basenames":["yarn.lock"]}\r\n')
         policy_hash = hashlib.sha256(policy.read_bytes()).hexdigest()
-        source = {**self.provenance(b""),
-                  "scope_exception": "configured_exclusions_only",
-                  "input_policy_sha256": policy_hash,
-                  "scope_paths": ["yarn.lock"], "excluded_paths": ["yarn.lock"]}
+        source = {**self.provenance(b''), 'scope_exception': 'configured_exclusions_only', 'input_policy_sha256': policy_hash, 'scope_paths': ['yarn.lock'], 'excluded_paths': ['yarn.lock']}
         metadata.write_text(json.dumps(source))
         paths.write_text("[]")
         args = ("--provenance", metadata, "--paths", paths)
-        for opt_in in ((), ("--policy", policy), ("--allow-exclusions-only",),
-                       ("--allow-exclusions-only", "--policy", self.root / "missing")):
+        for opt_in in ((),("--policy",policy ),("--allow-exclusions-only",),("--allow-exclusions-only","--policy",self .root /"missing")):
             with self.subTest(opt_in=opt_in):
                 self.prepare("", extra=(*args, *opt_in), expected=2)
                 self.assert_blocked()
@@ -445,14 +403,10 @@ class RoleReviewTests(unittest.TestCase):
 
     def test_sensitive_fields(self):
         secret = "SYNTHETIC_PRIVATE_SHAPE"
-        cases = [{key: secret} for key in (
-            "spring.datasource.password", "aws.secret_access_key", "X-Origin-Verify",
-            "Authorization", "pwd", "dsn", "connectionString")]
+        cases = [{key: secret} for key in ('spring.datasource.password', 'aws.secret_access_key', 'X-Origin-Verify', 'Authorization', 'pwd', 'dsn', 'connectionString')]
         cases += [
             {"name": "DATABASE_PASSWORD", "value": secret},
-            *({name: label, field: secret} for name, field, label in (
-                ("name", "value", "password:admin"), ("headerName", "headerValue", "token=abc"),
-                ("name", "value", "tok\u200ben"), ("na\u200bme", "value", "DATABASE_PASSWORD"))),
+            *({name: label, field: secret} for name, field, label in (('name', 'value', 'password:admin'), ('headerName', 'headerValue', 'token=abc'), ('name', 'value', 'tok\u200ben'), ('na\u200bme', 'value', 'DATABASE_PASSWORD'))),
             {"HeaderName": "X-Origin-Verify", "HeaderValue": secret},
             'name = "DB_PASSWORD", value = "' + secret + '"',
             json.dumps({"name": "DATABASE_PASSWORD", "value": secret}),
@@ -461,9 +415,7 @@ class RoleReviewTests(unittest.TestCase):
             r'{\"password\":\"' + secret + r'\"}',
         ]
         metadata = self.root / "source.json"
-        metadata.write_text(json.dumps({**self.provenance(patch()),
-            "cases": cases, "safe": "PUBLIC_KEEP",
-        }))
+        metadata.write_text(json.dumps({**self.provenance(patch()), 'cases': cases, 'safe': 'PUBLIC_KEEP'}))
         self.prepare(extra=("--provenance", metadata))
         self.issue("codex")
         for name in ("role-plan.json", "requests/codex.prompt"):
@@ -488,16 +440,14 @@ class RoleReviewTests(unittest.TestCase):
                 self.begin(kind)
                 update = {} if kind == "clean" else (
                     {"uncertainties": ["Caller contract is unavailable."]} if kind == "uncertain" else
-                    {"findings": [{"severity": kind, "path": FRONTEND,
-                                  "condition": "On concurrent submissions", "evidence": "Update is lost."}]})
+                    {"findings": [{'severity': kind, 'path': FRONTEND, 'condition': 'On concurrent submissions', 'evidence': 'Update is lost.'}]})
                 self.record("codex", self.response("codex", **update))
                 self.record("claude-self")
                 before = {p: p.read_bytes() for p in self.work.rglob("*") if p.is_file()}
                 self.issue("codex", expected=2)
                 self.assertEqual(before, {p: p.read_bytes() for p in self.work.rglob("*") if p.is_file()})
                 self.aggregate()
-                self.assertEqual(self.summary()["mode"],
-                                 "deterministic" if kind == "clean" else "review")
+                self.assertEqual(self.summary()['mode'], 'deterministic' if kind == 'clean' else 'review')
 
     def test_truncated_or_bare_diff(self):
         for raw in (
@@ -580,12 +530,8 @@ class RoleReviewTests(unittest.TestCase):
         policy_file, metadata, manifest = (self.root / name for name in ("policy.json", "source.json", "paths.json"))
         policy_file.write_text(json.dumps(policy))
         manifest.write_text("[]")
-        metadata.write_text(json.dumps({**self.provenance(b""),
-            "scope_exception": "configured_exclusions_only",
-            "input_policy_sha256": hashlib.sha256(policy_file.read_bytes()).hexdigest(),
-            "scope_paths": paths, "excluded_paths": paths}))
-        return self.prepare("", extra=("--paths", manifest, "--provenance", metadata,
-                                       "--allow-exclusions-only", "--policy", policy_file), expected=expected)
+        metadata.write_text(json.dumps({**self.provenance(b''), 'scope_exception': 'configured_exclusions_only', 'input_policy_sha256': hashlib.sha256(policy_file.read_bytes()).hexdigest(), 'scope_paths': paths, 'excluded_paths': paths}))
+        return self.prepare("", extra=('--paths', manifest, '--provenance', metadata, '--allow-exclusions-only', '--policy', policy_file), expected=expected)
 
     def test_exclusion_rules(self):
         for i, (policy, paths) in enumerate((
@@ -616,12 +562,9 @@ class RoleReviewTests(unittest.TestCase):
 
     def test_empty_files_and_copies(self):
         for raw, expected_path in (
-            ("diff --git a/empty.txt b/empty.txt\nnew file mode 100644\n"
-             "index 0000000..e69de29\n", "empty.txt"),
-            ("diff --git a/empty.txt b/empty.txt\ndeleted file mode 100644\n"
-             "index e69de29..0000000\n", "empty.txt"),
-            ("diff --git a/old.txt b/new.txt\nsimilarity index 100%\n"
-             "copy from old.txt\ncopy to new.txt\n", "new.txt"),
+            ('diff --git a/empty.txt b/empty.txt\nnew file mode 100644\nindex 0000000..e69de29\n', 'empty.txt'),
+            ('diff --git a/empty.txt b/empty.txt\ndeleted file mode 100644\nindex e69de29..0000000\n', 'empty.txt'),
+            ('diff --git a/old.txt b/new.txt\nsimilarity index 100%\ncopy from old.txt\ncopy to new.txt\n', 'new.txt'),
         ):
             with self.subTest(raw=raw):
                 self.assertEqual(self.prepare(raw)["paths"], [expected_path])
@@ -632,10 +575,7 @@ class RoleReviewTests(unittest.TestCase):
                 self.begin(f"unterminated-key-{index}")
                 secret = "SYNTHETIC_PRIVATE_FRAGMENT"
                 evidence = f"-----BEGIN {kind}PRIVATE KEY-----\n{secret}\ncut off"
-                response = self.response("codex", findings=[{
-                    "severity": "MINOR", "path": FRONTEND,
-                    "condition": "When diagnostics contain a partial key", "evidence": evidence,
-                }])
+                response = self.response('codex', findings=[{'severity': 'MINOR', 'path': FRONTEND, 'condition': 'When diagnostics contain a partial key', 'evidence': evidence}])
                 result = self.record("codex", raw=json.dumps(response))
                 self.assertTrue(result["valid"])
                 self.assertNotIn(secret, json.dumps(result))
@@ -707,9 +647,7 @@ class RoleReviewTests(unittest.TestCase):
     def test_git_paths(self):
         for raw, expected_path in (
             ("diff --git a/a file.sh b/a file.sh\nold mode 100644\nnew mode 100755\n", "a file.sh"),
-            ('diff --git "a/caf\\303\\251.ts" "b/caf\\303\\251.ts"\n'
-             '--- "a/caf\\303\\251.ts"\n+++ "b/caf\\303\\251.ts"\n@@ -1 +1 @@\n-a\n+b\n',
-             "café.ts"),
+            ('diff --git "a/caf\\303\\251.ts" "b/caf\\303\\251.ts"\n--- "a/caf\\303\\251.ts"\n+++ "b/caf\\303\\251.ts"\n@@ -1 +1 @@\n-a\n+b\n', 'café.ts'),
         ):
             with self.subTest(raw=raw):
                 plan = self.prepare(raw)
@@ -726,8 +664,7 @@ class RoleReviewTests(unittest.TestCase):
         self.prepare()
         self.finish()
         report = self.text("deterministic-review.md")
-        for value in ("codex", "kiro-fable", "kiro-sol", "claude-self", "implementation",
-                      "clear_frontend_only", "inactive"):
+        for value in ("codex","kiro-fable","kiro-sol","claude-self","implementation","clear_frontend_only","inactive"):
             self.assertIn(value, report)
         self.begin("quota-report")
         self.record("codex", stderr="Error: quota exceeded for this account", expected=2)
@@ -749,10 +686,7 @@ class RoleReviewTests(unittest.TestCase):
         self.context.write_text("Changed trusted context.\n")
         second = self.prepare()
         self.assertNotEqual(first["plan_digest"], second["plan_digest"])
-        self.assertNotEqual(
-            first["roles"]["codex"]["request_digest"],
-            second["roles"]["codex"]["request_digest"],
-        )
+        self.assertNotEqual(first['roles']['codex']['request_digest'], second['roles']['codex']['request_digest'])
         third = self.prepare(patch(after="different label"), head="c" * 40)
         self.assertNotEqual(second["plan_digest"], third["plan_digest"])
 
@@ -780,11 +714,7 @@ class RoleReviewTests(unittest.TestCase):
 
     def test_minor_summary(self):
         self.prepare()
-        findings = [
-            {"severity": severity, "path": FRONTEND, "condition": "When the label is empty",
-             "evidence": "The changed fallback branch has no accessible name."}
-            for severity in ("MINOR", "INFO")
-        ]
+        findings = [{'severity': severity, 'path': FRONTEND, 'condition': 'When the label is empty', 'evidence': 'The changed fallback branch has no accessible name.'} for severity in ('MINOR', 'INFO')]
         summary = self.finish({"codex": self.response("codex", findings=findings)})
         self.assertEqual(summary["mode"], "deterministic")
         rendered = self.text("deterministic-review.md")
@@ -796,9 +726,7 @@ class RoleReviewTests(unittest.TestCase):
             with self.subTest(severity=severity):
                 self.begin(f"work-{severity}")
                 update = {"uncertainties": ["The caller contract is unavailable."]} if severity is None else {
-                    "findings": [{"severity": severity, "path": FRONTEND,
-                                  "condition": "On concurrent submissions",
-                                  "evidence": "The changed code drops an in-flight update."}]
+                    "findings": [{'severity': severity, 'path': FRONTEND, 'condition': 'On concurrent submissions', 'evidence': 'The changed code drops an in-flight update.'}]
                 }
                 summary = self.finish({"codex": self.response("codex", **update)})
                 self.assertEqual(summary["mode"], "review")
@@ -806,19 +734,14 @@ class RoleReviewTests(unittest.TestCase):
                 self.assertFalse((self.work / "coverage-severe.flag").exists())
 
     def test_json_wrappers(self):
-        for wrapper in (
-            lambda s: "```json\n" + s + "\n```",
-            lambda s: "\n".join("> " + line for line in s.splitlines()),
-            lambda s: "> ```json\n> " + s + "\n> ```",
-        ):
+        for wrapper in (lambda s :"```json\n"+s +"\n```",lambda s :"\n".join ("> "+line for line in s .splitlines ()),lambda s :"> ```json\n> "+s +"\n> ```",):
             with self.subTest(wrapper=wrapper):
                 self.begin(str(id(wrapper)))
                 result = self.record("codex", raw=wrapper(json.dumps(self.response("codex"))))
                 self.assertTrue(result["valid"])
 
     def test_invalid_json(self):
-        for raw in ("", "glob found no files", "{}", "[]", "```json\n{}\n```\nPASS",
-                    '{"head_sha":"x","head_sha":"y"}'):
+        for raw in ("","glob found no files","{}","[]","```json\n{}\n```\nPASS",'{"head_sha":"x","head_sha":"y"}'):
             with self.subTest(raw=raw):
                 self.begin(str(abs(hash(raw))))
                 self.assertFalse(self.record("codex", raw=raw, expected=2)["valid"])
@@ -838,8 +761,7 @@ class RoleReviewTests(unittest.TestCase):
                 self.assert_blocked()
 
     def test_finding_schema(self):
-        good = {"severity": "MAJOR", "path": FRONTEND, "condition": "When clicked",
-                "evidence": "The changed handler raises."}
+        good = {'severity': 'MAJOR', 'path': FRONTEND, 'condition': 'When clicked', 'evidence': 'The changed handler raises.'}
         for key, bad in (("severity", "PASS"), ("path", "other.py"), ("condition", ""), ("evidence", "")):
             with self.subTest(key=key):
                 self.begin(key)
@@ -867,14 +789,13 @@ class RoleReviewTests(unittest.TestCase):
 
     def test_echoed_prompt(self):
         self.prepare()
-        result = self.record("codex", stderr=(
-            "Review quota handling, fallback logic and model-selection tests.\n"
-            "+ const note = 'quota exceeded';\n"
-        ))
+        result = self.record('codex', stderr="Review quota handling, fallback logic and model-selection tests.\n+ const note = 'quota exceeded';\n")
         self.assertTrue(result["valid"])
 
     def test_kiro_diagnostics(self):
         diagnostics = (
+            "- Error: quota exceeded",
+            "> [warn] failed to set model",
             "[warn] failed to set model opus ... Method not found",
             "Monthly request limit reached",
             "Error: no agent with name inline-review found",
@@ -887,14 +808,13 @@ class RoleReviewTests(unittest.TestCase):
                 self.assert_blocked()
 
     def test_echoed_diff(self):
-        self.prepare()
-        result = self.record("codex", stderr=(
-            '+ "[warn] failed to set model opus ... Method not found"\n'
-            "+ Monthly request limit reached\n"
-            "+ Error: no agent with name X found\n"
-            "+ Falling back to user specified default\n"
-        ))
+        echoed = ' Error: quota exceeded\n+ "[warn] failed to set model opus ... Method not found"\n+ Monthly request limit reached\n+ Error: no agent with name X found\n+ Falling back to user specified default\n'
+        raw = f'diff --git a/{FRONTEND} b/{FRONTEND}\n--- a/{FRONTEND}\n+++ b/{FRONTEND}\n@@ -1,2 +1,5 @@\n-old\n' + echoed
+        self.prepare(raw)
+        result = self.record("codex", stderr=echoed)
         self.assertTrue(result["valid"])
+        self.record("claude-self", stderr=echoed + "- Error: quota exceeded\n", expected=2)
+        self.assert_blocked()
 
     def test_missing_result(self):
         self.prepare()
@@ -936,8 +856,7 @@ class RoleReviewTests(unittest.TestCase):
         self.assert_blocked()
 
     def test_stale_pass_flags(self):
-        for name in ("kiro-preflight-failed.flag", "kiro-fallback.flag", "kiro-quota.flag",
-                     "slot/kiro-diff-truncated.flag", "diff-truncated.flag", "slot/coverage-severe.flag"):
+        for name in ("kiro-preflight-failed.flag","kiro-fallback.flag","kiro-quota.flag","slot/kiro-diff-truncated.flag","diff-truncated.flag","slot/coverage-severe.flag"):
             with self.subTest(name=name):
                 self.begin(name.replace("/", "-"))
                 self.finish()

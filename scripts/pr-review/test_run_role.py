@@ -235,6 +235,26 @@ class RoleRecordingTests(unittest.TestCase):
         self.assertFalse((self.harness.work / "runtime/codex.txt").exists())
         self.assert_private_response_removed()
 
+    def test_known_echo_is_data_and_other_prefixed_errors_block(self):
+        echoed = " Error: quota exceeded\n Monthly request limit reached\n"
+        raw = fixture.patch(self.path).replace("@@ -1 +1 @@\n", "@@ -1,3 +1,3 @@\n" + echoed)
+        for tag in ("codex", "claude-self", "kiro-sol"):
+            for extra in ("", "- Error: quota exceeded\n"):
+                with self.subTest(tag=tag, extra=extra):
+                    self.harness.prepare(raw)
+                    self.original = json.dumps(self.harness.response(tag)) + "\n"
+                    def invoke(command, cwd, environment, input_text, timeout):
+                        if "preflight-canary.txt" in command[2]:
+                            return 0, "NO_TOOLS\n", ""
+                        code, output, _ = (self.fake_codex(command, cwd, environment, input_text, timeout)
+                                           if tag == "codex" else (0, self.original, ""))
+                        return code, output, echoed + extra
+                    self.run_recording(tag=tag, execute=invoke)
+                    result = self.harness.read(f"slot/{tag}-result.json")
+                    self.assertEqual(result["valid"], not extra, result["failure_codes"])
+                    if extra:
+                        self.assertIn("quota_diagnostic", result["failure_codes"])
+
     def test_codex_retains_isolated_home_and_legacy_environment(self):
         (self.home / ".codex/auth.json").write_text("synthetic private auth")
         def invoke(command, cwd, environment, input_text, timeout):
