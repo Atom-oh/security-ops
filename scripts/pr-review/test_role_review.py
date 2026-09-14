@@ -345,6 +345,10 @@ class RoleReviewTests(unittest.TestCase):
     cases += [(f'password: "{op}\nfallback-private"\nPUBLIC_KEEP', "fallback-private") for op in ("||", "??", "or")]
     cases += [(f'password = settings.PASSWORD{before}{op}{after}"fallback-private"\nPUBLIC_KEEP', "fallback-private") for op in ("||", "??", "or") for before, after in ((" ", "\n "), ("\n ", " "))]
     cases += [(f'password = (old {op}\n"fallback-private")\nPUBLIC_KEEP', "fallback-private") for op in ("||", "??")]
+    cases += [(text, "fallback-private") for text in (
+      'password=prior||"default"; api_key=\n"fallback-private"; PUBLIC_KEEP',
+      'password: "first\nfallback-private token=value or last"\nPUBLIC_KEEP',
+      'password=prior||"fallback-private"; PUBLIC_KEEP')]
     for index, (text, secret) in enumerate(cases):
       with self.subTest(kind=text.split("=", 1)[0][:24]):
         self.begin(f"decoded-pattern-{index}")
