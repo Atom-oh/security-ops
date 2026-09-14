@@ -188,12 +188,25 @@ if [ -s "$WORK/degraded-models.txt" ]; then
   } > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
 fi
 
+# Kiro 사전 점검 실패(run-panel.sh 의 kiro-preflight.flag) — PR 입력을 보내기 전의 고정 canary
+# 프롬프트가 NO_TOOLS 를 돌려주지 않아(폴백 시그니처·canary 내용·tool-use 흔적·rc≠0·타임아웃)
+# 그 모델의 Kiro 셀은 시작되지 않았다. coverage-severe.flag 가 이미 강제 FAIL 하고, 여기서는
+# "왜 FAIL 인지" 를 코멘트에서 바로 읽게 한다.
+if [ -s "$WORK/kiro-preflight.flag" ]; then
+  PREFLIGHT_DETAIL="$(tr -d '`' < "$WORK/kiro-preflight.flag" | tr '\n' ' ' | sed 's/ *$//')"
+  { echo "🛑 **Kiro 사전 점검 실패**: \`$PREFLIGHT_DETAIL\` — 무툴 계약을 증명하지 못해 해당 Kiro 셀은 시작되지 않음(diff 미전송), 강제 FAIL. 러너 이미지의 kiro-cli 버전/에이전트 스키마 변경 여부 확인 필요(docs/runbooks/pr-review-panel.md)."
+    echo ""
+    cat "$OUT"
+  } > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
+fi
+
 # Kiro 월간 요청 한도 소진(run-panel.sh 의 kiro-quota.flag) — 위 degraded 배너의 원인 후보
 # 나열 대신 실제 원인을 못박는다. 코드/플래그 문제가 아니라 KIRO_API_KEY 계정 한도이므로
 # 사람이 취할 행동(overage 활성화 또는 키 교체)과 리셋 시점을 코멘트에서 바로 읽을 수 있게.
 # VERDICT 강제는 하지 않는다 — Kiro 전멸 시 coverage-severe.flag(아래)가 이미 fail-closed.
+# 플래그 detail 은 run-panel.sh 가 기록 시점에 백틱·개행 제거 + 길이 캡을 적용한 값이다.
 if [ -s "$WORK/kiro-quota.flag" ]; then
-  QUOTA_DETAIL="$(tr '\n' ' ' < "$WORK/kiro-quota.flag" | sed 's/ *$//')"
+  QUOTA_DETAIL="$(tr -d '`' < "$WORK/kiro-quota.flag" | tr '\n' ' ' | sed 's/ *$//')"
   { echo "🚫 **Kiro 월간 요청 한도 소진**: KIRO_API_KEY 계정이 MONTHLY_REQUEST_COUNT 한도에 도달해 Kiro 셀이 응답 없음 (\`$QUOTA_DETAIL\`) — kiro-cli headless 플래그 문제가 아님. overage 활성화 또는 Secrets Manager \`/demo-platform/actions/AI-key\` 의 KIRO_API_KEY 교체 전까지 매 실행 반복됨. 절차: docs/runbooks/pr-review-panel.md"
     echo ""
     cat "$OUT"
@@ -204,7 +217,7 @@ fi
 # `--agent pr-review-notools` 를 무시하고 툴 있는 기본 에이전트로 실행한 셀이 있었다. 응답은
 # 이미 폐기됐고 coverage-severe 로 강제 FAIL 되지만, "왜 FAIL 인지"를 코멘트에서 바로 읽게 한다.
 if [ -s "$WORK/kiro-agent-fallback.flag" ]; then
-  AGENTFAIL_DETAIL="$(tr '\n' ' ' < "$WORK/kiro-agent-fallback.flag" | sed 's/ *$//')"
+  AGENTFAIL_DETAIL="$(tr -d '`' < "$WORK/kiro-agent-fallback.flag" | tr '\n' ' ' | sed 's/ *$//')"
   { echo "🔓 **Kiro 무툴 계약 위반**: kiro-cli 가 \`--agent pr-review-notools\` 를 무시하고 툴 있는 기본 에이전트로 실행함 (\`$AGENTFAIL_DETAIL\`) — 해당 셀 응답은 폐기, 강제 FAIL. 러너 이미지의 kiro-cli 버전/에이전트 스키마 변경 여부 확인 필요(docs/runbooks/pr-review-panel.md)."
     echo ""
     cat "$OUT"
@@ -212,7 +225,7 @@ if [ -s "$WORK/kiro-agent-fallback.flag" ]; then
 fi
 
 # Kiro diff truncation → fail-closed(CRITICAL, security-ops PR#8 리뷰 L4). 대형 diff 는
-# run-panel.sh 의 KIRO_DIFF_CAP/KIRO_ARGV_CAP 을 넘으면 Kiro 3개 모델 전부 prefix 만
+# run-panel.sh 의 KIRO_DIFF_CAP/KIRO_ARGV_CAP 을 넘으면 Kiro 모델(현 로스터 2개) 전부 prefix 만
 # 보고, cap 이후 구간은 codex 단독(살아있다면) 커버리지가 된다 — 이전 리비전은 soft 배너만
 # 붙이고 VERDICT 는 체어 판단에 맡겼는데, PR 작성자가 diff 크기를 통제할 수 있으므로 무해한
 # 변경으로 패딩한 뒤 악성 hunk 를 cap 뒤에 배치하면 cross-vendor consensus 를 구조적으로
@@ -258,8 +271,17 @@ if [ -f "$WORK/coverage-severe.flag" ]; then
     TAC_TMP="$(tac "$OUT" | sed '0,/^VERDICT:/d' | tac)"
     printf '%s\n' "$TAC_TMP" > "$OUT"
   fi
+  # severe 의 사유가 벤더 붕괴가 아니라 Kiro 무툴 계약(preflight 실패·에이전트 폴백)일 수
+  # 있다 — 그 경우 "살아남은 벤더 1개 이하" 는 거짓이므로 문구를 사유에 맞춘다.
+  SEVERE_WHY="살아남은 벤더가 1개 이하라 lens×model 매트릭스의 교차확인이 성립하지 않음"
+  if [ -s "$WORK/kiro-preflight.flag" ] || [ -s "$WORK/kiro-agent-fallback.flag" ]; then
+    SEVERE_WHY="Kiro 무툴 계약을 지키지 못함(위 Kiro 배너 참조)"
+    if [ -s "$WORK/degraded-models.txt" ] && grep -qx codex "$WORK/degraded-models.txt"; then
+      SEVERE_WHY="$SEVERE_WHY, 또한 벤더 커버리지도 붕괴"
+    fi
+  fi
   {
-    echo "🛑 **커버리지 붕괴로 강제 FAIL**: 살아남은 벤더가 1개 이하라 lens×model 매트릭스의 교차확인이 성립하지 않음 — 체어의 판정과 무관하게 fail-closed."
+    echo "🛑 **강제 FAIL**: $SEVERE_WHY — 체어의 판정과 무관하게 fail-closed."
     echo ""
     cat "$OUT"
     echo ""

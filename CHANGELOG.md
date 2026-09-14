@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Expandable finding detail with severity/verdict badge pills and a `remediation` (권장 조치) field.
 - Durable async dispatch seam (SQS scan-worker + DLQ) with heartbeat/staleness guards.
 - Project scaffolding: `CLAUDE.md` (root + modules), `docs/architecture.md`, ADR/runbook templates.
+- **CI / AI PR review:** zero-tool Kiro agent config `scripts/pr-review/agents/pr-review-notools.json`; runbook `docs/runbooks/pr-review-panel.md` (quota / no-tools contract / config-rejection outcomes); stub harness `tests/pr-review-panel-stub.sh` (stubbed `kiro-cli`/`codex`/`claude`, no model calls); per-model Kiro **preflight** canary (`NO_TOOLS` positive proof before any PR input is sent, `kiro-preflight.flag` → forced FAIL).
 
 ### Changed
 - Cost-DoS budget guard fills with smaller high-risk files instead of aborting on one oversized file.
@@ -32,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - AgentCore `Ineffectual token` 401 — proactively refresh the Cognito token near expiry.
 - Blank-screen crashes during async polling and history view (guard empty IN_PROGRESS records, undefined gate fields).
 - Files without a hardcoded sink are still hunted (whole-file fallback) — fixes "scan ends instantly".
-- **CI / AI PR review:** Kiro panel cells now run under a zero-tool agent (`scripts/pr-review/agents/pr-review-notools.json`, `--agent pr-review-notools`) — kiro-cli 2.11.1 silently ignores `--trust-tools=` (empty), leaving cwd `read`/`glob`/`grep`/`code` trusted; `--mode default` (v3-only) dropped. Agent-fallback (`no agent with name … Falling back`) and monthly-quota (`Monthly request limit reached` / `MONTHLY_REQUEST_COUNT`) stderr signatures are detected on Kiro stderr only, not retried, and surfaced as review-comment banners plus `::error::`; agent fallback forces `VERDICT: FAIL`. See `docs/runbooks/pr-review-panel.md`.
+- **CI / AI PR review:** Kiro panel cells now run under a zero-tool agent (`--agent pr-review-notools`) — kiro-cli 2.11.1 silently ignores `--trust-tools=` (empty), leaving the default agent's cwd `read`/`glob`/`grep`/`code` and read-only `aws` trust intact; `--mode default` (v3-only) dropped. The agent file is validated before any call (name, empty tools/allowedTools/resources/mcpServers, `useLegacyMcpJson: false`, no duplicate keys, strict key allowlist — `hooks`/`toolAliases`/`toolsSettings`/`model` rejected) and all cell directories are prepared before dispatch. Agent-fallback (`no agent with name … Falling back`) and monthly-quota (`Monthly request limit reached` / `MONTHLY_REQUEST_COUNT` / `UsageLimitReachedError`) stderr signatures are detected on Kiro stderr only, both checked *before* the success test (partial stdout alongside a quota signature is discarded as truncated), not retried, scrubbed at marker-write time, and surfaced as review-comment banners plus `::error::`; agent fallback and preflight failure force `VERDICT: FAIL`, quota stays warn-level under the vendor-axis coverage floor. `kiro-cli --version` is logged as the panel's first stderr line. See `docs/runbooks/pr-review-panel.md`.
 
 ## [0.1.0] - 2026-06-17
 
@@ -62,6 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 심각도/판정 배지 + 권장 조치(remediation) 필드를 갖춘 발견 상세 펼침.
 - 내구성 비동기 디스패치 시드(SQS scan-worker + DLQ)와 heartbeat/staleness 가드.
 - 프로젝트 스캐폴딩: `CLAUDE.md`(루트+모듈), `docs/architecture.md`, ADR/runbook 템플릿.
+- **CI / AI PR 리뷰:** 무툴 Kiro 에이전트 설정 `scripts/pr-review/agents/pr-review-notools.json`; 런북 `docs/runbooks/pr-review-panel.md`(한도 / 무툴 계약 / 설정 거부 3분류); 스텁 하네스 `tests/pr-review-panel-stub.sh`(`kiro-cli`/`codex`/`claude` 스텁, 모델 호출 없음); 모델별 Kiro **preflight** canary(PR 입력 전송 전 `NO_TOOLS` 양성 증명, `kiro-preflight.flag` → 강제 FAIL).
 
 ### Changed
 - 비용 DoS 예산 가드: 거대 파일 하나로 중단하지 않고 더 작은 고위험 파일로 채움.
@@ -72,7 +74,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - AgentCore `Ineffectual token` 401 — Cognito 토큰 만료 임박 시 선제 갱신.
 - 비동기 폴링·이력 보기 중 빈 화면 크래시 수정(빈 IN_PROGRESS 레코드·undefined 게이트 필드 가드).
 - 하드코딩 싱크 없는 파일도 헌트(전체 파일 폴백) — "스캔이 즉시 끝나는" 문제 수정.
-- **CI / AI PR 리뷰:** Kiro 패널 셀을 무툴 에이전트(`scripts/pr-review/agents/pr-review-notools.json`, `--agent pr-review-notools`)로 실행 — kiro-cli 2.11.1 은 `--trust-tools=`(빈 값)을 조용히 무시해 cwd 의 `read`/`glob`/`grep`/`code` 신뢰가 살아 있었음; v3 전용 `--mode default` 제거. 에이전트 폴백(`no agent with name … Falling back`)·월간 한도(`Monthly request limit reached` / `MONTHLY_REQUEST_COUNT`) 시그니처를 Kiro stderr 에서만 감지해 재시도 없이 리뷰 코멘트 배너 + `::error::` 로 노출; 에이전트 폴백은 `VERDICT: FAIL` 강제. `docs/runbooks/pr-review-panel.md` 참조.
+- **CI / AI PR 리뷰:** Kiro 패널 셀을 무툴 에이전트(`--agent pr-review-notools`)로 실행 — kiro-cli 2.11.1 은 `--trust-tools=`(빈 값)을 조용히 무시해 기본 에이전트의 cwd `read`/`glob`/`grep`/`code` 및 read-only `aws` 신뢰가 살아 있었음; v3 전용 `--mode default` 제거. 에이전트 파일은 호출 전 검증(이름, tools/allowedTools/resources/mcpServers 비어 있음, `useLegacyMcpJson: false`, 중복 키 없음, strict 키 allowlist — `hooks`/`toolAliases`/`toolsSettings`/`model` 거부)하고 모든 셀 디렉터리를 디스패치 전에 준비. 에이전트 폴백(`no agent with name … Falling back`)·월간 한도(`Monthly request limit reached` / `MONTHLY_REQUEST_COUNT` / `UsageLimitReachedError`) 시그니처를 Kiro stderr 에서만, 둘 다 성공 판정 *앞*에서 감지(한도 시그니처와 함께 남은 부분 stdout 은 truncated 로 폐기)해 재시도 없이 마커 기록 시점에 스크럽하고 리뷰 코멘트 배너 + `::error::` 로 노출; 에이전트 폴백·preflight 실패는 `VERDICT: FAIL` 강제, 한도는 벤더-축 coverage floor 아래 warn-level 유지. `kiro-cli --version` 을 패널 stderr 첫 줄에 기록. `docs/runbooks/pr-review-panel.md` 참조.
 
 ## [0.1.0] - 2026-06-17
 
