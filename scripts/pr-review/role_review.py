@@ -742,11 +742,9 @@ def normalized_key(value):
   return re.sub(r"[^A-Za-z0-9]+", "_", strip_controls(value))
 
 
-def scrub_fallbacks(value, key):
-  """Keep quoted and grouped fallback values whole across source lines."""
+def scrub_assignments(value, key):
+  """Consume assignments before another matcher can remove their delimiters."""
   operator = re.compile(r"\|\||\?\?|\bor\b")
-  if not operator.search(value):
-    return value
   opening = {"(": ")", "[": "]", "{": "}"}
   def next_content(index):
     while index < len(value) and value[index].isspace():
@@ -755,11 +753,6 @@ def scrub_fallbacks(value, key):
   pieces, cursor = [], 0
   for match in re.finditer(key, value):
     if match.start() < cursor:
-      continue
-    newline = value.find("\n", match.end())
-    line_end = len(value) if newline < 0 else newline
-    following = next_content(line_end)
-    if not operator.search(value, match.end(), line_end) and not operator.match(value, following):
       continue
     index, quote, escaped, stack = match.end(), None, False, []
     line_start = index
@@ -778,6 +771,8 @@ def scrub_fallbacks(value, key):
         quote = char * 3 if char != "`" and value.startswith(char * 3, index) else char
         index += len(quote)
         continue
+      elif char in ";," and not stack:
+        break
       elif char in opening:
         stack.append(opening[char])
       elif char in ")]}" and stack:
@@ -841,7 +836,7 @@ def scrub(value, preserved=frozenset()):
   quote = r"""\\*["']"""
   key = identifier + rf"(?:{quote})?\s*(?:(?::[^\r\n=]+)?=|:)\s*"
   value = re.sub(key + r"[|>][-+]?[ \t]*\r?\n(?:[+-]?[ \t]+[^\r\n]*(?:\r?\n|\Z))+", "[REDACTED]", value)
-  value = scrub_fallbacks(value, key)
+  value = scrub_assignments(value, key)
   while match := re.search(key + r"(?P<call>(?:[\w.]+\s*)?\()", value):
     end = len(value)
     for close in re.finditer(r"\)", value[match.end():]):
