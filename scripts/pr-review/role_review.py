@@ -368,39 +368,35 @@ def excluded_only(provenance, policy_hash):
     )
 
 
+def validate_policy(policy):
+    approved = {"basenames": "package-lock.json yarn.lock pnpm-lock.yaml .terraform.lock.hcl".split(),
+                "prefixes": ["reference-docs/"]}
+    if (not isinstance(policy, dict) or type(policy.get("schema_version")) is not int
+            or policy["schema_version"] != 1):
+        raise Invalid("invalid_exclusions_policy")
+    for field in ("basenames", "extensions", "directories", "prefixes", "path_regexes"):
+        values = policy.get(field, [])
+        if not isinstance(values, list) or any(x not in approved.get(field, []) for x in values):
+            raise Invalid("invalid_exclusions_policy")
+
+
 def policy_bytes(file):
-    """Anchor caller-selected BASE policy bytes."""
     try:
         path = Path(file)
         if path.is_symlink() or not path.is_file():
             raise Invalid("invalid_exclusions_policy")
         raw = path.read_bytes()
-        policy = strict_json(raw.decode("utf-8"))
-        if (not isinstance(policy, dict) or type(policy.get("schema_version")) is not int
-                or policy["schema_version"] != 1):
-            raise Invalid("invalid_exclusions_policy")
-        for field in ("basenames", "extensions", "directories", "prefixes", "path_regexes"):
-            values = policy.get(field, [])
-            if not isinstance(values, list) or any(not isinstance(x, str) or not x for x in values):
-                raise Invalid("invalid_exclusions_policy")
-        for pattern in policy.get("path_regexes", []):
-            re.compile(pattern)
+        validate_policy(strict_json(raw.decode("utf-8")))
         return raw
     except (OSError, UnicodeError, TypeError, re.error, Invalid):
         raise Invalid("invalid_exclusions_policy") from None
 
 
 def policy_covers(provenance, raw):
-    """Match every exclusion under BASE collector semantics."""
     policy = strict_json(raw.decode("utf-8"))
-    def excluded(path):
-        item = Path(path)
-        return (item.name in policy.get("basenames", [])
-                or item.suffix in policy.get("extensions", [])
-                or any(part in policy.get("directories", []) for part in item.parent.parts)
-                or any(path.startswith(prefix) for prefix in policy.get("prefixes", []))
-                or any(re.search(pattern, path) for pattern in policy.get("path_regexes", [])))
-    return all(excluded(path) for path in provenance["scope_paths"])
+    return all(Path(path).name in policy.get("basenames", [])
+               or path.startswith(tuple(policy.get("prefixes", [])))
+               for path in provenance["scope_paths"])
 
 
 def prepare(args):
