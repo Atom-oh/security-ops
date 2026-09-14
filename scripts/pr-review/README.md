@@ -143,8 +143,10 @@ The publication gate accepts only a substantive report with exactly one
 
 Issue/record exclude each other. Duplicate records block and cannot overwrite the
 first result. Valid results cannot be reissued. Invalid nonterminal results may
-be archived up to 32 times; overflow blocks. Model-selection, fallback, quota and
-preflight failures remain terminal until new preparation. Finish writers before
+be archived up to 32 times; overflow blocks. Model-selection, fallback, quota,
+preflight and decoded-response validation failures remain terminal until new
+preparation. Invalid semantic reports cannot be retried into clean coverage;
+transport/unparseable-response retries retain their existing bounds. Finish writers before
 aggregation; summaries retain attempt history. English is requested, not validated.
 
 All upstream `*.flag` files block. Root `coverage-severe.flag` is reserved solely

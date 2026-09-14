@@ -55,6 +55,7 @@ plan_input_incomplete quota_diagnostic response_identity response_schema reviewe
 scope_incomplete
 """.split())
 TERMINAL_CODES = {'model_selection_diagnostic', 'model_fallback_diagnostic', 'quota_diagnostic', 'agent_preflight_diagnostic'}
+TERMINAL_CODES |= set("response_identity response_schema scope_incomplete reviewed_paths checks_missing invalid_check invalid_findings invalid_finding invalid_uncertainties".split())
 
 
 class Invalid(Exception):
@@ -724,9 +725,9 @@ def diagnostic_failure(stderr):
 
 
 SENSITIVE_KEY = re.compile(
-    r"(?i:(?<![A-Za-z0-9])[A-Za-z0-9_.:-]*(?:password|passwd|pwd|dsn|api[_-]?key|"
+    r"(?i:(?<![A-Za-z0-9])[A-Za-z0-9_.:\t -]*(?:password|passwd|pwd|dsn|api[_-]?key|"
     r"secret|token|credential|passphrase|private[_-]?key|cookie|authorization|"
-    r"connection[_-]?string|origin[_-]?verify|AccessKeyId|access[_-]?key[_-]?id)[A-Za-z0-9_.:-]*)"
+    r"connection[_-]?string|origin[_-]?verify|AccessKeyId|access[_-]?key[_-]?id)[A-Za-z0-9_.:\t -]*)"
 )
 
 
@@ -737,6 +738,10 @@ def strip_controls(value):
     return "".join(c for c in value if c in "\n\r\t" or unicodedata.category(c) not in ("Cc", "Cf", "Zl", "Zp"))
 
 
+def normalized_key(value):
+    return re.sub(r"\s+", "_", strip_controls(value))
+
+
 def scrub(value, preserved=frozenset()):
     """Scrub decoded strings too: raw-JSON sanitizers miss escaped credentials."""
     if isinstance(value, list):
@@ -745,10 +750,10 @@ def scrub(value, preserved=frozenset()):
         items = [(k, scrub(k, preserved), v) for k, v in value.items()]
         sensitive_values = {field for name, field in (("name", "value"), ("headername", "headervalue"))
             if any(isinstance(key, str) and strip_controls(key).lower() == name and isinstance(item, str)
-                   and SENSITIVE_KEY.search(strip_controls(item)) for key, _, item in items)}
+                   and SENSITIVE_KEY.search(normalized_key(item)) for key, _, item in items)}
         result, suffix = {}, 1
         for original, key, item in items:
-            hidden = any(isinstance(k, str) and (SENSITIVE_KEY.fullmatch(k)
+            hidden = any(isinstance(k, str) and (SENSITIVE_KEY.fullmatch(normalized_key(k))
                          or k.lower() in sensitive_values) for k in (original, key))
             if key != original and (key in value or key in result):
                 while f"[REDACTED-KEY-{suffix}]" in value or f"[REDACTED-KEY-{suffix}]" in result:
