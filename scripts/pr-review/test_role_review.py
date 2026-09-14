@@ -398,12 +398,12 @@ class RoleReviewTests(unittest.TestCase):
     def test_exclusion_evidence(self):
         metadata, paths = self.root / "source.json", self.root / "paths.json"
         policy = self.root / "policy.json"
-        policy.write_bytes(b'{"schema_version":1,"extensions":[".png"]}\r\n')
+        policy.write_bytes(b'{"schema_version":1,"basenames":["yarn.lock"]}\r\n')
         policy_hash = hashlib.sha256(policy.read_bytes()).hexdigest()
         source = {**self.provenance(b""),
                   "scope_exception": "configured_exclusions_only",
                   "input_policy_sha256": policy_hash,
-                  "scope_paths": ["assets/logo.png"], "excluded_paths": ["assets/logo.png"]}
+                  "scope_paths": ["yarn.lock"], "excluded_paths": ["yarn.lock"]}
         metadata.write_text(json.dumps(source))
         paths.write_text("[]")
         args = ("--provenance", metadata, "--paths", paths)
@@ -416,7 +416,7 @@ class RoleReviewTests(unittest.TestCase):
         self.prepare("", extra=(*args, *opt_in))
         self.finish()
         report = self.text("deterministic-review.md")
-        self.assertIn("assets/logo.png", report)
+        self.assertIn("yarn.lock", report)
         self.assertIn(policy_hash, report)
         self.assertIn("NOT_APPLICABLE", report)
         anchor = self.work / "exclusions-policy.json"
@@ -564,11 +564,7 @@ class RoleReviewTests(unittest.TestCase):
                 self.case(f"metadata-{i}")
                 metadata.write_text(json.dumps({**self.provenance(raw), "path_only": listed}))
                 self.prepare(raw, extra=("--provenance", metadata, *opt_in), expected=expected)
-                if expected:
-                    self.assert_blocked()
-                else:
-                    self.finish()
-                    self.assertIn("Content withheld by collector policy", self.text("deterministic-review.md"))
+                self.assert_blocked()
 
     def exclusion_case(self, policy, paths, expected=0):
         policy_file, metadata, manifest = (self.root / name for name in ("policy.json", "source.json", "paths.json"))
@@ -583,6 +579,11 @@ class RoleReviewTests(unittest.TestCase):
 
     def test_exclusion_rules(self):
         for i, (policy, paths) in enumerate((
+            ({"schema_version": 1, "extensions": [".png"]}, ["logo.png"]),
+            ({"schema_version": 1, "directories": ["build"]}, ["build/app.py"]),
+            ({"schema_version": 1, "path_regexes": ["."]}, ["app.py"]),
+            ({"schema_version": 1, "prefixes": ["backend/"]}, ["backend/app.py"]),
+            ({"schema_version": 1, "basenames": ["app.py"]}, ["app.py"]),
             ({"schema_version": 1}, ["backend/app.py"]),
             ({"schema_version": 1, "extensions": [".png"]}, ["logo.png", "backend/app.py"]),
             ({"schema_version": 1, "directories": ["build"]}, ["frontend/build"]),
@@ -594,7 +595,7 @@ class RoleReviewTests(unittest.TestCase):
                 self.assert_blocked()
 
     def test_policy_revalidation(self):
-        self.exclusion_case({"schema_version": 1, "extensions": [".png"]}, ["logo.png"])
+        self.exclusion_case({"schema_version": 1, "basenames": ["yarn.lock"]}, ["yarn.lock"])
         self.finish()
         plan = self.plan()
         plan["provenance"]["scope_paths"] = plan["provenance"]["excluded_paths"] = ["backend/app.py"]

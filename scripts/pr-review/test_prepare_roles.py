@@ -100,6 +100,25 @@ class PreparationTests(unittest.TestCase):
         (self.root / "AGENTS.md").write_text("UNTRUSTED changed instructions.\n")
         self.assertEqual(prepare.context_at(self.base, 24000), "Trusted reviewer context.\n")
 
+    def test_unapproved_base_policy_cannot_filter_mixed_source(self):
+        directory = self.root / "scripts/pr-review"
+        directory.mkdir(parents=True)
+        (directory / "role-input-scope.json").write_text(
+            '{"schema_version":1,"extensions":[".py"]}\n')
+        for name in ("app.py", "Button.tsx"):
+            (self.root / name).write_text("old\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", "unapproved policy")
+        base = self.git("rev-parse", "HEAD").strip()
+        for name in ("app.py", "Button.tsx"):
+            (self.root / name).write_text("new\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", "mixed source")
+        head = self.git("rev-parse", "HEAD").strip()
+        self.git("checkout", "-q", "--detach", base)
+        with self.assertRaisesRegex(prepare.Invalid, "invalid_exclusions_policy"):
+            self.prepare_locally(head, base, directory)
+
     def test_stale_generated_context_is_rejected(self):
         (self.root / "AGENTS.md").write_text(
             "<!-- generated-by: co-agent · claude-md-sha: 000000000000 -->\n"
@@ -152,13 +171,13 @@ class PreparationTests(unittest.TestCase):
         policy = self.root / "scripts/pr-review/role-input-scope.json"
         policy.parent.mkdir(parents=True)
         (policy.parent / "role_review.py").write_bytes(MODULE.with_name("role_review.py").read_bytes())
-        material = b'{"schema_version":1,"extensions":[".png"]}\r\n'
+        material = b'{"schema_version":1,"basenames":["yarn.lock"]}\r\n'
         policy.write_bytes(material)
         self.git("add", ".")
         self.git("commit", "-qm", "approved policy")
         base = self.git("rev-parse", "HEAD").strip()
-        (self.root / "logo.png").write_text("candidate asset\n")
-        self.git("add", "logo.png")
+        (self.root / "yarn.lock").write_text("candidate lockfile\n")
+        self.git("add", "yarn.lock")
         self.git("commit", "-qm", "asset change")
         head = self.git("rev-parse", "HEAD").strip()
         self.git("checkout", "-q", "--detach", base)

@@ -13,7 +13,7 @@ import re
 import subprocess
 import sys
 
-from role_review import Invalid, strict_json
+from role_review import Invalid, strict_json, validate_policy
 
 DIRECTORY = Path(__file__).resolve().parent
 
@@ -134,6 +134,9 @@ def prepare(head, base, work, supplied_diff=None):
         ]
         raw_diff = command(*options, "--")
         scope_paths = [path for path in command(*options, "--name-only", "-z", "--").split("\0") if path]
+        scope_policy = git_file(base, "scripts/pr-review/role-input-scope.json")
+        if scope_policy is not None:
+            validate_policy(strict_json(scope_policy))
         paths, excluded, scope_digest = selected_paths(base, scope_paths)
         diff = command(*options, "--", *paths) if paths else ""
         provenance = {

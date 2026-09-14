@@ -8,6 +8,7 @@ and [ADR-002](../../docs/decisions/ADR-002-specialist-review-protocol.md).
 Declared scope must equal reviewed plus excluded paths, without overlap.
 The BASE collector owns mixed-scope exclusion authorization; the explicit policy
 anchor remains mandatory for exclusions-only zero-role completion.
+`validate_policy` enforces ADR-002's approved rule ceiling.
 
 | Tag | Requested model / provider namespace | Responsibility |
 | --- | --- | --- |
@@ -80,12 +81,11 @@ Set provenance `scope_exception` to `configured_exclusions_only` and
 `input_policy_sha256` to the exact policy file's SHA-256. These are different
 inventories, not a claim that the original PR has no changes.
 
-The schema-1 policy has optional nonempty-string arrays: `basenames` matches the
-final component exactly; `extensions` matches the final suffix; `directories`
-matches a parent component; `prefixes` uses literal starts-with; `path_regexes`
-uses Python regex search (anchors must be explicit). Invalid regexes block.
-These are trusted BASE configuration, not PR-supplied expressions. Every claimed
-path must match a rule. Its copied `exclusions-policy.json` bytes and rules are
+The schema-1 policy accepts approved `basenames` and `prefixes` arrays: basenames
+match the final component, and prefixes match the literal path start. The reserved
+`extensions`, `directories` and `path_regexes` arrays must be absent or empty.
+These are trusted BASE settings; every excluded path must match an approved rule.
+The copied `exclusions-policy.json` bytes and rules are
 rechecked on aggregation. This may yield NOT_APPLICABLE/PASS with no model calls;
 the report lists excluded paths and the policy hash. A generic collector may use
 this only with its reviewed BASE policy and explicit opt-in; an untrusted caller
@@ -94,7 +94,7 @@ cannot authorize exclusions. Unknown scope, source omissions and collector failu
 For this rollout the approved exclusions are exactly the existing workflow's
 `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `.terraform.lock.hcl` basenames
 and `reference-docs/` prefix. No extension, directory or regex rule is approved.
-Changing that set requires a separate BASE-policy review; this schema description
+Changing that set requires a code and BASE-policy review; this schema description
 does not approve catch-all rules or new source omissions. Lockfile exclusions are
 an explicit retained limitation, not a claim that those files lack security impact.
 
@@ -204,6 +204,7 @@ and validates BASE/candidate context. It uses AGENTS when present, otherwise
 CLAUDE, with the byte cap and generated-source checks. Only BASE text instructs.
 The policy file contains only the four approved lockfile basenames and
 `reference-docs/`; no broader exclusion is activated.
+Preparation validates this ceiling before filtering either mixed or exclusions-only scope.
 
 From pinned BASE, set `HEAD_SHA`, `BASE_SHA` and `GH_REPO`:
 
