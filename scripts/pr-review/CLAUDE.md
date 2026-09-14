@@ -9,3 +9,5 @@ Their current limits, safety controls and Korean/English output remain authorita
 New documentation uses English. Protocol output switches to English only at the
 separate activation. Run the documented tests after the library lands. Preserve
 source custody, configured providers, budgets and the active coverage policy.
+
+The offline protocol and its tests are now installed; provider activation remains separate.

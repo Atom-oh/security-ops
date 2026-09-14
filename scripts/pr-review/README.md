@@ -1,6 +1,7 @@
 # Specialist review protocol
 
-**Planned contract:** the offline library and tests arrive in the next PR.
+Installed [protocol](role_review.py): ADR-002 exclusions; rename/copy keeps Kiro.
+Markdown reports verified policy hashes only.
 The legacy review pipeline remains active; executor integration and activation
 require separate review. [ADR-002](../../docs/decisions/ADR-002-specialist-review-protocol.md)
 records the decision. This library performs no Git operations or provider calls.
@@ -142,8 +143,10 @@ The publication gate accepts only a substantive report with exactly one
 
 Issue/record exclude each other. Duplicate records block and cannot overwrite the
 first result. Valid results cannot be reissued. Invalid nonterminal results may
-be archived up to 32 times; overflow blocks. Model-selection, fallback, quota and
-preflight failures remain terminal until new preparation. Finish writers before
+be archived up to 32 times; overflow blocks. Model-selection, fallback, quota,
+preflight and decoded-response validation failures remain terminal until new
+preparation. Invalid semantic reports cannot be retried into clean coverage;
+transport/unparseable-response retries retain their existing bounds. Finish writers before
 aggregation; summaries retain attempt history. English is requested, not validated.
 
 All upstream `*.flag` files block. Root `coverage-severe.flag` is reserved solely
