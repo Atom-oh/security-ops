@@ -227,6 +227,11 @@ diagnostics; JSON evidence is not treated as an error. The security-ops chair mu
 apply decoded redaction before the legacy text scrubber, which otherwise destroys
 key boundaries. No raw requests/diffs/provider output are public artifacts.
 
+Known issued-input echo lines are removed before diagnostic prefix normalization;
+non-echo bullet/quote errors retain their terminal classification. Triple-quoted
+credentials and sensitive call defaults are masked, including nested/multiline
+calls. Parsing never executes code; an unclosed call consumes the remaining evidence.
+
 Defaults/maxima: role timeout 300/900 seconds, total attempts 2/3, Kiro startup
 60/120 seconds. The chair retains legacy `CHAIR_TIMEOUT` (600 seconds) and
 `PANEL_CELL_CAP` (20,000 UTF-8 bytes per validated role response). Oversize evidence

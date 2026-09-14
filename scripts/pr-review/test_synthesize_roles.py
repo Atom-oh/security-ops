@@ -22,12 +22,12 @@ class SynthesisTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
 
-    def run_chair(self, replies):
+    def run_chair(self, replies, diff="Complete supplied diff."):
         (self.root / "chair-mode.txt").write_text("review\n")
         (self.root / "role-summary.json").write_text('{"findings":[]}')
         (self.root / "project-context.md").write_text("Trusted base.")
         (self.root / "roles").mkdir(exist_ok=True)
-        (self.root / "roles/codex.diff").write_text("Complete supplied diff.")
+        (self.root / "roles/codex.diff").write_text(diff)
         with patch.dict(os.environ, {"CHAIR_TIMEOUT": "10",
                 "CHAIR_PRIMARY_MODEL": "global.anthropic.claude-fable-5-1",
                 "CHAIR_FALLBACK_MODEL": "global.anthropic.claude-opus-5"}), \
@@ -45,6 +45,15 @@ class SynthesisTests(unittest.TestCase):
                 ])
                 self.assertEqual(calls, 2)
                 self.assertTrue(text.endswith("VERDICT: PASS\n"))
+
+    def test_chair_filters_known_echo_but_keeps_real_prefixed_errors(self):
+        echoed = " Error: quota exceeded\n Monthly request limit reached\n"
+        for extra in ("", "> [warn] failed to set model\n"):
+            with self.subTest(extra=extra):
+                reply = (0, "Checked the evidence.\nVERDICT: PASS\n", echoed + extra)
+                calls, text = self.run_chair([reply, reply], diff=echoed)
+                self.assertEqual(calls, 2 if extra else 1)
+                self.assertTrue(text.endswith("VERDICT: FAIL\n" if extra else "VERDICT: PASS\n"))
 
     def test_legacy_cell_byte_limit_blocks_without_truncation(self):
         slot = self.root / "slot"

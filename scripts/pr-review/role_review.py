@@ -20,14 +20,10 @@ MAX_DIFF_LINES = 3000
 MAX_CONTEXT_BYTES = 24000
 MAX_REQUEST_BYTES = 131072
 ROLES = {
-    "codex": ("implementation", "OpenAI", "global.openai.gpt-6-astra",
-              "Implementation correctness, concurrency and tests"),
-    "kiro-fable": ("aws", "Anthropic", "claude-opus-5",
-                   "AWS, IAM, network and service constraints"),
-    "kiro-sol": ("deployment", "OpenAI", "gpt-5.6-sol",
-                 "Deployment, contracts, lifecycle and recovery"),
-    "claude-self": ("requirements", "Anthropic", "global.anthropic.claude-fable-5-1",
-                    "Authentication, data, API and ADR requirements"),
+    "codex": ('implementation', 'OpenAI', 'global.openai.gpt-6-astra', 'Implementation correctness, concurrency and tests'),
+    "kiro-fable": ('aws', 'Anthropic', 'claude-opus-5', 'AWS, IAM, network and service constraints'),
+    "kiro-sol": ('deployment', 'OpenAI', 'gpt-5.6-sol', 'Deployment, contracts, lifecycle and recovery'),
+    "claude-self": ('requirements', 'Anthropic', 'global.anthropic.claude-fable-5-1', 'Authentication, data, API and ADR requirements'),
 }
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 FRONTEND_PATH = re.compile(
@@ -46,10 +42,7 @@ DEPLOY_SIGNAL = re.compile(
     r"idempoten\w*|queue|migration|schema|contract|api|docker|replicas|"
     r"desiredCount|task_definition|turn_on|turn_off)\b", re.I,
 )
-RESPONSE_KEYS = {
-    "head_sha", "role", "scope_complete", "reviewed_paths", "checks",
-    "findings", "uncertainties",
-}
+RESPONSE_KEYS = {'head_sha', 'role', 'scope_complete', 'reviewed_paths', 'checks', 'findings', 'uncertainties'}
 FAILURE_CODES = set("""
 agent_preflight_diagnostic checks_missing cli_nonzero_exit duplicate_json_key
 duplicate_record empty_response inactive_role input_unavailable_or_not_utf8 invalid_check
@@ -61,8 +54,7 @@ missing_independent_role model_fallback_diagnostic model_selection_diagnostic no
 plan_input_incomplete quota_diagnostic response_identity response_schema reviewed_paths
 scope_incomplete
 """.split())
-TERMINAL_CODES = {"model_selection_diagnostic", "model_fallback_diagnostic",
-                  "quota_diagnostic", "agent_preflight_diagnostic"}
+TERMINAL_CODES = {'model_selection_diagnostic', 'model_fallback_diagnostic', 'quota_diagnostic', 'agent_preflight_diagnostic'}
 
 
 class Invalid(Exception):
@@ -207,10 +199,7 @@ def complete_hunks(chunk):
     if re.search(r"^(?:--- |\+\+\+ )", chunk, re.M):
         raise Invalid("incomplete_diff_hunk")
     index = re.search(r"^index ([0-9a-f]{7,64})\.\.([0-9a-f]{7,64})(?: \d+)?$", chunk, re.M)
-    empty_ids = (
-        hashlib.sha1(b"blob 0\0").hexdigest(),
-        hashlib.sha256(b"blob 0\0").hexdigest(),
-    )
+    empty_ids = (hashlib.sha1(b'blob 0\x00').hexdigest(), hashlib.sha256(b'blob 0\x00').hexdigest())
     def empty_blob(oid):
         return any(full.startswith(oid) for full in empty_ids)
 
@@ -287,11 +276,8 @@ def routing(paths, diff):
     return {
         "codex": (True, "always_required_independent_implementation_review"),
         "claude-self": (True, "always_required_independent_requirements_review"),
-        "kiro-fable": (not clear_frontend or aws, "aws_signal" if aws else
-                       "unknown_or_contract_scope" if not clear_frontend else "clear_frontend_only"),
-        "kiro-sol": (not clear_frontend or aws or deployment, "deployment_or_aws_signal"
-                     if aws or deployment else "unknown_or_contract_scope"
-                     if not clear_frontend else "clear_frontend_only"),
+        "kiro-fable": (not clear_frontend or aws, 'aws_signal' if aws else 'unknown_or_contract_scope' if not clear_frontend else 'clear_frontend_only'),
+        "kiro-sol": (not clear_frontend or aws or deployment, 'deployment_or_aws_signal' if aws or deployment else 'unknown_or_contract_scope' if not clear_frontend else 'clear_frontend_only'),
     }
 
 
@@ -368,8 +354,7 @@ def excluded_only(provenance, policy_hash):
     )
 
 
-APPROVED = {"basenames": "package-lock.json yarn.lock pnpm-lock.yaml .terraform.lock.hcl".split(),
-            "prefixes": ["reference-docs/"]}
+APPROVED = {'basenames': 'package-lock.json yarn.lock pnpm-lock.yaml .terraform.lock.hcl'.split(), 'prefixes': ['reference-docs/']}
 
 
 def validate_policy(policy):
@@ -497,8 +482,7 @@ def prepare(args):
         routes = {tag: (False, "approved_exclusions_only") for tag in ROLES}
     for tag, (slug, family, model, description) in ROLES.items():
         required, reason = routes[tag]
-        role = {"required": required, "role": slug, "family": family, "model": model,
-                "description": description, "paths": paths if required else [], "reason": reason}
+        role = {'required': required, 'role': slug, 'family': family, 'model': model, 'description': description, 'paths': paths if required else [], 'reason': reason}
         body = prompt(tag, role, args.head, args.base, context).encode()
         role["request_digest"] = request_digest(plan, tag, role, body, raw)
         plan["roles"][tag] = role
@@ -526,8 +510,7 @@ def prepare(args):
     for tag in ROLES:
         remove(work / "slot" / f"{tag}-attempts.json")
         remove(work / "slot" / f"role-{tag}-terminal.flag")
-    for name in ("role-summary.json", "responded.txt", "chair-mode.txt",
-                 "deterministic-review.md", "coverage-severe.flag"):
+    for name in ('role-summary.json', 'responded.txt', 'chair-mode.txt', 'deterministic-review.md', 'coverage-severe.flag'):
         remove(work / name)
     return 0 if plan["input_complete"] else 2
 
@@ -710,12 +693,18 @@ def parse_response(text):
     return strict_json(text)
 
 
-def diagnostic_failure(stderr):
-    """Match diagnostics, excluding echoed input."""
+def diagnostic_text(stderr, known=""):
+    echoed, lines = set(known.splitlines()), []
     for raw in stderr.splitlines():
-        line = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", raw).strip()
-        if line.startswith(("+", "-", ">", "|", "```", "diff --git", "@@")):
-            continue
+        line = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", raw)
+        if raw not in echoed and line not in echoed:
+            lines.append(line)
+    return "\n".join(lines)
+
+
+def diagnostic_failure(stderr, known=""):
+    for raw in diagnostic_text(stderr, known).splitlines():
+        line = re.sub(r"^(?:[>|+-]\s*)+", "", raw.strip())
         if re.search(r"^(?:An error occurred \(|(?:ERROR|Error|error|FATAL|Fatal):?\s*)"
                      r".*\b(?:INVALID_MODEL_ID|ModelNotFoundException|ThrottlingException|"
                      r"TooManyRequestsException|ServiceQuotaExceededException|RESOURCE_EXHAUSTED)\b", line):
@@ -794,6 +783,18 @@ def scrub(value, preserved=frozenset()):
     identifier = SENSITIVE_KEY.pattern
     quote = r"""\\*["']"""
     key = identifier + rf"(?:{quote})?\s*[:=]\s*"
+    while match := re.search(key + r"(?P<call>[\w.]+\s*\()", value):
+        end = len(value)
+        for close in re.finditer(r"\)", value[match.end():]):
+            stop = match.end() + close.end()
+            try:
+                ast.parse(value[match.start("call"):stop], mode="eval")
+            except (SyntaxError, ValueError):
+                continue
+            newline = value.find("\n", stop)
+            end = len(value) if newline < 0 else newline
+            break
+        value = value[:match.start()] + "[REDACTED]" + value[end:]
     patterns = (
         r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\Z)",
         r"(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}",
@@ -812,6 +813,7 @@ def scrub(value, preserved=frozenset()):
         rf"(?i:\b(?:header)?name)(?:{quote})?\s*[:=]\s*(?:{quote})?" + identifier
         + rf"(?:{quote})?[\s,]*[+-]?[ \t]*(?:{quote})?(?i:(?:header)?value)(?:{quote})?\s*[:=]\s*"
         + rf"(?:(?P<named>{quote}).*?(?P=named)|[^\s,}}\]]+)",
+        key + r"(?P<triple>\"{3}|'{3}).*?(?:(?P=triple)|\Z)",
         key + rf"(?P<quote>{quote}).*?(?P=quote)",
         key + r"""[^\s"',;}\]]+""",
     )
@@ -869,7 +871,8 @@ def _record(args):
         if args.exit_code != 0:
             result["failure_codes"].append("cli_nonzero_exit")
         stderr = text_file(args.stderr)
-        failure = diagnostic_failure(stderr)
+        known = "\n".join(request_receipt(work, plan, args.tag, args.nonce)[:2])
+        failure = diagnostic_failure(stderr, known)
         if failure:
             result["failure_codes"].append(failure)
         if result["failure_codes"]:
@@ -976,8 +979,7 @@ def aggregate(args):
         "provenance": plan.get("provenance", {}) if plan else {},
         "attempt_history": history,
         "failure_codes": sorted(set(failures)),
-        "roles": {tag: {**role, "status": "inactive" if not role["required"] else
-                       "validated" if tag in responded else "blocked"}
+        "roles": {tag: {**role, 'status': 'inactive' if not role['required'] else 'validated' if tag in responded else 'blocked'}
                   for tag, role in plan["roles"].items()} if plan else {},
     }
     write_json(work / "role-summary.json", summary)
@@ -991,8 +993,7 @@ def aggregate(args):
         remove(work / "deterministic-review.md")
     else:
         lines = ["# Role review", "", "Configured model identities are not proof of executed weights.", ""]
-        lines += ["| Tag | Role | Required | Status | Routing reason |",
-                  "| --- | --- | --- | --- | --- |"]
+        lines += ['| Tag | Role | Required | Status | Routing reason |', '| --- | --- | --- | --- | --- |']
         for tag, role in summary["roles"].items():
             lines.append(f"| {tag} | {role['role']} | {str(role['required']).lower()} | "
                          f"{role['status']} | {role['reason']} |")
@@ -1003,8 +1004,7 @@ def aggregate(args):
         if plan and plan.get("exclusions_policy_sha256"):
             lines += ["Input policy SHA-256: " + canonical(plan["exclusions_policy_sha256"]), ""]
         if failures:
-            lines += ["Review blocked: required input or response validation failed.", "",
-                      "Failure codes:"] + [f"- `{code}`" for code in sorted(set(failures))]
+            lines += ['Review blocked: required input or response validation failed.', '', 'Failure codes:'] + [f"- `{code}`" for code in sorted(set(failures))]
         else:
             for finding in findings:
                 # Escape findings to prevent forged verdict lines.
