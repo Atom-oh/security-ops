@@ -789,6 +789,8 @@ def scrub_assignments(value, key):
       if char == "\n":
         line_start = index + 1
       index += 1
+    if index == match.end():
+      continue
     pieces.extend((value[cursor:match.start()], "[REDACTED]"))
     cursor = index
   return "".join(pieces + [value[cursor:]])
@@ -836,6 +838,10 @@ def scrub(value, preserved=frozenset()):
   quote = r"""\\*["']"""
   key = identifier + rf"(?:{quote})?\s*(?:(?::[^\r\n=]+)?=|:)\s*"
   value = re.sub(key + r"[|>][-+]?[ \t]*\r?\n(?:[+-]?[ \t]+[^\r\n]*(?:\r?\n|\Z))+", "[REDACTED]", value)
+  pair = (rf"(?i:\b(?:header)?name)(?:{quote})?\s*[:=]\s*(?:{quote})?" + identifier
+    + rf"(?:{quote})?[\s,]*[+-]?[ \t]*(?:{quote})?(?i:(?:header)?value)(?:{quote})?\s*[:=]\s*"
+    + rf"(?:(?P<named>{quote}).*?(?P=named)|[^\s,}}\]]+)")
+  value = re.sub(pair, "[REDACTED]", value, flags=re.S)
   value = scrub_assignments(value, key)
   while match := re.search(key + r"(?P<call>(?:[\w.]+\s*)?\()", value):
     end = len(value)
@@ -864,9 +870,6 @@ def scrub(value, preserved=frozenset()):
     r"""(?im)^[ \t]*[+-]?[ \t]*(?:set-)?cookie["']?[ \t]*:[^\r\n]*""",
     r"""(?i:\bx-origin-verify)["']?\s*:\s*["']?[^\s"',;}\]]+""",
     key + r"(?P<triple>\"{3}|'{3}).*?(?:(?P=triple)|\Z)",
-    rf"(?i:\b(?:header)?name)(?:{quote})?\s*[:=]\s*(?:{quote})?" + identifier
-    + rf"(?:{quote})?[\s,]*[+-]?[ \t]*(?:{quote})?(?i:(?:header)?value)(?:{quote})?\s*[:=]\s*"
-    + rf"(?:(?P<named>{quote}).*?(?P=named)|[^\s,}}\]]+)",
     key + rf"(?P<quote>{quote}).*?(?P=quote)",
     key + r"""[^\s"',;}\]]+""",
   )
