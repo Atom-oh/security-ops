@@ -217,7 +217,8 @@ Codex retains security-ops' isolated HOME: only the runner's `.codex/config.toml
 is copied, never auth/session files. Missing config does not restore real HOME.
 Its environment retains PATH/locale/temp, AWS region and the two Pod Identity
 credential-channel variables; unrelated secrets and AWS profiles/keys are excluded.
-Kiro uses isolated HOME/cwd and the empty catalog/canary. Claude's specialist has
+Kiro preflight and review use `--legacy-ui --agent-engine v1`, isolated HOME/cwd,
+and the empty catalog/canary. Claude's specialist has
 no tools; the chair uses bounded read tools. GitHub tokens are removed from provider
 children. AWS authentication remains necessary for Bedrock; this is not filesystem
 confinement or a claim that the inherited runner role is least-privilege.

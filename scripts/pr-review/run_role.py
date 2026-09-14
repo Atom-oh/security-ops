@@ -184,7 +184,8 @@ def preflight(binary, model, cwd, environment, timeout):
         "reply with exactly NO_TOOLS. Do not run any other tools."
     )
     code, output, error = execute(
-        [binary, "chat", prompt, "--model", model, "--agent", "inline-review",
+        [binary, "chat", prompt, "--model", model, "--legacy-ui", "--agent-engine", "v1",
+         "--agent", "inline-review",
          "--no-interactive", "--wrap", "never"],
         cwd, kiro_environment(cwd, environment), "", timeout,
     )
@@ -271,6 +272,7 @@ def run(work, tag):
                 else:
                     command = [
                         binary, "chat", instruction, "--model", role["model"],
+                        "--legacy-ui", "--agent-engine", "v1",
                         "--agent", "inline-review", "--no-interactive", "--wrap", "never",
                     ]
                     for _ in range(attempts):
