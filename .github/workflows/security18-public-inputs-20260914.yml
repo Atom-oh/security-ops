@@ -1,0 +1,81 @@
+name: Supplemental Security18 public input verification
+
+on:
+  push:
+    branches: [validation/security18-public-inputs-20260914]
+
+permissions:
+  contents: read
+
+jobs:
+  verify-inputs:
+    runs-on: security-ops-claude-arm
+    timeout-minutes: 5
+    env:
+      BASE_SHA: df7fa504471a997a34db93f275865eff78c2c74c
+      HEAD_SHA: 1a1097e3057c2215a6977b2bc833b3b352804fc3
+      GH_REPO: Atom-oh/security-ops
+      PYTHONDONTWRITEBYTECODE: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: df7fa504471a997a34db93f275865eff78c2c74c
+          persist-credentials: false
+
+      - name: Verify real public origin without Git credentials
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          umask 077
+          gh api repos/Atom-oh/security-ops --jq '{full_name,private,visibility}' \
+            > "$RUNNER_TEMP/visibility.json"
+          test "$(git rev-parse HEAD)" = "$BASE_SHA"
+          origin="$(git remote get-url origin)"
+          test "$origin" = https://github.com/Atom-oh/security-ops ||
+            test "$origin" = https://github.com/Atom-oh/security-ops.git
+          mkdir -p "$RUNNER_TEMP/public-git-home"
+          env -u GIT_CONFIG_PARAMETERS HOME="$RUNNER_TEMP/public-git-home" \
+            XDG_CONFIG_HOME="$RUNNER_TEMP/public-git-home/xdg" \
+            GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_COUNT=0 \
+            GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false \
+            git -c credential.helper= -c http.extraheader= \
+              -c http.https://github.com/.extraheader= \
+              fetch --no-tags --depth=1 origin "$BASE_SHA" "$HEAD_SHA"
+          python3 scripts/pr-review/prepare_roles.py --work "$RUNNER_TEMP/public-inputs"
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root = Path(os.environ["RUNNER_TEMP"])
+          visibility = json.loads((root / "visibility.json").read_text())
+          plan = json.loads((root / "public-inputs/role-plan.json").read_text())
+          assert visibility["private"] is False and visibility["visibility"] == "public"
+          assert plan["input_complete"] is True
+          assert plan["head_sha"] == os.environ["HEAD_SHA"]
+          assert plan["base_sha"] == os.environ["BASE_SHA"]
+          report = {
+              "repository": visibility, "base_sha": plan["base_sha"],
+              "head_sha": plan["head_sha"], "model_calls": 0,
+              "credential_free_https_fetch_exit": 0, "fresh_git_home": True,
+              "git_system_global_config_disabled": True,
+              "git_helpers_and_extraheaders_empty": True, "git_prompts_disabled": True,
+              "checkout_persist_credentials": False, "base_preparation_exit": 0,
+              "input_complete": True, "path_count": len(plan["paths"]),
+              "diff_bytes": plan["diff_bytes"], "diff_sha256": plan["diff_sha256"],
+              "plan_digest": plan["plan_digest"],
+              "context_bytes": (root / "public-inputs/project-context.md").stat().st_size,
+              "role_source_sha256": hashlib.sha256(
+                  (root / "public-inputs/role-source.json").read_bytes()).hexdigest(),
+              "scope": "Git/preparation verification only; no model or current-HEAD review credit",
+          }
+          (root / "public-input-verification.json").write_text(json.dumps(report, indent=2) + "\n")
+          print(json.dumps(report))
+          PY
+
+      - name: Upload only verification metadata
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: security18-public-inputs-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/public-input-verification.json
+          if-no-files-found: error
