@@ -96,6 +96,8 @@ class RoleExecutionTests(unittest.TestCase):
             "assert agent['tools']==[] and agent['allowedTools']==[]\n"
             "assert sys.stdin.read()==''\n"
             "assert '--agent' in sys.argv and '--v3' not in sys.argv\n"
+            "assert '--legacy-ui' in sys.argv\n"
+            "assert sys.argv[sys.argv.index('--agent-engine')+1]=='v1'\n"
             "assert 'preflight-canary.txt' in sys.argv[2]\n"
             "print('> NO_TOOLS')\n"
         )
@@ -314,6 +316,9 @@ class RoleRecordingTests(unittest.TestCase):
             calls.append(command)
             if "preflight-canary.txt" in command[2]:
                 return 0, "\x1b[32m> NO_TOOLS\x1b[0m\n", ""
+            self.assertIn("--legacy-ui", command)
+            self.assertEqual(command[command.index("--agent-engine") + 1], "v1")
+            self.assertEqual(command[command.index("--model") + 1], "gpt-5.6-sol")
             return 0, "\x1b[32m> \x1b[0m" + payload + "\x1b[0m", ""
 
         self.run_recording(tag="kiro-sol", execute=kiro)
