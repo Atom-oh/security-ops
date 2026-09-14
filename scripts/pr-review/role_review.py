@@ -158,7 +158,7 @@ def patch_path(value):
 
 
 def header_path(header):
-    """Resolve unquoted names without shlex splitting."""
+    """Resolve Git headers without shlex."""
     raw = header[len("diff --git "):]
     if raw.startswith('"'):
         match = re.fullmatch(r'("(?:\\.|[^"\\])*") ("(?:\\.|[^"\\])*")', raw)
@@ -174,7 +174,9 @@ def header_path(header):
 
 
 def complete_hunks(chunk):
-    """Validate complete hunks or provably hunk-free metadata."""
+    """Validate hunks and metadata."""
+    if re.search(r"^(?:Binary files |GIT binary patch)", chunk, re.M):
+        raise Invalid("binary_content_not_reviewable")
     remaining = None
     hunk_seen = False
     for line in chunk.split("\n"):
@@ -226,8 +228,6 @@ def complete_hunks(chunk):
             return
         if re.search(r"^old mode ", chunk, re.M) and re.search(r"^new mode ", chunk, re.M):
             return
-    if re.search(r"^(?:Binary files |GIT binary patch)", chunk, re.M):
-        return  # Preparation separately rejects unsupported binary input.
     raise Invalid("diff_change_missing")
 
 
@@ -295,7 +295,7 @@ def routing(paths, diff):
     }
 
 
-def prompt(tag, role, head, base, paths, context):
+def prompt(tag, role, head, base, context):
     return (
         f"Review tag: {tag}\nRole: {role['role']} — {role['description']}\n"
         f"HEAD: {head}\nBASE: {base}\n"
@@ -466,8 +466,6 @@ def prepare(args):
         write(anchor, material)
     else:
         remove(anchor)
-    if re.search(r"^(?:Binary files .* differ|GIT binary patch)$", diff, re.M):
-        failures.append("binary_content_not_reviewable")
     preserved = set(paths)
     try:
         for key in ("scope_paths", "excluded_paths", "path_only"):
@@ -501,7 +499,7 @@ def prepare(args):
         required, reason = routes[tag]
         role = {"required": required, "role": slug, "family": family, "model": model,
                 "description": description, "paths": paths if required else [], "reason": reason}
-        body = prompt(tag, role, args.head, args.base, role["paths"], context).encode()
+        body = prompt(tag, role, args.head, args.base, context).encode()
         role["request_digest"] = request_digest(plan, tag, role, body, raw)
         plan["roles"][tag] = role
         for suffix in ("txt", "diff"):
@@ -713,7 +711,7 @@ def parse_response(text):
 
 
 def diagnostic_failure(stderr):
-    """Match diagnostic forms, not general words in echoed code or prompts."""
+    """Match diagnostics, excluding echoed input."""
     for raw in stderr.splitlines():
         line = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", raw).strip()
         if line.startswith(("+", "-", ">", "|", "```", "diff --git", "@@")):
