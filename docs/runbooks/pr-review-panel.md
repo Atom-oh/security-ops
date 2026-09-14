@@ -59,17 +59,29 @@ Signatures (`run-panel.sh`):
   `Json supplied at … is invalid` (cell stderr; preflight stdout **and** stderr — the
   preflight reply is a fixed-prompt answer, so there is no diff-quotation false positive).
 - tool trace: `(using tool: <name>)` on cell stderr (`KIRO_TOOL_TRACE_RE`); at preflight the
-  looser `using tool:` is also accepted on stdout+stderr (`KIRO_PREFLIGHT_TRACE_RE`) because
-  no PR content is present there. Both are matched case-sensitively on an ANSI-stripped copy.
+  parenthesised form is checked on stdout+stderr and the looser `using tool:`
+  (`KIRO_PREFLIGHT_TRACE_LOOSE_RE`) on stderr only — the preflight prompt asks the model to
+  *list its tools*, so prose such as "not using tool: read" can legitimately appear on stdout.
+  All signature checks (fallback, quota, trace; preflight and cells) run case-sensitively on
+  an ANSI-stripped copy of the output, so colourised kiro-cli messages cannot slip past.
 - canary: the per-run value of `preflight-canary.txt` anywhere in preflight stdout/stderr
   (any attempt). It is never written to logs, markers or banners (`[CANARY]` in the
   scrubbed stderr dump).
 
-Classification order is the same at preflight and in cells: fallback → tool trace / canary
-disclosure → quota → success. A contract-break signal (fallback, trace, canary) that appears
-together with a quota signature is therefore always a contract break (`🛑` + `🔓`, forced
-FAIL), never a warn-level quota; a quota signature alone is quota (warn-level); the success
-test runs last.
+Classification order is fallback → tool trace / canary disclosure → quota → success at
+preflight, and fallback → tool trace → quota → success in cells (cells have no canary). A
+contract-break signal (fallback, trace, canary) that appears together with a quota signature
+is therefore always a contract break (`🛑` + `🔓`, forced FAIL), never a warn-level quota; a
+quota signature alone is quota (warn-level); the success test runs last.
+
+A contract break observed at **any** model's preflight is evidence about the kiro-cli binary
+and the agent file, not about that model, so it is applied panel-wide: the other Kiro model's
+cells are skipped too (`[skip] kiro-…/L2 (no-tools contract broken at kiro-… preflight;
+panel-wide)`, `::error::Kiro preflight passed for kiro-… but the no-tools contract was broken
+at another model's preflight …`) even if its own probe answered `NO_TOOLS`. Quota stays
+per-model (account state, not a contract signal). The preflight directories
+(`preflight-<tag>/response.<n>.txt`, canary) stay under the panel workdir and must never be
+uploaded as workflow artifacts.
 
 ## Symptom A — `🚫 Kiro 월간 요청 한도 소진`
 
@@ -123,9 +135,15 @@ Symptom B) so the diagnosis never normalizes a tool-enabled run:
 
 ## Symptom B — `🛑 Kiro 사전 점검 실패` / `🔓 Kiro 무툴 계약 위반`
 
-Log: `::error::Kiro preflight failed for kiro-… (exit N) — no-tools contract not proven, no
-PR input sent …` and/or `::error::kiro-cli ignored --agent pr-review-notools (fell back to
-the default agent WITH tools) …`. Kiro responses (if any) are discarded even if non-empty and
+Log: `::error::Kiro preflight failed for kiro-… (exit N) — …` (suffix `— kiro-cli ignored
+--agent pr-review-notools`, `— canary disclosed` / `— tool-use trace: a tool ran inside the
+no-tools agent`, or `— no-tools contract not proven (reply does not start with NO_TOOLS,
+timeout, auth or network failure)`) and/or `::error::Kiro no-tools contract broken in N
+cell(s) [<cells>] — kiro-cli ignored --agent pr-review-notools (fell back to the default agent
+WITH tools) or a tool ran inside the cell: <scrubbed detail> — responses discarded, forcing
+VERDICT: FAIL …`. When kiro-cli is absent from the runner there is no preflight and no Kiro
+request at all: every Kiro cell logs `[skip] … (binary absent)` and the vendor-axis floor
+forces FAIL through the `🛑 강제 FAIL: <reason>` banner. Kiro responses (if any) are discarded even if non-empty and
 `coverage-severe.flag` forces `VERDICT: FAIL`.
 
 Cause: the runner's kiro-cli did not behave as a zero-tool agent, or could not be shown to.

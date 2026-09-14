@@ -207,7 +207,7 @@ fi
 # 플래그 detail 은 run-panel.sh 가 기록 시점에 백틱·개행 제거 + 길이 캡을 적용한 값이다.
 if [ -s "$WORK/kiro-quota.flag" ]; then
   QUOTA_DETAIL="$(tr -d '`' < "$WORK/kiro-quota.flag" | tr '\n' ' ' | sed 's/ *$//')"
-  { echo "🚫 **Kiro 월간 요청 한도 소진**: KIRO_API_KEY 계정이 MONTHLY_REQUEST_COUNT 한도에 도달해 Kiro 셀이 응답 없음 (\`$QUOTA_DETAIL\`) — kiro-cli headless 플래그 문제가 아님. overage 활성화 또는 KIRO_API_KEY 교체 전까지 매 실행 반복됨(시크릿 위치·절차: docs/runbooks/pr-review-panel.md)."
+  { echo "🚫 **Kiro 월간 요청 한도 소진**: KIRO_API_KEY 계정이 MONTHLY_REQUEST_COUNT 한도에 도달해 Kiro 셀이 응답 없음 (\`$QUOTA_DETAIL\`) — kiro-cli headless 플래그 문제가 아님. overage 활성화 또는 KIRO_API_KEY 교체 전까지 매 실행 반복됨(대응 절차: docs/runbooks/pr-review-panel.md)."
     echo ""
     cat "$OUT"
   } > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"

@@ -52,6 +52,12 @@ assert_no_match "run-panel.sh cell trace check does not scan the review body (st
   'TOOL_TRACE_RE" "\$slot"' "$PANEL_SRC"
 assert_no_match "run-panel.sh applies no case-insensitive grep to the tool-trace signature" \
   'grep -[a-zA-Z]*i[a-zA-Z]* .*TOOL_TRACE_RE' "$PANEL_SRC"
+assert_match "run-panel.sh cell fallback check is ANSI-normalized too (kiro_sig_hit)" \
+  'kiro_sig_hit "\$KIRO_AGENT_FALLBACK_RE" "\$err"' "$PANEL_SRC"
+assert_match "run-panel.sh cell quota check is ANSI-normalized too (kiro_sig_hit)" \
+  'kiro_sig_hit "\$KIRO_QUOTA_RE" "\$err"' "$PANEL_SRC"
+assert_no_match "run-panel.sh try_panel has no raw grep on the Kiro signatures left" \
+  'grep -q[a-zA-Z]* "\$KIRO_(AGENT_FALLBACK|QUOTA|TOOL_TRACE)_RE"' "$(printf '%s' "$PANEL_SRC" | sed -n '/^try_panel()/,/^}/p')"
 assert_no_match "run-panel.sh signature helpers never use grep -q behind a pipe (SIGPIPE under pipefail is fail-open)" \
   '\| grep -q' "$(printf '%s' "$PANEL_SRC" | sed -n '/^kiro_sig_hit()/,/^kiro_canary_hit()/p;/^kiro_canary_hit()/,/^}/p')"
 assert_match "run-panel.sh quota check precedes the success break (partial stdout is not counted)" \
@@ -119,7 +125,11 @@ assert_match "partial stdout + quota stderr is discarded as truncated" '\[quota\
 assert_no_match "mid-run quota exhaustion is not retried" '\[retry ' "$OUT"
 assert_match "mid-run quota: only codex counted" 'Panel responded \(1 / 3 cells\): codex/L2' "$OUT"
 assert_file "mid-run quota leaves kiro-quota.flag" "$T_STUB/work/kiro-quota.flag"
-assert_eq "mid-run quota markers are scrubbed at write time (no raw marker left)" "0" "$(ls "$T_STUB"/work/slot/*.quota 2>/dev/null | wc -l | tr -d ' ')"
+assert_eq "mid-run quota markers are consumed into the flag (no raw marker left)" "0" "$(ls "$T_STUB"/work/slot/*.quota 2>/dev/null | wc -l | tr -d ' ')"
+QUOTA_FLAG="$(cat "$T_STUB/work/kiro-quota.flag")"
+assert_no_match "kiro-quota.flag carries no backtick" '`' "$QUOTA_FLAG"
+assert_eq "kiro-quota.flag is a single line" "1" "$(wc -l < "$T_STUB/work/kiro-quota.flag" | tr -d ' ')"
+assert_eq "kiro-quota.flag is within the 400-byte marker cap (+newline)" "1" "$([ "$(wc -c < "$T_STUB/work/kiro-quota.flag")" -le 401 ] && echo 1 || echo 0)"
 
 # (b) v3 형태(rc=1, 메시지 stdout, JSON stderr) 도 stderr 만으로 잡혀야 한다(preflight 시점).
 write_kiro <<'EOF'
@@ -191,6 +201,38 @@ assert_no_match "in-cell agent-fallback responses are not counted" 'Panel respon
 assert_file "in-cell agent fallback leaves kiro-agent-fallback.flag" "$T_STUB/work/kiro-agent-fallback.flag"
 assert_file "in-cell agent fallback forces coverage-severe" "$T_STUB/work/coverage-severe.flag"
 assert_no_file "in-cell agent fallback is not a preflight failure" "$T_STUB/work/kiro-preflight.flag"
+
+# (c2b) 셀 stderr 의 폴백 시그니처가 ANSI SGR 로 컬러라이즈됨(문구 내부에 끼임) → 그래도 폐기(4차 리뷰 L2-M1).
+write_kiro <<'EOF'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "kiro-cli stub"; exit 0; }
+printf '%s\n' "$*" > "$HOME/argv.txt"
+case "${2:-}" in *"startup safety check"*) echo "> NO_TOOLS"; exit 0;; esac
+printf '\x1b[31mError:\x1b[0m no agent \x1b[1mwith\x1b[0m name pr-review-notools found. \x1b[33mFalling back to user specified default\x1b[0m\n' >&2
+echo "> no findings"
+exit 0
+EOF
+OUT="$(run_panel)"
+assert_match "ANSI-colourized in-cell fallback is still detected" '\[agent-fallback\] kiro-opus-L2' "$OUT"
+assert_no_match "ANSI-colourized in-cell fallback responses are not counted" 'Panel responded.*kiro-' "$OUT"
+assert_file "ANSI-colourized in-cell fallback leaves kiro-agent-fallback.flag" "$T_STUB/work/kiro-agent-fallback.flag"
+assert_file "ANSI-colourized in-cell fallback forces coverage-severe" "$T_STUB/work/coverage-severe.flag"
+
+# (c2c) 셀 stderr 의 한도 시그니처가 ANSI SGR 로 컬러라이즈됨 + 부분 stdout → 그래도 truncated 폐기, 성공 집계 아님.
+write_kiro <<'EOF'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "kiro-cli stub"; exit 0; }
+printf '%s\n' "$*" > "$HOME/argv.txt"
+case "${2:-}" in *"startup safety check"*) echo "> NO_TOOLS"; exit 0;; esac
+echo "> partial review cut off by the"
+printf '\x1b[31mMonthly \x1b[1mrequest\x1b[0m limit reached\x1b[0m\nThe limits reset on 10/01.\n' >&2
+exit 0
+EOF
+OUT="$(run_panel)"
+assert_match "ANSI-colourized mid-run quota is still detected and discards partial stdout" '\[quota\] kiro-opus-L2 — partial stdout alongside the quota signature; discarding as truncated' "$OUT"
+assert_match "ANSI-colourized mid-run quota: only codex counted" 'Panel responded \(1 / 3 cells\): codex/L2' "$OUT"
+assert_file "ANSI-colourized mid-run quota leaves kiro-quota.flag" "$T_STUB/work/kiro-quota.flag"
+assert_no_file "ANSI-colourized mid-run quota is not an agent fallback" "$T_STUB/work/kiro-agent-fallback.flag"
 
 # (c3) preflight canary 유출: 폴백 시그니처 없이 rc=0 으로 canary 내용을 돌려줌(툴이 살아 있음)
 # → preflight 실패, diff 미전송, severe. canary 값은 로그에 찍히지 않는다.
@@ -375,6 +417,50 @@ assert_file "negated NO_TOOLS reply leaves kiro-preflight.flag" "$T_STUB/work/ki
 assert_file "negated NO_TOOLS reply forces coverage-severe" "$T_STUB/work/coverage-severe.flag"
 assert_no_file "negated NO_TOOLS reply is unproven, not an agent-fallback flag" "$T_STUB/work/kiro-agent-fallback.flag"
 assert_eq "negated NO_TOOLS reply: no PR input reached Kiro" "0" "$(find "$T_STUB/work/kiro-cwd" -path '*-L2/argv.txt' 2>/dev/null | wc -l | tr -d ' ')"
+
+# (c11) 한 모델(opus)의 preflight 가 canary 를 유출, 다른 모델(gpt)은 NO_TOOLS → 계약 위반은 바이너리 수준 증거라
+# panel-wide: gpt 셀에도 diff 를 보내지 않는다(4차 리뷰 L4-M1). quota 는 per-model 유지((a3) 가 pin).
+write_kiro <<'EOF'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "kiro-cli stub"; exit 0; }
+printf '%s\n' "$*" > "$HOME/argv.txt"
+case "${2:-}" in *"startup safety check"*)
+  if [ "${4:-}" = "claude-opus-5" ]; then echo "> $(cat ./preflight-canary.txt)"; exit 0; fi
+  echo "> NO_TOOLS"; exit 0;; esac
+echo "> no findings"
+EOF
+OUT="$(run_panel)"
+assert_match "panel-wide: the clean model's preflight itself passed" 'Kiro preflight passed: kiro-gpt' "$OUT"
+assert_match "panel-wide: the clean model is still withheld with the breach named" '::error::Kiro preflight passed for kiro-gpt but the no-tools contract was broken at another model.s preflight \(kiro-opus\)' "$OUT"
+assert_match "panel-wide: the clean model's cells are skipped with the panel-wide reason" '\[skip\] kiro-gpt/L2 \(no-tools contract broken at kiro-opus preflight; panel-wide\)' "$OUT"
+assert_match "panel-wide: only codex counted" 'Panel responded \(1 / 3 cells\): codex/L2' "$OUT"
+assert_eq "panel-wide: no PR input reached any Kiro cell" "0" "$(find "$T_STUB/work/kiro-cwd" -path '*-L2/argv.txt' 2>/dev/null | wc -l | tr -d ' ')"
+assert_file "panel-wide: breach still leaves kiro-preflight.flag" "$T_STUB/work/kiro-preflight.flag"
+assert_file "panel-wide: breach still leaves kiro-agent-fallback.flag" "$T_STUB/work/kiro-agent-fallback.flag"
+assert_file "panel-wide: breach forces coverage-severe" "$T_STUB/work/coverage-severe.flag"
+
+# (c12) preflight stdout 산문에 느슨한 "using tool:" 이 들어간 NO_TOOLS 응답(stderr 깨끗) → 통과(느슨형은 stderr 한정, 4차 리뷰 L2-m1);
+# 같은 문구가 stderr 에 있으면 여전히 위반.
+write_kiro <<'EOF'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "kiro-cli stub"; exit 0; }
+printf '%s\n' "$*" > "$HOME/argv.txt"
+case "${2:-}" in *"startup safety check"*) echo "> NO_TOOLS — I am not using tool: read or any other tool."; exit 0;; esac
+echo "> no findings"
+EOF
+OUT="$(run_panel)"
+assert_match "loose 'using tool:' prose on preflight stdout does not fail a NO_TOOLS reply" 'Kiro preflight passed: kiro-opus' "$OUT"
+assert_eq "loose prose on preflight stdout leaves no flags" "0" "$(find "$T_STUB/work" -maxdepth 1 -name '*.flag' | wc -l | tr -d ' ')"
+write_kiro <<'EOF'
+#!/bin/bash
+[ "${1:-}" = "--version" ] && { echo "kiro-cli stub"; exit 0; }
+printf '%s\n' "$*" > "$HOME/argv.txt"
+case "${2:-}" in *"startup safety check"*) echo "using tool: read" >&2; echo "> NO_TOOLS"; exit 0;; esac
+echo "> no findings"
+EOF
+OUT="$(run_panel)"
+assert_match "loose 'using tool:' on preflight stderr is still a tool-use trace" '::error::Kiro preflight failed for kiro-opus \(exit 0\) — tool-use trace' "$OUT"
+assert_file "loose trace on preflight stderr leaves kiro-agent-fallback.flag" "$T_STUB/work/kiro-agent-fallback.flag"
 
 # (d) 정상 응답: preflight NO_TOOLS → 플래그 없음, 에이전트 파일이 셀 cwd 에 복사됨, 호출 플래그 계약.
 write_kiro <<'EOF'
