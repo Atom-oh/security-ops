@@ -285,12 +285,14 @@ class RoleReviewTests(unittest.TestCase):
                 self.assertTrue(all(role["required"] for role in plan["roles"].values()))
 
     def test_rename_signals(self):
-        raw = (
-            'diff --git "a/docs/old name.md" "b/docs/new name.md"\n'
-            "similarity index 100%\nrename from docs/old name.md\nrename to docs/new name.md\n"
-        )
-        plan = self.prepare(raw)
-        self.assertEqual(plan["roles"]["codex"]["paths"], ["docs/new name.md"])
+        for kind in ("rename", "copy"):
+            raw = (
+                'diff --git "a/scripts/old name.html" "b/frontend/new name.html"\n'
+                f"similarity index 100%\n{kind} from scripts/old name.html\n{kind} to frontend/new name.html\n"
+            )
+            plan = self.prepare(raw)
+            self.assertEqual(plan["roles"]["codex"]["paths"], ["frontend/new name.html"])
+            self.assertTrue(all(role["required"] for role in plan["roles"].values()))
 
     def test_unquoted_spaces(self):
         path = "dashboard/frontend/components/A large Button.tsx"

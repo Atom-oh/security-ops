@@ -10,6 +10,7 @@ Every exclusion, including mixed scope, must match ADR-002's retained allowlist.
 BASE collectors own Git provenance; an explicit policy anchor remains mandatory
 for exclusions-only zero-role completion. Markdown prints validated policy hashes
 only; unverified collector hashes remain provenance, not verification claims.
+Rename/copy metadata keeps both Kiro roles required, even for a frontend destination.
 
 | Tag | Requested model / provider namespace | Responsibility |
 | --- | --- | --- |
