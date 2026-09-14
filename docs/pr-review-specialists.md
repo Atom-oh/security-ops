@@ -1,15 +1,10 @@
 # Specialist PR review
 
-CI assigns distinct responsibilities instead of asking every model to repeat
-every review lens. The trusted workflow enables this protocol with
-`ROLE_REVIEW=1`; legacy matrix entrypoints remain for regression fixtures.
+With `ROLE_REVIEW=1`, CI's `run-panel.sh`/`synthesize.sh` dispatch to specialists.
+Their legacy matrix branches remain for regression fixtures.
 
-| Slot | Configured model | Responsibility |
-| --- | --- | --- |
-| `codex` | `global.openai.gpt-6-astra` | Implementation, concurrency, errors and tests |
-| `kiro-fable` | `claude-opus-5` | AWS architecture, IAM, networking and service constraints |
-| `kiro-sol` | `gpt-5.6-sol` | Deployment order, component contracts, lifecycle and recovery |
-| `claude-self` | `global.anthropic.claude-fable-5-1` | Authentication, data boundaries, requirements, API and ADR consistency |
+The [module roster](../scripts/pr-review/README.md) defines the four models,
+provider namespaces and responsibilities.
 
 The shared `kiro-fable` tag identifies the Opus slot. Kiro catalog aliases differ
 from Bedrock inference-profile IDs. These are configured model identities, not
@@ -84,6 +79,17 @@ also have offline checks for the candidate implementation. Review the latest HEA
 resolve real Critical/Major findings, satisfy required CI and branch rules, and
 verify the integration path before merge. Missing review or quota failure is not
 a clean result. Model limits and required gates remain in force.
+
+## Origin verification (2026-09-14)
+
+[CI evidence](https://github.com/Atom-oh/security-ops/actions/runs/34829636169)
+confirmed this repo is public and fetched BASE `df7fa50`/HEAD `1a1097e` from its
+HTTPS origin with fresh HOME, system/global Git config disabled, empty
+credential helpers/extraheaders and prompts disabled. BASE preparation
+produced complete input: 17 paths, 94,688 diff bytes, 4,155 BASE-context bytes,
+zero model calls. This proves Git/preparation only, not model or later-HEAD coverage.
+Git uses public access; `GH_TOKEN` authenticates the preparation step's `gh` API.
+A private origin would require separately reviewed Git authentication.
 
 ## Approved source scope
 
