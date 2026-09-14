@@ -1,8 +1,8 @@
 # Specialist review protocol
 
-**Installed protocol and tests.** Declared scope is reconciled; BASE collectors
-authorize mixed-scope exclusions. Implementation: [role_review.py](role_review.py).
-`validate_policy` enforces ADR-002; other schema rules below are reserved here.
+Installed [protocol](role_review.py): every exclusion must match ADR-002.
+BASE collectors own Git provenance. Markdown prints validated policy hashes only.
+Nonempty extension/directory/regex selector arrays are rejected here.
 The legacy review pipeline remains active; executor integration and activation
 require separate review. [ADR-002](../../docs/decisions/ADR-002-specialist-review-protocol.md)
 records the decision. This library performs no Git operations or provider calls.
