@@ -693,17 +693,12 @@ def parse_response(text):
     return strict_json(text)
 
 
-def diagnostic_text(stderr, known=""):
-    echoed, lines = set(known.splitlines()), []
-    for raw in stderr.splitlines():
-        line = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", raw)
-        if raw not in echoed and line not in echoed:
-            lines.append(line)
-    return "\n".join(lines)
+def diagnostic_text(stderr):
+    return re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", stderr)
 
 
-def diagnostic_failure(stderr, known=""):
-    for raw in diagnostic_text(stderr, known).splitlines():
+def diagnostic_failure(stderr):
+    for raw in diagnostic_text(stderr).splitlines():
         line = re.sub(r"^(?:[>|+-]\s*)+", "", raw.strip())
         if re.search(r"^(?:An error occurred \(|(?:ERROR|Error|error|FATAL|Fatal):?\s*)"
                      r".*\b(?:INVALID_MODEL_ID|ModelNotFoundException|ThrottlingException|"
@@ -782,7 +777,7 @@ def scrub(value, preserved=frozenset()):
     value = re.sub(r'"(?:\\.|[^"\\])*"', quoted, value)
     identifier = SENSITIVE_KEY.pattern
     quote = r"""\\*["']"""
-    key = identifier + rf"(?:{quote})?\s*[:=]\s*"
+    key = identifier + rf"(?:{quote})?\s*(?:(?::[^\r\n=]+)?=|:)\s*"
     while match := re.search(key + r"(?P<call>[\w.]+\s*\()", value):
         end = len(value)
         for close in re.finditer(r"\)", value[match.end():]):
@@ -871,8 +866,7 @@ def _record(args):
         if args.exit_code != 0:
             result["failure_codes"].append("cli_nonzero_exit")
         stderr = text_file(args.stderr)
-        known = "\n".join(request_receipt(work, plan, args.tag, args.nonce)[:2])
-        failure = diagnostic_failure(stderr, known)
+        failure = diagnostic_failure(stderr)
         if failure:
             result["failure_codes"].append(failure)
         if result["failure_codes"]:
