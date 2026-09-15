@@ -197,6 +197,15 @@ Executors must provide private directories, cleanup and a scrubbed artifact allo
 Scrubbing must retain valid paths while removing credential values, including
 escaped JSON; reference the existing `lib.sh` credential formats and test them.
 
+Review prose uses the shared `review_format.py` contract before and after scrubbing.
+Code examples require closed top-level fences at column one; inline code is only
+for single-line symbol/path references. Prose labels and path citations are not
+assignments. Unsupported examples fail with `unsupported_review_format`, retaining
+the repository's terminal structural-failure policy. Use synthetic values only.
+Complete fenced JSON objects/arrays pass through the existing structured masker
+before the prose filter; example JSON never inherits protocol-path exemptions.
+The chair retains original and filtered verdict checks and all provider diagnostics.
+
 ## Limits and verification
 
 Limits are 95,000 UTF-8 diff bytes, 3,000 lines, 24,000 context bytes (projects may

@@ -89,6 +89,9 @@ Kiro covers AWS and operational responsibilities when applicable. Trusted routin
 owns NOT_APPLICABLE. Failed or incomplete required output is never a clean review.
 The chair adjudicates substantive candidates; it cannot waive coverage failures.
 This section supersedes earlier matrix-count and permissive dropout descriptions.
+Code examples use closed top-level fences; inline code is for symbol/path references.
+The module validates original and scrubbed presentation while preserving its schema,
+source custody, required coverage and provider budgets.
 
 PR review instructions, guides, related ADRs and review output are English-only.
 This scoped policy supersedes older bilingual review-document templates; product
