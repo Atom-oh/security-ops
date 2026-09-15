@@ -84,7 +84,7 @@ class SynthesisTests(unittest.TestCase):
                         "-----BEGIN PRIVATE KEY-----\nprivate-value\n-----END PRIVATE KEY-----",
                         '{"name":"DATABASE_PASSWORD","value":"private-value"}'):
             with self.subTest(example=example):
-                reply = (0, example + "\nReviewed behavior.\nVERDICT: PASS\n",
+                reply = (0, "```text\n" + example + "\n```\nReviewed behavior.\nVERDICT: PASS\n",
                          "")
                 calls, text = self.run_chair([reply, reply])
                 self.assertEqual(calls, 1)

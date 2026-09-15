@@ -57,6 +57,14 @@ Codex retains its read-only sandbox and configured Bedrock provider. Claude's
 specialist has no tools. The chair has bounded local read tools and no GitHub
 token. Review output is scrubbed before becoming a public artifact.
 
+Code/configuration examples require closed top-level backtick or tilde fences at
+column one, with a plain optional language tag. Inline code is limited to single-line
+symbol/path references. Ordinary sentences and path citations remain prose; literal
+sensitive-key assignments require fences. Use synthetic values, never credentials.
+Original and scrubbed prose must satisfy the format contract. Complete fenced JSON
+objects/arrays retain structured credential masking without protocol-path exemptions.
+Formatting failure invalidates required evidence; no model, budget or gate is relaxed.
+
 Complete, valid results with no Critical/Major candidate or uncertainty receive
 a deterministic summary. Other valid results require chair adjudication. A
 coverage failure receives a deterministic failure; a chair cannot waive it.

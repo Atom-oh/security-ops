@@ -176,7 +176,7 @@ class RoleRecordingTests(unittest.TestCase):
         self.private_value = "synthetic_private_response_value"
         response = self.harness.response("codex", findings=[{
             "severity": "MINOR", "path": self.path, "condition": "On change",
-            "evidence": f"password={self.private_value}",
+            "evidence": fixture.fenced_example(f"password={self.private_value}"),
         }])
         self.original = json.dumps(response) + "\n"
         self.raw_paths = []
@@ -306,7 +306,7 @@ class RoleRecordingTests(unittest.TestCase):
         self.harness.prepare(fixture.patch(self.path))
         report = self.harness.response("kiro-sol", findings=[{
             "severity": "MINOR", "path": self.path, "condition": "On change",
-            "evidence": f"password={self.private_value}",
+            "evidence": fixture.fenced_example(f"password={self.private_value}"),
         }], checks=[{"path": self.path, "evidence": "이한 escaped control \x1b"}])
         payload = json.dumps(report, ensure_ascii=False) + "\n"
         calls = []
