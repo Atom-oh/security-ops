@@ -10,6 +10,18 @@ import test_synthesize_roles as chairs
 
 
 class ReviewFormatTests(unittest.TestCase):
+    def test_complete_primary_fail_cannot_be_cleared_by_format_fallback(self):
+        helper = chairs.SynthesisTests()
+        helper.setUp()
+        self.addCleanup(helper.doCleanups)
+        calls, text = helper.run_chair([
+            (0, "A blocking candidate remains. `bad code`\nVERDICT: FAIL\n", ""),
+            (0, "Fallback would clear it.\nVERDICT: PASS\n", ""),
+        ])
+        self.assertEqual(calls, 1)
+        self.assertTrue(text.endswith("VERDICT: FAIL\n"))
+        self.assertNotIn("bad code", text)
+
     def response(self, text):
         path = "src/token.py"
         plan = {"head_sha": "a" * 40, "roles": {"codex": {
@@ -34,7 +46,12 @@ class ReviewFormatTests(unittest.TestCase):
     def test_invalid_examples_cannot_supply_complete_coverage(self):
         for text in ("Run `echo hello`.", "Set `token` = 'synthetic'.",
                      "Run `first\nsecond`.", "```text\nunclosed",
-                     "See token.py:42; token='synthetic'"):
+                     "See token.py:42; token='synthetic'",
+                     "`config.password`: 'synthetic'",
+                     "`/config/token` = 'synthetic'",
+                     "password: !!str synthetic-value",
+                     "token: &saved synthetic-value",
+                     "config.password: synthetic-value"):
             for field in ("check", "finding", "uncertainty"):
                 with self.subTest(text=text, field=field):
                     reply, plan = self.response("Checked the caller.")

@@ -166,6 +166,7 @@ Untrusted evidence is delimited with the random boundary {nonce}.
         quota_error = controls(error)
         quota_stdout = controls(text)
         original_valid = valid(quota_stdout, code)
+        original_blocked = original_valid and quota_stdout.strip().splitlines()[-1] == "VERDICT: FAIL"
         original_format = format_violation(quota_stdout, SENSITIVE_KEY)
         diagnostic = diagnostic_failure(quota_error)
         hard_limit = (ACCOUNT_LIMIT.search(quota_error)
@@ -175,6 +176,13 @@ Untrusted evidence is delimited with the random boundary {nonce}.
             diagnostic = "quota_diagnostic"
         text = scrub(scrub_decoded(text))
         format_failed = bool(original_format or format_violation(text, SENSITIVE_KEY))
+        if original_blocked and format_failed and diagnostic is None:
+            output.write_text(
+                "The primary chair returned FAIL. Malformed details were withheld; "
+                "a valid blocking review remains required.\n\nVERDICT: FAIL\n"
+            )
+            record_status("Primary blocked; details withheld", True)
+            return
         if original_valid and valid(text, code) and diagnostic is None and not format_failed:
             output.write_text(text.rstrip() + "\n")
             record_status(model)
