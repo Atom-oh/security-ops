@@ -29,7 +29,7 @@ RHS_WORDS = re.compile(
 )
 LINK_VALUE = re.compile(r"\[[^\"'\]\r\n]+\]\(")
 SETEXT_TAIL = re.compile(r"=*[ \t]*(?:\r?\n|\Z)")
-LINE_NUMBER = re.compile(r"[0-9]+(?::[0-9]+)?(?=\Z|[\s)\],.;])")
+LINE_NUMBER = re.compile(r"L?[0-9]+(?::[0-9]+|-L?[0-9]+)?(?=\Z|[\s)\],.;])")
 # Legacy shell adapters have no shared Python credential policy. Structured
 # adapters pass their existing sensitive-key pattern explicitly instead.
 DEFAULT_SENSITIVE_KEY = (

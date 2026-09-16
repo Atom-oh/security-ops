@@ -10,6 +10,54 @@ import test_synthesize_roles as chairs
 
 
 class ReviewFormatTests(unittest.TestCase):
+    def test_fenced_templates_do_not_release_concatenated_private_values(self):
+        canary = "SYNTHETIC_PRIVATE_TAIL"
+        for marker in ("```", "~~~"):
+            for key in ("password", "token"):
+                with self.subTest(marker=marker, key=key):
+                    text = (marker + "js\nconst value = `" + key + ":prefix` + \""
+                            + canary + "\";\n" + marker + "\n")
+                    self.assertNotIn(canary, role_review.scrub(text))
+                    helper = roles.RoleReviewTests()
+                    helper.setUp()
+                    self.addCleanup(helper.tearDown)
+                    helper.prepare()
+                    result = helper.record("codex", helper.response("codex", checks=[{
+                        "path": roles.FRONTEND, "evidence": text,
+                    }]), expected=2)
+                    self.assertIsNone(result["response"])
+                    self.assertNotIn(canary, json.dumps(result))
+                    helper.record("claude-self")
+                    helper.aggregate(expected=2)
+                    self.assertTrue(helper.text("deterministic-review.md").endswith("VERDICT: FAIL\n"))
+                    chair = chairs.SynthesisTests()
+                    chair.setUp()
+                    self.addCleanup(chair.doCleanups)
+                    reply = (0, text + "VERDICT: PASS\n", "")
+                    _, published = chair.run_chair([reply, reply])
+                    self.assertNotIn(canary, published)
+                    self.assertTrue(published.endswith("VERDICT: FAIL\n"))
+
+    def test_spaced_template_concatenation_keeps_existing_raw_masking(self):
+        text = 'const value = `password:prefix` + "SYNTHETIC_PRIVATE_TAIL";'
+        self.assertNotIn("SYNTHETIC_PRIVATE_TAIL", role_review.scrub(text))
+
+    def test_plain_and_linked_line_ranges_remain_valid_prose(self):
+        for text in ("See src/token.py:42-45.",
+                     "See [token](src/token.py:42-45) for details.",
+                     "See src/token.py:L42-L45."):
+            with self.subTest(text=text):
+                response, plan = self.response(text)
+                role_review.validate_response(response, plan, "codex")
+                helper = roles.RoleReviewTests()
+                helper.setUp()
+                self.addCleanup(helper.tearDown)
+                helper.prepare()
+                result = helper.record("codex", helper.response("codex", checks=[{
+                    "path": roles.FRONTEND, "evidence": text,
+                }]))
+                self.assertTrue(result["valid"])
+
     def supported_reference_examples(self):
         return (
             "See `src/token.py:42` for token validation.",

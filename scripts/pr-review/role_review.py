@@ -785,14 +785,34 @@ def normalized_key(value):
   return re.sub(r"[^A-Za-z0-9]+", "_", strip_controls(value))
 
 
+def prose_reference_ranges(value):
+  """Preserve inline references only in prose, never inside fenced examples."""
+  reference = re.compile(
+    r"(?<!`)(?P<ticks>`{1,2})(?P<body>[^`\r\n]+)(?P=ticks)(?!`)"
+    r"(?=[.,;:!?)]*(?:\s|\Z))")
+  ranges, offset, fence = [], 0, None
+  for line in value.splitlines(keepends=True):
+    marker = REVIEW_FENCE.fullmatch(line.rstrip("\r\n"))
+    if fence is not None:
+      if (marker and marker[1][0] == fence[0] and len(marker[1]) >= len(fence)
+          and not marker[2].strip()):
+        fence = None
+    elif marker:
+      fence = marker[1]
+    else:
+      for match in reference.finditer(line):
+        if (REVIEW_REFERENCE.fullmatch(match["body"])
+            and not re.match(r"[ \t]*\+", line[match.end():])):
+          ranges.append((offset + match.start("body"), offset + match.end("body")))
+    offset += len(line)
+  return ranges
+
+
 def scrub_assignments(value, key):
   """Consume assignments before another matcher can remove their delimiters."""
   operator = re.compile(r"\|\||\?\?|\bor\b")
   opening = {"(": ")", "[": "]", "{": "}"}
-  references = [(match.start("body"), match.end("body")) for match in re.finditer(
-    r"(?<!`)(?P<ticks>`{1,2})(?P<body>[^`\r\n]+)(?P=ticks)(?!`)"
-    r"(?=[.,;:!?)]*(?:\s|\Z))", value)
-    if REVIEW_REFERENCE.fullmatch(match["body"])]
+  references = prose_reference_ranges(value)
   reference_index = 0
   def next_content(index):
     while index < len(value) and value[index].isspace():
