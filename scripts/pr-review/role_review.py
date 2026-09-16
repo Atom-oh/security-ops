@@ -13,6 +13,9 @@ import secrets
 import sys
 import tempfile
 import unicodedata
+from review_format import (FENCE as REVIEW_FENCE, REFERENCE as REVIEW_REFERENCE,
+                           LINE_NUMBER as REVIEW_LINE_NUMBER,
+                           FORMAT_INSTRUCTIONS, format_violation)
 
 
 MAX_DIFF_BYTES = 95000
@@ -52,10 +55,11 @@ invalid_plan_identity invalid_plan_requirement invalid_plan_roles invalid_plan_s
 invalid_plan_structure invalid_request_digest invalid_uncertainties malformed_json
 missing_independent_role model_fallback_diagnostic model_selection_diagnostic nonfinite_json
 plan_input_incomplete quota_diagnostic response_identity response_schema reviewed_paths
-scope_incomplete
+scope_incomplete unsupported_review_format
 """.split())
 TERMINAL_CODES = {'model_selection_diagnostic', 'model_fallback_diagnostic', 'quota_diagnostic', 'agent_preflight_diagnostic'}
 TERMINAL_CODES |= set("response_identity response_schema scope_incomplete reviewed_paths checks_missing invalid_check invalid_findings invalid_finding invalid_uncertainties".split())
+TERMINAL_CODES.add("unsupported_review_format")
 
 
 class Invalid(Exception):
@@ -316,7 +320,8 @@ def prompt(tag, role, head, base, context):
     "scope_complete=true requires full coverage; reviewed_paths lists ALL paths once. "
     "checks: nonempty [{path,evidence}] using changed paths and nonempty evidence. "
     "findings: [{severity,path,condition,evidence}], severity CRITICAL/MAJOR/MINOR/INFO. "
-    "uncertainties: nonempty strings or [].\n\n"
+    "uncertainties: nonempty strings or [].\n"
+    f"{FORMAT_INSTRUCTIONS} Encode newlines inside JSON strings.\n\n"
     f"TRUSTED BASE CONTEXT ({base}):\n{context}\nEND TRUSTED BASE CONTEXT\n"
   )
 
@@ -715,6 +720,10 @@ def validate_response(response, plan, tag):
   uncertainties = response["uncertainties"]
   if not isinstance(uncertainties, list) or any(not nonempty(x) for x in uncertainties):
     raise Invalid("invalid_uncertainties")
+  prose = [check["evidence"] for check in checks] + uncertainties
+  prose += [finding[field] for finding in findings for field in ("condition", "evidence")]
+  if any(format_violation(text, SENSITIVE_KEY, key_token_pattern=SENSITIVE_KEY_TOKENS) for text in prose):
+    raise Invalid("unsupported_review_format")
 
 
 def parse_response(text):
@@ -765,6 +774,9 @@ SENSITIVE_KEY = re.compile(
   r"connection[_-]?string|origin[_-]?verify|AccessKeyId|access[_-]?key[_-]?id)[A-Za-z0-9_.:/()\[\],\t -]*)"
 )
 
+# Explicit existing key alphabet for bounded review-format matching.
+SENSITIVE_KEY_TOKENS = re.compile('[A-Za-z0-9_.:/()\\[\\],\\t -]+', re.I)
+
 
 def strip_controls(value):
   value = re.sub(r"(?:\x1b\[|\x9b)[0-?]*[ -/]*[@-~]", "", value)
@@ -777,10 +789,61 @@ def normalized_key(value):
   return re.sub(r"[^A-Za-z0-9]+", "_", strip_controls(value))
 
 
+ASSIGNMENT_CONTINUATION = re.compile(r"\|\||\?\?|\bor\b")
+
+
+def unambiguous_reference_body(body):
+  """A presentation token alone cannot distinguish a reference from key:value."""
+  if not REVIEW_REFERENCE.fullmatch(body):
+    return False
+  if ":" not in body:
+    return True
+  symbol = body[:-2] if body.endswith("()") else body
+  components = symbol.split("::")
+  if len(components) > 1:
+    return (all(part.isidentifier() for part in components)
+            and not SENSITIVE_KEY.fullmatch(components[0]))
+  # Locate a file before the first colon, never inside a later value segment.
+  path, separator, location = body.partition(":")
+  directory, slash, filename = path.replace("\\", "/").rpartition("/")
+  stem, dot, extension = filename.rpartition(".")
+  return bool(separator and directory and slash and stem and dot
+              and extension.isidentifier() and REVIEW_LINE_NUMBER.fullmatch(location))
+
+
+def prose_reference_ranges(value):
+  """Preserve inline references only in prose, never inside fenced examples."""
+  reference = re.compile(
+    r"(?<!`)(?P<ticks>`{1,2})(?P<body>[^`\r\n]+)(?P=ticks)(?!`)"
+    r"(?=[.,;:!?)]*(?:\s|\Z))")
+  ranges, offset, fence = [], 0, None
+  for line in value.splitlines(keepends=True):
+    marker = REVIEW_FENCE.fullmatch(line.rstrip("\r\n"))
+    if fence is not None:
+      if (marker and marker[1][0] == fence[0] and len(marker[1]) >= len(fence)
+          and not marker[2].strip()):
+        fence = None
+    elif marker:
+      fence = marker[1]
+    else:
+      for match in reference.finditer(line):
+        following = offset + match.end()
+        while following < len(value) and value[following].isspace():
+          following += 1
+        if (unambiguous_reference_body(match["body"])
+            and not value.startswith("+", following)
+            and not ASSIGNMENT_CONTINUATION.match(value, following)):
+          ranges.append((offset + match.start("body"), offset + match.end("body")))
+    offset += len(line)
+  return ranges
+
+
 def scrub_assignments(value, key):
   """Consume assignments before another matcher can remove their delimiters."""
-  operator = re.compile(r"\|\||\?\?|\bor\b")
+  operator = ASSIGNMENT_CONTINUATION
   opening = {"(": ")", "[": "]", "{": "}"}
+  references = prose_reference_ranges(value)
+  reference_index = 0
   def next_content(index):
     while index < len(value) and value[index].isspace():
       index += 1
@@ -789,6 +852,16 @@ def scrub_assignments(value, key):
   for match in re.finditer(key, value):
     if match.start() < cursor:
       continue
+    while reference_index < len(references) and references[reference_index][1] <= match.start():
+      reference_index += 1
+    if reference_index < len(references):
+      start, end = references[reference_index]
+      if start <= match.start() < end and match.end() <= end:
+        # Redact inside a supported reference, retaining its closing delimiter.
+        # An assignment beginning outside the reference keeps its full value.
+        pieces.extend((value[cursor:match.start()], "[REDACTED]"))
+        cursor = end
+        continue
     index, quote, escaped, stack = match.end(), None, False, []
     line_start = index
     while index < len(value):
@@ -831,6 +904,36 @@ def scrub_assignments(value, key):
   return "".join(pieces + [value[cursor:]])
 
 
+def mask_fenced_json(text):
+    """Mask complete JSON bodies before prose filtering can erase their labels."""
+    output, cursor, offset = [], 0, 0
+    fence, start = None, None
+    for line in text.splitlines(keepends=True):
+        end = offset + len(line)
+        marker = REVIEW_FENCE.fullmatch(line.rstrip("\r\n"))
+        if fence is None:
+            if marker and re.fullmatch(r"[A-Za-z0-9_.+-]*[ \t]*", marker[2]):
+                fence, start = marker[1], end
+        elif (marker and marker[1][0] == fence[0] and len(marker[1]) >= len(fence)
+              and not marker[2].strip()):
+            body = text[start:offset]
+            try:
+                decoded = strict_json(body)
+            except Invalid:
+                decoded = None
+            if isinstance(decoded, (dict, list)):
+                leading = body[:len(body) - len(body.lstrip())]
+                trailing = body[len(body.rstrip()):]
+                # Example data is not protocol metadata. Never inherit its path exemptions.
+                masked = leading + canonical(scrub(decoded)) + trailing
+                output.extend((text[cursor:start], masked))
+                cursor = offset
+            fence, start = None, None
+        offset = end
+    output.append(text[cursor:])
+    return "".join(output)
+
+
 def scrub(value, preserved=frozenset()):
   """Scrub decoded strings too: raw-JSON sanitizers miss escaped credentials."""
   if isinstance(value, list):
@@ -862,6 +965,7 @@ def scrub(value, preserved=frozenset()):
       return canonical(scrub(decoded, preserved))
   except Invalid:
     pass
+  value = mask_fenced_json(value)
   def quoted(match):
     try:
       return canonical(scrub(strict_json(match.group()), preserved))
@@ -1099,7 +1203,7 @@ def aggregate(args):
       for finding in findings:
         # Escape findings to prevent forged verdict lines.
         text = canonical(finding)
-        lines.append("- " + text)
+        lines.extend(["```json", text, "```"])
       if not findings:
         lines.append("NOT_APPLICABLE: trusted project policy excludes all changed files; no model review was performed."
                              if plan and not any(r["required"] for r in plan["roles"].values()) else

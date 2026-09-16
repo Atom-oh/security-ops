@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import re
 
 
 ENGINE = Path(__file__).with_name("role_review.py")
@@ -27,6 +28,12 @@ def patch(path=FRONTEND, before="old label", after="new label"):
     f"--- a/{path}\n+++ b/{path}\n"
     f"@@ -1 +1 @@\n-{before}\n+{after}\n"
   )
+
+
+def fenced_example(text):
+  """Use explicit fences only for the selected publication fixtures below."""
+  fence = "`" * max(3, 1 + max((len(x) for x in re.findall(r"`+", text)), default=0))
+  return fence + "text\n" + text + "\n" + fence
 
 
 class RoleReviewTests(unittest.TestCase):
@@ -192,8 +199,8 @@ class RoleReviewTests(unittest.TestCase):
     for tag, role in plan["roles"].items():
       if role["required"]:
         self.record(tag, self.response(tag, checks=[
-          {"path": path, "evidence": "password=private-prose"} for path in paths],
-          findings=[{'severity': 'MINOR', 'path': paths[-1], 'condition': 'Changed fixture', 'evidence': 'password=private-prose'}]))
+          {"path": path, "evidence": fenced_example("password=private-prose")} for path in paths],
+          findings=[{'severity': 'MINOR', 'path': paths[-1], 'condition': 'Changed fixture', 'evidence': fenced_example('password=private-prose')}]))
     self.aggregate()
     self.assertEqual(self.summary()["mode"], "deterministic")
     self.assertEqual(self.summary()["findings"][0]["path"], paths[-1])
@@ -225,6 +232,7 @@ class RoleReviewTests(unittest.TestCase):
     secrets = ["ghp_" + "A" * 36, "AKIA" + "B" * 16]
     self.prepare()
     evidence = json.dumps({secrets[0]: {'nested': {secrets[1]: 'KEY_PUBLIC'}}, 'tok\u200ben': 'hidden-value', 'token': 'other-hidden', 'password:admin': 'colon-private', '[REDACTED]': 'LITERAL_PUBLIC'})
+    evidence = fenced_example(evidence)
     self.record('codex', self.response('codex', checks=[{'path': FRONTEND, 'evidence': evidence}]))
     published = self.text("slot/codex-result.json")
     for secret in secrets + ["hidden-value", "other-hidden", "colon-private"]:
@@ -378,18 +386,28 @@ class RoleReviewTests(unittest.TestCase):
       'password=prior||"fallback-private"; PUBLIC_KEEP',
       'The new secret: name="PASSWORD", value="fallback-private"\nPUBLIC_KEEP',
       '''curl -d "password="'fallback-private'"&user=demo" https://example.invalid''')]
+    rejected = {
+      'password = os.getenv("DB_PASSWORD", "unfinished-private"',
+      '-password: |\n-  removed-block-private\n next: safe',
+      'password = """old or\n"fallback-private""""\nUNCERTAIN_TAIL',
+      '''curl -d "password="'fallback-private'"&user=demo" https://example.invalid''',
+    }
     for index, (text, secret) in enumerate(cases):
       with self.subTest(kind=text.split("=", 1)[0][:24]):
         self.begin(f"decoded-pattern-{index}")
         response = self.response("codex")
-        response["checks"][0]["evidence"] = text
+        response["checks"][0]["evidence"] = fenced_example(text)
         escaped = json.dumps(response).replace(secret, "".join("\\u" + format(ord(char), "04x") for char in secret))
-        result = self.record("codex", raw=escaped)
+        invalid = text in rejected
+        result = self.record("codex", raw=escaped, expected=2 if invalid else 0)
+        if invalid:
+          self.assertEqual(result["failure_codes"], ["unsupported_review_format"])
+          self.assertIsNone(result["response"])
         self.assertNotIn(secret, json.dumps(result))
         if text.endswith("PUBLIC_KEEP"):
           self.assertIn("PUBLIC_KEEP", json.dumps(result))
         self.record("claude-self")
-        self.aggregate()
+        self.aggregate(expected=2 if invalid else 0)
         self.assertNotIn(secret, self.text("deterministic-review.md"))
 
   def test_split_secrets(self):
@@ -406,6 +424,8 @@ class RoleReviewTests(unittest.TestCase):
       with self.subTest(index=index):
         self.begin(f"secret-{index}")
         response = self.response("codex", checks=[{"path": FRONTEND, "evidence": credential}])
+        if credential.startswith("AWS_SECRET_ACCESS_KEY="):
+          response["checks"][0]["evidence"] = fenced_example(credential)
         result = self.record("codex", raw=json.dumps(response, ensure_ascii=True))
         self.assertNotIn(secret, json.dumps(result))
 
@@ -470,10 +490,14 @@ class RoleReviewTests(unittest.TestCase):
       with self.subTest(index=index):
         self.begin(f"shapes-{index}")
         text = evidence if isinstance(evidence, str) else json.dumps(evidence)
+        invalid = text == r'{\"password\":\"' + secret + r'\"}'
+        text = fenced_example(text)
         response = self.response("codex", checks=[{"path": FRONTEND, "evidence": text}])
-        self.record("codex", response)
+        result = self.record("codex", response, expected=2 if invalid else 0)
+        if invalid:
+          self.assertEqual(result["failure_codes"], ["unsupported_review_format"])
         self.record("claude-self")
-        self.aggregate()
+        self.aggregate(expected=2 if invalid else 0)
         for name in ("slot/codex-result.json", "role-summary.json", "deterministic-review.md"):
           self.assertNotIn(secret, self.text(name))
 
@@ -484,10 +508,11 @@ class RoleReviewTests(unittest.TestCase):
         with self.subTest(key=key, prefix=prefix):
           self.begin(key.replace("/", "_") + prefix)
           text = prefix + json.dumps({key: secret})
-          result = self.record("codex", self.response("codex", checks=[{"path": FRONTEND, "evidence": text}]))
-          self.assertEqual(result["response"]["reviewed_paths"], [FRONTEND])
           if not prefix:
-            self.assertEqual(set(json.loads(result["response"]["checks"][0]["evidence"])), {key})
+            import role_review
+            self.assertEqual(set(json.loads(role_review.scrub(text))), {key})
+          result = self.record("codex", self.response("codex", checks=[{"path": FRONTEND, "evidence": fenced_example(text)}]))
+          self.assertEqual(result["response"]["reviewed_paths"], [FRONTEND])
           self.record("claude-self")
           self.aggregate()
           for name in ("slot/codex-result.json", "role-summary.json", "deterministic-review.md"):
@@ -671,7 +696,7 @@ class RoleReviewTests(unittest.TestCase):
       with self.subTest(key=key):
         self.begin(f"sdk-key-{index}")
         secret = "SYNTHETIC_PRIVATE_SDK_VALUE"
-        evidence = json.dumps({key: secret})
+        evidence = fenced_example(json.dumps({key: secret}))
         response = self.response("codex", checks=[{"path": FRONTEND, "evidence": evidence}])
         self.assertNotIn(secret, json.dumps(self.record("codex", response=response)))
         self.record("claude-self")

@@ -14,8 +14,10 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from run_role import controls, execute, scrub  # noqa: E402
-from role_review import canonical, diagnostic_failure, scrub as scrub_decoded  # noqa: E402
+from role_review import SENSITIVE_KEY, canonical, diagnostic_failure, scrub as scrub_decoded  # noqa: E402
 from prepare_roles import project_policy  # noqa: E402
+from role_review import SENSITIVE_KEY_TOKENS
+from review_format import FORMAT_INSTRUCTIONS, format_violation  # noqa: E402
 
 DENY = {"Bash", "Write", "Edit", "NotebookEdit", "WebFetch", "WebSearch", "Task"}
 THROTTLE = re.compile(r"\b(?:ThrottlingException|TooManyRequestsException)\b")
@@ -125,6 +127,7 @@ Return concise English Markdown: decisions on the candidates, remaining issues,
 and limitations. End with exactly one VERDICT: PASS or VERDICT: FAIL line.
 FAIL for any unresolved Critical/Major issue or material uncertainty requiring
 further validation. PASS only when no blocking issue remains.
+{FORMAT_INSTRUCTIONS}
 
 TRUSTED BASE PROJECT CONTEXT:
 {context}
@@ -147,6 +150,7 @@ Untrusted evidence is delimited with the random boundary {nonce}.
     environment = dict(os.environ)
     for name in ("GH_TOKEN", "GITHUB_TOKEN", "GITHUB_PERSONAL_ACCESS_TOKEN", "KIRO_API_KEY"):
         environment.pop(name, None)
+    format_failed = False
     for index, model in enumerate(dict.fromkeys(models)):
         environment["ANTHROPIC_MODEL"] = model
         command = [
@@ -162,6 +166,9 @@ Untrusted evidence is delimited with the random boundary {nonce}.
         code, text, error = execute(command, Path.cwd(), environment, input_text, timeout)
         quota_error = controls(error)
         quota_stdout = controls(text)
+        original_valid = valid(quota_stdout, code)
+        original_blocked = original_valid and quota_stdout.strip().splitlines()[-1] == "VERDICT: FAIL"
+        original_format = format_violation(quota_stdout, SENSITIVE_KEY, key_token_pattern=SENSITIVE_KEY_TOKENS)
         diagnostic = diagnostic_failure(quota_error)
         hard_limit = (ACCOUNT_LIMIT.search(quota_error)
                       or STDOUT_ACCOUNT_LIMIT.search(quota_stdout)
@@ -169,7 +176,15 @@ Untrusted evidence is delimited with the random boundary {nonce}.
         if hard_limit:
             diagnostic = "quota_diagnostic"
         text = scrub(scrub_decoded(text))
-        if valid(text, code) and diagnostic is None:
+        format_failed = bool(original_format or format_violation(text, SENSITIVE_KEY, key_token_pattern=SENSITIVE_KEY_TOKENS))
+        if original_blocked and format_failed and diagnostic is None:
+            output.write_text(
+                "The primary chair returned FAIL. Malformed details were withheld; "
+                "a valid blocking review remains required.\n\nVERDICT: FAIL\n"
+            )
+            record_status("Primary blocked; details withheld", True)
+            return
+        if original_valid and valid(text, code) and diagnostic is None and not format_failed:
             output.write_text(text.rstrip() + "\n")
             record_status(model)
             return
@@ -179,6 +194,14 @@ Untrusted evidence is delimited with the random boundary {nonce}.
             break
         if fast_fail is not None and (code == 124 or time.monotonic() - started >= fast_fail):
             break
+    if format_failed and diagnostic is None:
+        output.write_text(
+            "Chair output failed the review format contract. Code examples require "
+            "closed top-level fences; inline code is limited to symbol/path references. "
+            "Required adjudication remains pending.\n\nVERDICT: FAIL\n"
+        )
+        record_status("Chair format invalid", True)
+        return
     output.write_text(
         "Chair execution failed to produce a complete, valid review. "
         "The required adjudication remains pending; rerun after resolving the "
