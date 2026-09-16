@@ -13,7 +13,8 @@ import secrets
 import sys
 import tempfile
 import unicodedata
-from review_format import FENCE as REVIEW_FENCE, FORMAT_INSTRUCTIONS, format_violation
+from review_format import (FENCE as REVIEW_FENCE, REFERENCE as REVIEW_REFERENCE,
+                           FORMAT_INSTRUCTIONS, format_violation)
 
 
 MAX_DIFF_BYTES = 95000
@@ -788,6 +789,11 @@ def scrub_assignments(value, key):
   """Consume assignments before another matcher can remove their delimiters."""
   operator = re.compile(r"\|\||\?\?|\bor\b")
   opening = {"(": ")", "[": "]", "{": "}"}
+  references = [(match.start("body"), match.end("body")) for match in re.finditer(
+    r"(?<!`)(?P<ticks>`{1,2})(?P<body>[^`\r\n]+)(?P=ticks)(?!`)"
+    r"(?=[.,;:!?)]*(?:\s|\Z))", value)
+    if REVIEW_REFERENCE.fullmatch(match["body"])]
+  reference_index = 0
   def next_content(index):
     while index < len(value) and value[index].isspace():
       index += 1
@@ -796,6 +802,16 @@ def scrub_assignments(value, key):
   for match in re.finditer(key, value):
     if match.start() < cursor:
       continue
+    while reference_index < len(references) and references[reference_index][1] <= match.start():
+      reference_index += 1
+    if reference_index < len(references):
+      start, end = references[reference_index]
+      if start <= match.start() < end and match.end() <= end:
+        # Redact inside a supported reference, retaining its closing delimiter.
+        # An assignment beginning outside the reference keeps its full value.
+        pieces.extend((value[cursor:match.start()], "[REDACTED]"))
+        cursor = end
+        continue
     index, quote, escaped, stack = match.end(), None, False, []
     line_start = index
     while index < len(value):

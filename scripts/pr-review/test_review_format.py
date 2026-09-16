@@ -10,6 +10,94 @@ import test_synthesize_roles as chairs
 
 
 class ReviewFormatTests(unittest.TestCase):
+    def supported_reference_examples(self):
+        return (
+            "See `src/token.py:42` for token validation.",
+            "See `AWS::SecretsManager::Secret` for the resource type.",
+            "See `web/lib/token.ts:42-45` for token validation.",
+            "See `web/lib/token.ts:42:7` for token validation.",
+            "See ``src/token.py:42`` for token validation.",
+        )
+
+    def test_supported_reference_delimiters_survive_record_and_aggregate(self):
+        for text in self.supported_reference_examples():
+            with self.subTest(text=text):
+                reply, plan = self.response(text)
+                role_review.validate_response(reply, plan, "codex")
+                helper = roles.RoleReviewTests()
+                helper.setUp()
+                self.addCleanup(helper.tearDown)
+                helper.prepare()
+                evidence = text + "\nPUBLIC_AFTER"
+                result = helper.record("codex", helper.response("codex", checks=[{
+                    "path": roles.FRONTEND, "evidence": evidence,
+                }]))
+                self.assertTrue(result["valid"])
+                filtered = result["response"]["checks"][0]["evidence"]
+                self.assertEqual(filtered.count("`"), text.count("`"))
+                self.assertIn("[REDACTED]", filtered)
+                self.assertIn("PUBLIC_AFTER", filtered)
+                self.assertIn(text[text.rfind("`") + 1:], filtered)
+                self.assertEqual(result["response"]["reviewed_paths"], [roles.FRONTEND])
+                helper.record("claude-self")
+                helper.aggregate()
+                self.assertEqual(helper.summary()["mode"], "deterministic")
+                self.assertTrue(helper.text("deterministic-review.md").endswith("VERDICT: PASS\n"))
+
+    def test_supported_reference_delimiters_preserve_chair_success(self):
+        for text in self.supported_reference_examples():
+            with self.subTest(text=text):
+                helper = chairs.SynthesisTests()
+                helper.setUp()
+                self.addCleanup(helper.doCleanups)
+                reply = (0, text + "\nPUBLIC_AFTER\nVERDICT: PASS\n", "")
+                calls, published = helper.run_chair([reply, reply])
+                self.assertEqual(calls, 1)
+                self.assertEqual(published.count("`"), text.count("`"))
+                self.assertIn("[REDACTED]", published)
+                self.assertIn("PUBLIC_AFTER", published)
+                self.assertTrue(published.endswith("VERDICT: PASS\n"))
+
+    def test_reference_delimiters_do_not_shorten_an_enclosing_secret_value(self):
+        canary = "DELIMITER_PRIVATE_CANARY"
+        for value in (
+            "prefix`" + canary + "`",
+            "`" + canary + "`",
+            "prefix`path/token.ts:42`" + canary,
+            "prefix`AWS::SecretsManager::Secret`" + canary,
+            "prefix`web/lib/token.ts:42-45`" + canary,
+        ):
+            with self.subTest(value=value):
+                original = "password=" + value + "\nPUBLIC_AFTER"
+                self.assertNotIn(canary, role_review.scrub(original))
+                text = roles.fenced_example(original)
+                helper = roles.RoleReviewTests()
+                helper.setUp()
+                self.addCleanup(helper.tearDown)
+                helper.prepare()
+                result = helper.record("codex", helper.response("codex", checks=[{
+                    "path": roles.FRONTEND, "evidence": text,
+                }]))
+                self.assertTrue(result["valid"])
+                self.assertNotIn(canary, json.dumps(result))
+                self.assertIn("PUBLIC_AFTER", json.dumps(result))
+                chair = chairs.SynthesisTests()
+                chair.setUp()
+                self.addCleanup(chair.doCleanups)
+                calls, published = chair.run_chair([(0, text + "\nVERDICT: PASS\n", "")])
+                self.assertEqual(calls, 1)
+                self.assertNotIn(canary, published)
+                self.assertIn("PUBLIC_AFTER", published)
+                self.assertTrue(published.endswith("VERDICT: PASS\n"))
+
+    def test_reference_boundary_does_not_release_an_attached_value_suffix(self):
+        canary = "DELIMITER_PRIVATE_CANARY"
+        for reference in ("path/token.ts:42", "AWS::SecretsManager::Secret",
+                          "web/lib/token.ts:42-45"):
+            with self.subTest(reference=reference):
+                original = "`" + reference + "`" + canary + "\nPUBLIC_AFTER"
+                self.assertNotIn(canary, role_review.scrub(original))
+
     def test_complete_primary_fail_cannot_be_cleared_by_format_fallback(self):
         helper = chairs.SynthesisTests()
         helper.setUp()
