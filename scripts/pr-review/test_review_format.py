@@ -1,6 +1,9 @@
 """Review presentation gates preserve schema, custody and provider diagnostics."""
 
 import json
+from pathlib import Path
+import subprocess
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -10,6 +13,18 @@ import test_synthesize_roles as chairs
 
 
 class ReviewFormatTests(unittest.TestCase):
+    def test_actual_role_validation_bounds_operator_free_sensitive_words(self):
+        program = (
+            'import role_review\n'
+            'from test_review_format import ReviewFormatTests\n'
+            'response, plan = ReviewFormatTests().response("token-" * 6000)\n'
+            'role_review.validate_response(response, plan, "codex")\n'
+        )
+        result = subprocess.run([sys.executable, "-B", "-c", program],
+                                cwd=Path(role_review.__file__).parent,
+                                capture_output=True, text=True, timeout=2)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_fenced_templates_do_not_release_concatenated_private_values(self):
         canary = "SYNTHETIC_PRIVATE_TAIL"
         for marker in ("```", "~~~"):

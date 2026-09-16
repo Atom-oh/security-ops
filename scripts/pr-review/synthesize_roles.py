@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from run_role import controls, execute, scrub  # noqa: E402
 from role_review import SENSITIVE_KEY, canonical, diagnostic_failure, scrub as scrub_decoded  # noqa: E402
 from prepare_roles import project_policy  # noqa: E402
+from role_review import SENSITIVE_KEY_TOKENS
 from review_format import FORMAT_INSTRUCTIONS, format_violation  # noqa: E402
 
 DENY = {"Bash", "Write", "Edit", "NotebookEdit", "WebFetch", "WebSearch", "Task"}
@@ -167,7 +168,7 @@ Untrusted evidence is delimited with the random boundary {nonce}.
         quota_stdout = controls(text)
         original_valid = valid(quota_stdout, code)
         original_blocked = original_valid and quota_stdout.strip().splitlines()[-1] == "VERDICT: FAIL"
-        original_format = format_violation(quota_stdout, SENSITIVE_KEY)
+        original_format = format_violation(quota_stdout, SENSITIVE_KEY, key_token_pattern=SENSITIVE_KEY_TOKENS)
         diagnostic = diagnostic_failure(quota_error)
         hard_limit = (ACCOUNT_LIMIT.search(quota_error)
                       or STDOUT_ACCOUNT_LIMIT.search(quota_stdout)
@@ -175,7 +176,7 @@ Untrusted evidence is delimited with the random boundary {nonce}.
         if hard_limit:
             diagnostic = "quota_diagnostic"
         text = scrub(scrub_decoded(text))
-        format_failed = bool(original_format or format_violation(text, SENSITIVE_KEY))
+        format_failed = bool(original_format or format_violation(text, SENSITIVE_KEY, key_token_pattern=SENSITIVE_KEY_TOKENS))
         if original_blocked and format_failed and diagnostic is None:
             output.write_text(
                 "The primary chair returned FAIL. Malformed details were withheld; "
