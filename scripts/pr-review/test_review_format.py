@@ -13,6 +13,62 @@ import test_synthesize_roles as chairs
 
 
 class ReviewFormatTests(unittest.TestCase):
+    def inline_value_continuations(self):
+        canary = "VALUE_BOUNDARY_CANARY"
+        name = "pass" + "word"
+        for value in (name + ":prefix", name + ":prefix.value:123",
+                      "db." + name + ":123", name + "::prefix"):
+            body = "`" + value + "`"
+            yield body + '\n + "' + canary + '";'
+            yield body + '\n "' + canary + '"'
+            for operator in ("or", "||", "??"):
+                yield "const value = " + body + " " + operator + ' "' + canary + '";'
+            yield body + ": SYNTHETIC_FIRST " + canary
+        for reference in ("src/token.py:42", "AWS::SecretsManager::Secret"):
+            for operator in ("+", "or", "||", "??"):
+                yield "`" + reference + "`\n  " + operator + ' "' + canary + '";'
+
+    def test_inline_assignment_values_keep_complete_raw_masking(self):
+        for text in self.inline_value_continuations():
+            with self.subTest(text=text):
+                masked = role_review.scrub(text)
+                self.assertNotIn("VALUE_BOUNDARY_CANARY", masked)
+                self.assertNotIn("SYNTHETIC_FIRST", masked)
+
+    def test_inline_assignment_values_cannot_reach_record_or_aggregate(self):
+        for text in self.inline_value_continuations():
+            with self.subTest(text=text):
+                helper = roles.RoleReviewTests()
+                helper.setUp()
+                self.addCleanup(helper.tearDown)
+                helper.prepare()
+                result = helper.record("codex", helper.response("codex", checks=[{
+                    "path": roles.FRONTEND, "evidence": text + "\nPUBLIC_AFTER",
+                }]), expected=2)
+                self.assertFalse(result["valid"])
+                self.assertEqual(result["failure_codes"], ["unsupported_review_format"])
+                self.assertIsNone(result["response"])
+                helper.record("claude-self")
+                helper.aggregate(expected=2)
+                for name in ("slot/codex-result.json", "role-summary.json",
+                             "deterministic-review.md"):
+                    self.assertNotIn("VALUE_BOUNDARY_CANARY", helper.text(name))
+                    self.assertNotIn("SYNTHETIC_FIRST", helper.text(name))
+                self.assertTrue(helper.text("deterministic-review.md").endswith("VERDICT: FAIL\n"))
+
+    def test_inline_assignment_values_cannot_reach_actual_chair_publication(self):
+        for text in self.inline_value_continuations():
+            with self.subTest(text=text):
+                helper = chairs.SynthesisTests()
+                helper.setUp()
+                self.addCleanup(helper.doCleanups)
+                reply = (0, text + "\nPUBLIC_AFTER\nVERDICT: PASS\n", "")
+                calls, published = helper.run_chair([reply, reply])
+                self.assertEqual(calls, 2)
+                self.assertNotIn("VALUE_BOUNDARY_CANARY", published)
+                self.assertNotIn("SYNTHETIC_FIRST", published)
+                self.assertTrue(published.endswith("VERDICT: FAIL\n"))
+
     def test_actual_role_validation_bounds_operator_free_sensitive_words(self):
         program = (
             'import role_review\n'

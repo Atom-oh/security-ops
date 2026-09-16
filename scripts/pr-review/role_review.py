@@ -14,6 +14,7 @@ import sys
 import tempfile
 import unicodedata
 from review_format import (FENCE as REVIEW_FENCE, REFERENCE as REVIEW_REFERENCE,
+                           LINE_NUMBER as REVIEW_LINE_NUMBER,
                            FORMAT_INSTRUCTIONS, format_violation)
 
 
@@ -788,6 +789,28 @@ def normalized_key(value):
   return re.sub(r"[^A-Za-z0-9]+", "_", strip_controls(value))
 
 
+ASSIGNMENT_CONTINUATION = re.compile(r"\|\||\?\?|\bor\b")
+
+
+def unambiguous_reference_body(body):
+  """A presentation token alone cannot distinguish a reference from key:value."""
+  if not REVIEW_REFERENCE.fullmatch(body):
+    return False
+  if ":" not in body:
+    return True
+  symbol = body[:-2] if body.endswith("()") else body
+  components = symbol.split("::")
+  if len(components) > 1:
+    return (all(part.isidentifier() for part in components)
+            and not SENSITIVE_KEY.fullmatch(components[0]))
+  # Locate a file before the first colon, never inside a later value segment.
+  path, separator, location = body.partition(":")
+  directory, slash, filename = path.replace("\\", "/").rpartition("/")
+  stem, dot, extension = filename.rpartition(".")
+  return bool(separator and directory and slash and stem and dot
+              and extension.isidentifier() and REVIEW_LINE_NUMBER.fullmatch(location))
+
+
 def prose_reference_ranges(value):
   """Preserve inline references only in prose, never inside fenced examples."""
   reference = re.compile(
@@ -804,8 +827,12 @@ def prose_reference_ranges(value):
       fence = marker[1]
     else:
       for match in reference.finditer(line):
-        if (REVIEW_REFERENCE.fullmatch(match["body"])
-            and not re.match(r"[ \t]*\+", line[match.end():])):
+        following = offset + match.end()
+        while following < len(value) and value[following].isspace():
+          following += 1
+        if (unambiguous_reference_body(match["body"])
+            and not value.startswith("+", following)
+            and not ASSIGNMENT_CONTINUATION.match(value, following)):
           ranges.append((offset + match.start("body"), offset + match.end("body")))
     offset += len(line)
   return ranges
@@ -813,7 +840,7 @@ def prose_reference_ranges(value):
 
 def scrub_assignments(value, key):
   """Consume assignments before another matcher can remove their delimiters."""
-  operator = re.compile(r"\|\||\?\?|\bor\b")
+  operator = ASSIGNMENT_CONTINUATION
   opening = {"(": ")", "[": "]", "{": "}"}
   references = prose_reference_ranges(value)
   reference_index = 0
